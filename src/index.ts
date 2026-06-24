@@ -85,7 +85,7 @@ async function main(): Promise<void> {
       lines: z.number().optional().default(50),
       level: z.number().optional().default(0).describe("0=all, 1=warnings+, 3=errors only"),
       filter: z.string().optional().describe("Optional regex"),
-      channel: z.string().optional().describe("Filter by source channel, e.g. VScript, PanoramaScript, ResourceSystem"),
+      channel: z.string().optional().describe("Filter by source channel, e.g. VScript, PanoramaScript, ResourceSystem. Use console_channels to list available channels."),
     },
     async ({ lines, level, filter, channel }) => {
       if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
@@ -94,6 +94,17 @@ async function main(): Promise<void> {
       if (filter) { const re = new RegExp(filter, "i"); output = output.filter(l => re.test(l.text)); }
       if (channel) { output = output.filter(l => l.channel.toLowerCase() === channel.toLowerCase()); }
       return { content: [{ type: "text", text: output.slice(-lines).map(l => `[${l.channel || "?"}][L${l.verbosity}] ${l.text}`).join("\n") || "(no output)" }] };
+    }
+  );
+
+  // Tool: 列出当前可用的 VConsole2 通道
+  server.tool("console_channels",
+    "List all available VConsole2 source channels (e.g. General, VScript, PanoramaScript). Use these names with console_output channel filter.",
+    {},
+    async () => {
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
+      const channels = relay.getChannels();
+      return { content: [{ type: "text", text: channels.join("\n") || "(no channels registered yet)" }] };
     }
   );
 

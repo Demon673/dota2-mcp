@@ -94,6 +94,11 @@ export class VConRelay extends EventEmitter {
     return this.prntBuffer.slice(-n);
   }
 
+  /** 返回当前已注册的 VConsole2 通道名列表 */
+  getChannels(): string[] {
+    return Array.from(new Set(this._channels.values())).sort();
+  }
+
   close(): void {
     this.dotaClient?.close();
     this.guiSocket?.destroy();
