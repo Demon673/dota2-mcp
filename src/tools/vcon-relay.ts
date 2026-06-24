@@ -23,7 +23,7 @@ export class VConRelay extends EventEmitter {
   private guiServer!: net.Server;
   private guiSocket: net.Socket | null = null;
   private prntBuffer: string[] = [];
-  _prntLog: { text: string; verbosity: number }[] = [];
+  _prntLog: { text: string; verbosity: number; channel: string }[] = [];
   private _dotaConnected = false;
   private _guiConnected = false;
   private _addonName = "";
@@ -31,6 +31,7 @@ export class VConRelay extends EventEmitter {
   private _allMaps: string[] = [];   // maps/ 目录下所有 .vmap
   private _ainf: any = null;
   private _dotaPath = "D:/SteamLibrary/steamapps/common/dota 2 beta";
+  private _channels = new Map<number, string>(); // channelId (from CHAN.id / PRNT.channelCRC) -> name
 
   get dotaConnected() { return this._dotaConnected; }
   get guiConnected() { return this._guiConnected; }
@@ -199,17 +200,26 @@ export class VConRelay extends EventEmitter {
     });
 
     this.dotaClient.on("prnt", (msg: PrntMessage) => {
+      const channelName = this._channels.get(msg.channelCRC) || "";
+      const enhanced = { ...msg, channel: channelName };
       this.prntBuffer.push(msg.text);
-      this._prntLog.push({ text: msg.text, verbosity: msg.verbosity });
+      this._prntLog.push({ text: msg.text, verbosity: msg.verbosity, channel: channelName });
       if (this.prntBuffer.length > 500) { this.prntBuffer.shift(); this._prntLog.shift(); }
       // 转发给 MCP server，实现事件驱动
-      this.emit("prnt", msg);
+      this.emit("prnt", enhanced);
     });
 
     this.dotaClient.on("adon", (a) => {
       this._addonName = a.addonName;
       this._scanMaps();
       console.error("[relay] Addon:", a.addonName, "Maps:", this._maps.join(", "), "AllMaps:", this._allMaps.join(", "));
+    });
+
+    this.dotaClient.on("chan", (channels) => {
+      for (const c of channels) {
+        this._channels.set(c.id, c.name);
+      }
+      console.error("[relay] Channels:", channels.map(c => `${c.id}:${c.name}`).join(", "));
     });
 
     this.dotaClient.on("ainf", (a) => {

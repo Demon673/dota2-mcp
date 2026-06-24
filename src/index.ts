@@ -62,13 +62,13 @@ async function main(): Promise<void> {
     } catch { return []; }
   }
 
-  // 结构化存 console 输出（含 verbosity 级别）+ 文本缓冲（兼容旧代码）
-  let prntLog: { text: string; verbosity: number }[] = [];
+  // 结构化存 console 输出（含 verbosity 级别和 channel 来源）+ 文本缓冲（兼容旧代码）
+  let prntLog: { text: string; verbosity: number; channel: string }[] = [];
   let prntBuffer: string[] = [];
 
   // 事件驱动：relay 收到 PRNT 时立即同步到本地缓冲
   relay.on("prnt", (msg: any) => {
-    prntLog.push({ text: msg.text, verbosity: msg.verbosity });
+    prntLog.push({ text: msg.text, verbosity: msg.verbosity, channel: msg.channel || "" });
     prntBuffer.push(msg.text);
     if (prntLog.length > 500) {
       prntLog.shift();
@@ -78,20 +78,22 @@ async function main(): Promise<void> {
 
   const bridgeConfig = { dotaPath: dotaPath || "", addonName };
 
-  // Tool: 读取 console 输出（VCon 实时流，含 verbosity 级别）
+  // Tool: 读取 console 输出（VCon 实时流，含 verbosity 级别和 channel 来源）
   server.tool("console_output",
     "Read Dota 2 console output with severity filtering. level: 0=all, 1=warnings+, 2=asserts+, 3=errors only.",
     {
       lines: z.number().optional().default(50),
       level: z.number().optional().default(0).describe("0=all, 1=warnings+, 3=errors only"),
       filter: z.string().optional().describe("Optional regex"),
+      channel: z.string().optional().describe("Filter by source channel, e.g. VScript, PanoramaScript, ResourceSystem"),
     },
-    async ({ lines, level, filter }) => {
+    async ({ lines, level, filter, channel }) => {
       if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
       let output = prntLog;
       if (level > 0) output = output.filter(l => l.verbosity >= level);
       if (filter) { const re = new RegExp(filter, "i"); output = output.filter(l => re.test(l.text)); }
-      return { content: [{ type: "text", text: output.slice(-lines).map(l => `[L${l.verbosity}] ${l.text}`).join("\n") || "(no output)" }] };
+      if (channel) { output = output.filter(l => l.channel.toLowerCase() === channel.toLowerCase()); }
+      return { content: [{ type: "text", text: output.slice(-lines).map(l => `[${l.channel || "?"}][L${l.verbosity}] ${l.text}`).join("\n") || "(no output)" }] };
     }
   );
 

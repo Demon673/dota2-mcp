@@ -57,10 +57,16 @@ export interface FrameHeader {
   handle: number;      // uint16 BE
 }
 
-/** PRNT 消息 */
+/** PRNT 消息
+ *
+ * 结构（28 bytes 固定前缀 + null-terminated ASCII）：
+ * channelId(4) unknown(24) text
+ *
+ * 其中 channelId 与 CHAN.id 对应，用于查找通道名（如 General、VScript）。
+ */
 export interface PrntMessage {
-  channelCRC: number;
-  channelId: number;
+  channelCRC: number;   // 实际为 VConsole2 的 channel ID，与 CHAN.id 匹配
+  channelId: number;    // 保留字段，当前观察恒为 0，属于 unknown 区域的一部分
   verbosity: number;
   color: number;
   millisecondTime: number;
@@ -76,14 +82,19 @@ export interface AinfMessage {
   platformFlags: number;
 }
 
-/** CHAN 通道信息 */
+/** CHAN 通道信息
+ *
+ * 结构参考 VConsoleLib.python 的 PacketCHAN：
+ * id(4) unknown1(4) unknown2(4) defaultVerbosity(4) currentVerbosity(4)
+ * RGBA(4) name(null-terminated, max 34)
+ */
 export interface ChannelInfo {
-  hash: number;
-  defaultFlags: number;
-  currentFlags: number;
+  id: number;
+  unknown1: number;
+  unknown2: number;
   defaultVerbosity: number;
   currentVerbosity: number;
-  defaultColor: number;
+  color: number;
   name: string;
 }
 
@@ -172,20 +183,27 @@ function parseAdonPayload(payload: Buffer): AdonMessage {
 
 function parseChanPayload(payload: Buffer): ChannelInfo[] {
   if (payload.length < 2) return [];
-  const channelCount = payload.readUInt16BE(0);
+  const channelCount = payload.readInt16BE(0);
   const channels: ChannelInfo[] = [];
   let offset = 2;
-  for (let i = 0; i < channelCount && offset + 22 <= payload.length; i++) {
-    const hash = payload.readUInt32BE(offset);
-    const defaultFlags = payload.readUInt32BE(offset + 4);
-    const currentFlags = payload.readUInt32BE(offset + 8);
+  for (let i = 0; i < channelCount && offset + 24 <= payload.length; i++) {
+    const id = payload.readUInt32BE(offset);
+    const unknown1 = payload.readUInt32BE(offset + 4);
+    const unknown2 = payload.readUInt32BE(offset + 8);
     const defaultVerbosity = payload.readUInt32BE(offset + 12);
     const currentVerbosity = payload.readUInt32BE(offset + 16);
-    const defaultColor = payload.readUInt32BE(offset + 20);
-    const nameBuf = payload.subarray(offset + 24, offset + 56);
-    const name = nameBuf.toString("ascii").replace(/\0/g, "").trim();
-    offset += 56;
-    channels.push({ hash, defaultFlags, currentFlags, defaultVerbosity, currentVerbosity, defaultColor, name });
+    const r = payload.readUInt8(offset + 20);
+    const g = payload.readUInt8(offset + 21);
+    const b = payload.readUInt8(offset + 22);
+    const a = payload.readUInt8(offset + 23);
+    // name: null-terminated, max 34 bytes
+    const nameStart = offset + 24;
+    const nameEnd = Math.min(nameStart + 34, payload.length);
+    let end = nameStart;
+    while (end < nameEnd && payload[end] !== 0) end++;
+    const name = payload.toString("utf-8", nameStart, end).replace(/\0/g, "").trim();
+    offset = nameStart + 34;
+    channels.push({ id, unknown1, unknown2, defaultVerbosity, currentVerbosity, color: (a << 24) | (r << 16) | (g << 8) | b, name });
   }
   return channels;
 }
