@@ -14,6 +14,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { spawn } from "child_process";
+import * as path from "path";
 import { VConRelay } from "./tools/vcon-relay.js";
 import * as consoleBridge from "./tools/console-bridge.js";
 
@@ -396,6 +398,108 @@ async function main(): Promise<void> {
         if (prntBuffer.length > before + 3) break;
       }
       return { content: [{ type: "text", text: prntBuffer.slice(before).join("\n") || "Sent. Use console_output to see results." }] };
+    }
+  );
+
+  // Tool: 在运行中的游戏里执行 Lua 代码
+  server.tool("dota_run_lua",
+    "Execute arbitrary server-side Lua code in the running game via ent_fire 0 RunScriptCode. Verifies IsServer() to confirm server-side execution.",
+    { code: z.string().describe("Lua code to run. Use single quotes inside to avoid shell escaping issues.") },
+    async ({ code }) => {
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
+
+      // 包装用户代码，先打印 IsServer() 验证运行端
+      const wrapped = `print('[MCP-LUA] IsServer: ' .. tostring(IsServer())) ${code}`;
+      // 简单转义：把双引号换成单引号，避免 RunScriptCode 参数字符串冲突
+      const safeCode = wrapped.replace(/"/g, "'");
+
+      const execOut = await queryConsole(`ent_fire 0 RunScriptCode "${safeCode}"`, 3000);
+
+      const filtered = execOut.filter(l =>
+        l.includes("[MCP-LUA]") || l.includes("RunScriptCode") || l.includes("error")
+      );
+
+      return { content: [{ type: "text", text: filtered.join("\n") || "Sent. Check console_output for results." }] };
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════
+  // Workshop Tools 集成 — 启动编辑器 / 编译资源
+  // ═══════════════════════════════════════════════════════════════
+
+  const dotaExeDir = path.join(dotaPath || "", "game", "bin", "win64");
+
+  /** 执行 Dota 2 win64 目录下的工具 exe */
+  function runDotaTool(exeName: string, args: string[], waitForExit = false): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+    const exePath = path.join(dotaExeDir, exeName);
+    return new Promise((resolve) => {
+      const proc = spawn(exePath, args, {
+        detached: !waitForExit,
+        windowsHide: false,
+      });
+      let stdout = "";
+      let stderr = "";
+      proc.stdout?.on("data", (d) => { stdout += d.toString(); });
+      proc.stderr?.on("data", (d) => { stderr += d.toString(); });
+      proc.on("error", (e) => resolve({ ok: false, stdout, stderr: e.message }));
+      if (waitForExit) {
+        proc.on("close", (code) => resolve({ ok: code === 0, stdout, stderr }));
+      } else {
+        // 对于 GUI 编辑器，启动后立即返回 PID
+        resolve({ ok: true, stdout: `started pid=${proc.pid}`, stderr });
+      }
+    });
+  }
+
+  // Tool: 启动 Workshop Tools 编辑器
+  server.tool("dota_open_editor",
+    "Launch a Dota 2 Workshop Tools editor. Requires Dota 2 Tools installed.",
+    {
+      editor: z.enum(["assetbrowser", "hammer", "modeldoc", "materialeditor", "particleeditor"]).describe("Editor to launch"),
+      addon: z.string().optional().describe("Addon name to load. Auto-detected if omitted."),
+    },
+    async ({ editor, addon }) => {
+      const a = addon || currentAddon;
+      const args = ["-tools", "-nop4", "-novid"];
+      if (a) args.push("-addon", a);
+      args.push(`+${editor}`);
+
+      const result = await runDotaTool("dota2.exe", args, false);
+      return { content: [{ type: "text", text: result.ok
+        ? `Launched ${editor}${a ? ` for addon ${a}` : ""}. PID: ${result.stdout}`
+        : `Failed: ${result.stderr}`
+      }] };
+    }
+  );
+
+  // Tool: 编译 Source 2 资源
+  server.tool("dota_compile_asset",
+    "Compile Source 2 assets using resourcecompiler.exe. Path can be a file, folder, or VPK.",
+    {
+      target: z.string().describe("File, folder, or VPK path to compile"),
+      recursive: z.boolean().optional().default(false).describe("Recursively scan subdirectories"),
+      decompile: z.boolean().optional().default(false).describe("Use VRF decompile mode (Source2Viewer-CLI) instead of resourcecompiler"),
+    },
+    async ({ target, recursive, decompile }) => {
+      if (decompile) {
+        const result = await runDotaTool("Source2Viewer-CLI.exe", [
+          "-i", target,
+          ...(recursive ? ["-r"] : []),
+          "-d",
+        ], true);
+        return { content: [{ type: "text", text: result.ok
+          ? `Decompiled ${target}\n${result.stdout.slice(0, 2000)}`
+          : `Decompile failed: ${result.stderr}`
+        }] };
+      }
+
+      const args = ["-i", target];
+      if (recursive) args.push("-r");
+      const result = await runDotaTool("resourcecompiler.exe", args, true);
+      return { content: [{ type: "text", text: result.ok
+        ? `Compiled ${target}\n${result.stdout.slice(0, 2000)}`
+        : `Compile failed: ${result.stderr}`
+      }] };
     }
   );
 
