@@ -1,0 +1,28 @@
+{
+  "name": "dota2-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCP server for DOTA2 custom game development — file ops, API lookup, console bridge, asset inspection, editor control, build tooling",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "dota2-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "chokidar": "^4.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.100",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
