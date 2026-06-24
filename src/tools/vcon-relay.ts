@@ -43,6 +43,7 @@ export class VConRelay extends EventEmitter {
 
     // 控制端口 — MCP 通过这个端口发命令、读输出
     const ctrlServer = net.createServer((sock) => {
+      sock.on("error", (e: Error) => console.error("[relay] ctrl error:", e.message));
       sock.on("data", (data: Buffer) => {
         const text = data.toString().trim();
         if (text === "STATUS") {
