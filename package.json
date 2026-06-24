@@ -1,13 +1,26 @@
 {
   "name": "dota2-mcp",
-  "version": "0.1.0",
-  "private": true,
-  "description": "MCP server for DOTA2 custom game development — file ops, API lookup, console bridge, asset inspection, editor control, build tooling",
+  "version": "1.0.0",
+  "description": "MCP server for Dota 2 custom game development — real-time console bridge, live API docs, game control and asset tooling via the Model Context Protocol.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
     "dota2-mcp": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "CLAUDE.md"
+  ],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "dota2",
+    "dota-2",
+    "custom-game",
+    "vconsole2",
+    "console-bridge"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",

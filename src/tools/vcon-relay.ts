@@ -32,9 +32,30 @@ export class VConRelay extends EventEmitter {
   private _ainf: any = null;
   private _dotaPath = "D:/SteamLibrary/steamapps/common/dota 2 beta";
   private _channels = new Map<number, string>(); // channelId (from CHAN.id / PRNT.channelCRC) -> name
+  private _guiSuppressPatterns: string[] = [];
+  /** MCP 命令包装标记：把命令包在 `ai_disabled; ...; ai_disabled` 中一次性发给 Dota，
+   * 标记之间的输出不转发到 GUI。使用官方 cvar `ai_disabled` 的响应行
+   * `ai_disabled = false` / `ai_disabled = true` 作为标记。 */
+  private _mcpMarker = "ai_disabled =";
+  private _mcpMarkerSuppress = false;
+  private _mcpSuppressEnabled = true;
 
   get dotaConnected() { return this._dotaConnected; }
   get guiConnected() { return this._guiConnected; }
+  get guiSuppressPatterns(): string[] { return [...this._guiSuppressPatterns]; }
+  get mcpSuppressEnabled(): boolean { return this._mcpSuppressEnabled; }
+
+  /** 设置/清空要阻止转发到 vconsole2 GUI 的 PRNT 正则模式（MCP 仍可通过 prnt 事件读取） */
+  setGuiSuppressPatterns(patterns: string[]): void {
+    this._guiSuppressPatterns = [...patterns];
+    console.error("[relay] GUI suppress patterns:", this._guiSuppressPatterns.join(", ") || "(none)");
+  }
+
+  /** 开关 MCP 命令输出的 GUI 屏蔽（默认开启） */
+  setMcpSuppressEnabled(enabled: boolean): void {
+    this._mcpSuppressEnabled = enabled;
+    console.error("[relay] MCP output GUI suppress:", enabled ? "enabled" : "disabled");
+  }
 
   async start(): Promise<void> {
     this.guiServer = net.createServer((sock) => this._onGuiConnect(sock));
@@ -75,6 +96,20 @@ export class VConRelay extends EventEmitter {
         } else if (text.startsWith("TAIL:")) {
           const n = parseInt(text.slice(5)) || 20;
           sock.write(this.getRecentOutput(n).join("\n") + "\n");
+        } else if (text === "FILTERS") {
+          sock.write(JSON.stringify({ patterns: this._guiSuppressPatterns }) + "\n");
+        } else if (text.startsWith("SETFILTERS:")) {
+          try {
+            const patterns = JSON.parse(text.slice(11));
+            if (Array.isArray(patterns)) {
+              this.setGuiSuppressPatterns(patterns.map(String));
+              sock.write("OK\n");
+            } else {
+              sock.write("ERR: expected array\n");
+            }
+          } catch (e: any) {
+            sock.write("ERR: " + e.message + "\n");
+          }
         } else {
           this.sendCommand(text);
           sock.write("OK\n");
@@ -82,12 +117,16 @@ export class VConRelay extends EventEmitter {
       });
     });
     ctrlServer.listen(CTRL_PORT, "127.0.0.1", () => {
-      console.error(`[relay] Control :${CTRL_PORT} (STATUS|CMD:xxx|TAIL:50)`);
+      console.error(`[relay] Control :${CTRL_PORT} (STATUS|CMD:xxx|TAIL:50|FILTERS|SETFILTERS:[...])`);
     });
   }
 
   sendCommand(cmd: string): void {
-    this.dotaClient?.sendCommand(cmd);
+    if (this._mcpSuppressEnabled) {
+      this.dotaClient?.sendCommand(`ai_disabled; ${cmd}; ai_disabled`);
+    } else {
+      this.dotaClient?.sendCommand(cmd);
+    }
   }
 
   getRecentOutput(n = 50): string[] {
@@ -191,10 +230,28 @@ export class VConRelay extends EventEmitter {
   private _connectDota(): void {
     if (this.dotaClient) return; // already connected/connecting
 
-    this.dotaClient = new VConClient({ port: DOTA_PORT });
+    this.dotaClient = new VConClient({
+      port: DOTA_PORT,
+      rawPrntEditor: (msg) => {
+        const text = msg.text.trim();
+        // MCP 标记之间的输出：静默丢弃，不转发 GUI
+        if (this._mcpMarkerSuppress) return false;
+        // MCP 标记行本身也不转发（ai_disabled = false / ai_disabled = true）
+        if (this._mcpSuppressEnabled && text.startsWith(this._mcpMarker)) return false;
+        // 用户手动设置的额外规则
+        if (this._guiSuppressPatterns.length > 0) {
+          const matched = this._guiSuppressPatterns.find(p => {
+            try { return new RegExp(p).test(msg.text); } catch { return false; }
+          });
+          if (matched) return false;
+        }
+        return true;
+      },
+    });
 
     this.dotaClient.on("connected", () => {
       this._dotaConnected = true;
+      this._mcpMarkerSuppress = false;
       console.error("[relay] Dota 2 connected");
     });
 
@@ -205,12 +262,19 @@ export class VConRelay extends EventEmitter {
     });
 
     this.dotaClient.on("prnt", (msg: PrntMessage) => {
+      const text = msg.text.trim();
+      // MCP 标记行：切换屏蔽状态，标记本身不进入缓冲区，也不转发给 MCP/GUI
+      if (this._mcpSuppressEnabled && text.startsWith(this._mcpMarker)) {
+        this._mcpMarkerSuppress = !this._mcpMarkerSuppress;
+        return;
+      }
+
       const channelName = this._channels.get(msg.channelCRC) || "";
       const enhanced = { ...msg, channel: channelName };
       this.prntBuffer.push(msg.text);
       this._prntLog.push({ text: msg.text, verbosity: msg.verbosity, channel: channelName });
       if (this.prntBuffer.length > 500) { this.prntBuffer.shift(); this._prntLog.shift(); }
-      // 转发给 MCP server，实现事件驱动
+      // 转发给 MCP server，实现事件驱动（包括被 GUI 屏蔽的 MCP 命令输出）
       this.emit("prnt", enhanced);
     });
 
@@ -218,6 +282,7 @@ export class VConRelay extends EventEmitter {
       this._addonName = a.addonName;
       this._scanMaps();
       console.error("[relay] Addon:", a.addonName, "Maps:", this._maps.join(", "), "AllMaps:", this._allMaps.join(", "));
+      this.emit("adon", a);
     });
 
     this.dotaClient.on("chan", (channels) => {
@@ -225,15 +290,18 @@ export class VConRelay extends EventEmitter {
         this._channels.set(c.id, c.name);
       }
       console.error("[relay] Channels:", channels.map(c => `${c.id}:${c.name}`).join(", "));
+      this.emit("chan", channels);
     });
 
     this.dotaClient.on("ainf", (a) => {
       this._ainf = a;
       console.error("[relay] Game:", a.productName, "CmdLine:", a.commandLine);
+      this.emit("ainf", a);
     });
 
     this.dotaClient.on("close", () => {
       this._dotaConnected = false;
+      this._mcpMarkerSuppress = false;
       this.dotaClient = null;
       // 只有在 VConsole2 还连着时才需要自动重连；否则释放 :29000
       if (this._guiConnected) {
@@ -246,6 +314,7 @@ export class VConRelay extends EventEmitter {
 
     this.dotaClient.on("error", (e: Error) => {
       console.error("[relay] Dota error:", e.message);
+      this._mcpMarkerSuppress = false;
       this.dotaClient = null;
       if (this._guiConnected) {
         setTimeout(() => this._connectDota(), 2000);

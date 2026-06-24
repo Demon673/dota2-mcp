@@ -140,7 +140,7 @@ async function main(): Promise<void> {
   relay.on("prnt", (msg: any) => {
     prntLog.push({ text: msg.text, verbosity: msg.verbosity, channel: msg.channel || "" });
     prntBuffer.push(msg.text);
-    if (prntLog.length > 500) {
+    if (prntLog.length > 10000) {
       prntLog.shift();
       prntBuffer.shift();
     }
@@ -216,44 +216,40 @@ async function main(): Promise<void> {
         }, null, 2) }] };
       }
 
-      // 发送 status 命令获取运行时状态
-      const out = await queryConsole("status", 3000);
-      const text = out.join("\n");
-
-      // 动态解析（基于真实 status 输出格式）
-      const mapMatch = text.match(/loaded spawngroup\(\s*\d+\s*\)\s*:.*?\[.*?:\s*(\S+)\s*\|/);
-      const isMapLoaded = mapMatch && mapMatch[1] !== "<empty>" && mapMatch[1] !== "<none>";
-      const stateMatch = text.match(/GameState:\s*DOTA_GAMERULES_STATE_(\w+)/);
-      const playersMatch = text.match(/players\s*:\s*(\d+)\s*humans?/);
-      const hostMatch = text.match(/hostname\s*:\s*(\S+)/);
-      const spawngroupsMatch = text.match(/loaded spawngroup/g);
-      const prefabsMatch = text.match(/maps\/prefabs\//g);
-
-      const state = stateMatch?.[1] || "";
-      const phase = state.includes("GAME_IN_PROGRESS") ? "playing"
-                  : state.includes("CUSTOM_GAME_SETUP") ? "setup"
-                  : state.includes("INIT") ? "init"
-                  : state.includes("POST_GAME") ? "ended"
-                  : state || "unknown";
+      // 发送 status_json 命令获取运行时状态
+      const status = await queryStatusJson(5000);
+      const state = parseGameState(status);
 
       return { content: [{ type: "text", text: JSON.stringify({
         addon: currentAddon || "(detecting...)",
         maps,
         allMaps,
         running: {
-          map: mapMatch?.[1] || "(not loaded)",
-          loaded: !!isMapLoaded,
-          state: state || "(unknown)",
-          phase,
-          players: playersMatch ? parseInt(playersMatch[1]) : 0,
-          host: hostMatch?.[1] || "",
-          spawngroups: spawngroupsMatch?.length || 0,
-          prefabs: prefabsMatch?.length || 0,
+          map: state.map,
+          loaded: state.loaded,
+          loading: state.loading,
+          state: state.state,
+          game_state: state.game_state,
+          phase: state.phase,
+          players: state.players,
+          clients_bot: state.clients_bot,
+          clients_proxies: state.clients_proxies,
+          first_player: state.first_player,
+          host: "",
+          serverAddon: state.addon,
+          hibernating: state.hibernating,
+          cpu_usage: state.cpu_usage,
+          udp_port: state.udp_port,
+          network_lag_avg: state.network_lag_avg,
+          build_version: state.build_version,
+          process_uptime: state.process_uptime,
         },
         connection: { dota: relay.dotaConnected, gui: relay.guiConnected },
-        hint: !isMapLoaded
-          ? "No map loaded. Use dota_launch_game."
-          : `Game ${phase}. Use dota_restart to reload.`,
+        hint: state.loading
+          ? "Map is loading. Wait for it to finish."
+          : !state.loaded
+            ? "No map loaded. Use dota_launch_game."
+            : `Game ${state.phase}. Use dota_restart to reload.`,
       }, null, 2) }] };
     }
   );
@@ -264,12 +260,13 @@ async function main(): Promise<void> {
 
   // Tool: 启动游戏
   server.tool("dota_launch_game",
-    "Launch a Dota 2 custom game. Call project_info first to see available maps.",
+    "Launch a Dota 2 custom game. Polls status and retries if the game does not start loading. Call project_info first to see available maps.",
     {
       map: z.string().optional().describe("Map name. Auto-detected if omitted."),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
+      timeout: z.number().optional().default(45).describe("Max seconds to wait for the map to finish loading."),
     },
-    async ({ addon, map }) => {
+    async ({ addon, map, timeout }) => {
       if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
       const a = addon || currentAddon;
       const maps = currentMaps.length > 0 ? currentMaps : scanMapsFs(a);
@@ -277,8 +274,36 @@ async function main(): Promise<void> {
       if (!a) return { content: [{ type: "text", text: "No addon detected. Load a project first." }] };
       if (!m) return { content: [{ type: "text", text: `No map specified and none found in addon '${a}'. Available: ${maps.length > 0 ? maps.join(", ") : "none"}` }] };
       lastAddon = a; lastMap = m;
-      relay.sendCommand(`dota_launch_custom_game ${a} ${m}`);
-      return { content: [{ type: "text", text: `Launched: ${a}/${m}` }] };
+
+      const cmd = `dota_launch_custom_game ${a} ${m}`;
+      const timeoutMs = Math.max(10, timeout || 45) * 1000;
+
+      // 如果已经加载了地图，直接返回
+      const initialStatus = parseGameState(await queryStatusJson(5000));
+      if (initialStatus.loaded) {
+        return { content: [{ type: "text", text: `Already loaded: ${initialStatus.map}` }] };
+      }
+      if (initialStatus.loading) {
+        return { content: [{ type: "text", text: "Map is currently loading. Wait for it to finish, or check console_output." }] };
+      }
+
+      // 发送启动命令，并按 status_json 轮询加载进度（不再重复发送启动命令）
+      relay.sendCommand(cmd);
+      const startTime = Date.now();
+
+      while (Date.now() - startTime < timeoutMs) {
+        await new Promise(r => setTimeout(r, 5000));
+        const current = parseGameState(await queryStatusJson(5000));
+        if (current.loaded) {
+          return { content: [{ type: "text", text: `Launched and loaded: ${a}/${m} (map: ${current.map})` }] };
+        }
+        if (current.loading) {
+          // 已经开始加载，继续等待
+          continue;
+        }
+      }
+
+      return { content: [{ type: "text", text: `Sent launch command for ${a}/${m}, but map did not load within ${Math.round(timeoutMs / 1000)}s. Check Dota 2 console for errors.` }] };
     }
   );
 
@@ -314,13 +339,8 @@ async function main(): Promise<void> {
     {},
     async () => {
       if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
-      const before = prntBuffer.length;
-      relay.sendCommand("dump_entity_report");
-      for (let i = 0; i < 20; i++) {
-        await new Promise(r => setTimeout(r, 200));
-        if (prntBuffer.length > before + 3) break;
-      }
-      return { content: [{ type: "text", text: prntBuffer.slice(before).join("\n") || "Sent. Use console_output." }] };
+      const out = await collectOutput("dump_entity_report", { waitMs: 5000, settleMs: 300 });
+      return { content: [{ type: "text", text: out.join("\n") || "Sent. Use console_output." }] };
     }
   );
 
@@ -353,37 +373,196 @@ async function main(): Promise<void> {
   // API 文档工具 — 全部走控制台实时查询，用户已逐个验证
   // ═══════════════════════════════════════════════════
 
-  async function queryConsole(cmd: string, waitMs = 2000): Promise<string[]> {
-    const before = prntLog.length;
-    relay.sendCommand(cmd);
+  async function queryConsole(cmd: string, waitMs = 3000, settleMs = 300): Promise<string[]> {
+    return collectOutput(cmd, { waitMs, settleMs });
+  }
+
+  /** 从最近输出中提取最后一个完整的 status_json 对象 */
+  function extractLastStatusJson(lines: string[]): Record<string, any> | null {
+    const text = lines.join("\n");
+    let depth = 0;
+    let end = -1;
+    for (let i = text.length - 1; i >= 0; i--) {
+      const ch = text[i];
+      if (ch === "}") {
+        if (depth === 0) end = i;
+        depth++;
+      } else if (ch === "{") {
+        depth--;
+        if (depth === 0 && end !== -1) {
+          try {
+            const json = JSON.parse(text.slice(i, end + 1));
+            if (json && typeof json === "object" && "server" in json) {
+              return json;
+            }
+          } catch { /* ignore */ }
+          end = -1;
+        }
+      }
+    }
+    return null;
+  }
+
+  async function queryStatusJson(waitMs = 5000): Promise<Record<string, any> | null> {
+    const collected: string[] = [];
 
     return new Promise((resolve) => {
       let settled = false;
-      const timeout = setTimeout(() => {
-        cleanup();
-        resolve(prntLog.slice(before).map(l => l.text));
-      }, waitMs);
 
-      const onPrnt = () => {
-        if (prntLog.length > before + 2) {
-          cleanup();
-          // 稍等片刻让后续同一批输出也到达
-          setTimeout(() => {
-            if (!settled) {
-              settled = true;
-              resolve(prntLog.slice(before).map(l => l.text));
-            }
-          }, 150);
-        }
+      const onPrnt = (msg: any) => {
+        collected.push(msg.text);
       };
 
-      const cleanup = () => {
-        clearTimeout(timeout);
+      const finish = () => {
         relay.off("prnt", onPrnt);
+        const lines = prntLog.slice(-collected.length).map(l => l.text);
+        const result = extractLastStatusJson(collected.length > 0 ? collected : lines);
+        resolve(result);
       };
 
       relay.on("prnt", onPrnt);
+      relay.sendCommand("status_json");
+
+      let lastLen = 0;
+      let lastChangeTime = Date.now();
+
+      const settleCheck = () => {
+        if (collected.length > lastLen) {
+          lastLen = collected.length;
+          lastChangeTime = Date.now();
+        }
+        const elapsed = Date.now() - lastChangeTime;
+        const gotSome = collected.length > 0;
+        if (gotSome && elapsed > 150) {
+          if (!settled) {
+            settled = true;
+            finish();
+          }
+          return;
+        }
+        setTimeout(settleCheck, 50);
+      };
+
+      setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          finish();
+        }
+      }, waitMs);
+
+      setTimeout(settleCheck, 50);
     });
+  }
+
+  /** 直接监听 PRNT 事件收集命令输出（避免 prntLog 滚动导致 slice 失效）
+   * 支持 settleMs：收到第一批输出后，若 settleMs 毫秒内无新输出则提前返回。 */
+  async function collectOutput(cmd: string, opts: { waitMs?: number; settleMs?: number } = {}): Promise<string[]> {
+    const { waitMs = 3000, settleMs } = opts;
+    const collected: string[] = [];
+    const onPrnt = (msg: any) => collected.push(msg.text);
+    relay.on("prnt", onPrnt);
+    relay.sendCommand(cmd);
+
+    return new Promise((resolve) => {
+      let lastLen = 0;
+      let lastChangeTime = Date.now();
+      let settled = false;
+
+      const finish = () => {
+        relay.off("prnt", onPrnt);
+        resolve(collected);
+      };
+
+      const check = () => {
+        if (collected.length > lastLen) {
+          lastLen = collected.length;
+          lastChangeTime = Date.now();
+        }
+        const elapsed = Date.now() - lastChangeTime;
+        const gotSome = collected.length > 0;
+        if (settleMs && gotSome && elapsed > settleMs) {
+          if (!settled) {
+            settled = true;
+            finish();
+          }
+          return;
+        }
+        setTimeout(check, 50);
+      };
+
+      setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          finish();
+        }
+      }, waitMs);
+
+      setTimeout(check, 50);
+    });
+  }
+
+  /** 解析 status_json 返回当前游戏状态 */
+  function parseGameState(status: Record<string, any> | null): {
+    map: string;
+    loaded: boolean;
+    loading: boolean;
+    state: string;
+    game_state: string;
+    phase: string;
+    players: number;
+    addon: string;
+    hibernating: boolean;
+    cpu_usage: number;
+    clients_bot: number;
+    clients_proxies: number;
+    udp_port: number;
+    build_version: number;
+    process_uptime: number;
+    network_lag_avg: number;
+    first_player: string;
+  } {
+    const server = status?.server;
+    if (!server) {
+      return {
+        map: "(unknown)", loaded: false, loading: false,
+        state: "(unknown)", game_state: "(unknown)", phase: "unknown",
+        players: 0, addon: "",
+        hibernating: false, cpu_usage: 0, clients_bot: 0, clients_proxies: 0,
+        udp_port: 0, build_version: 0, process_uptime: 0, network_lag_avg: 0,
+        first_player: "",
+      };
+    }
+    const keys = Object.keys(server);
+    const hasMap = keys.includes("map");
+    const map = hasMap ? (server.map as string) : "";
+    const isLoading = !hasMap && keys.includes("startup_ServerModuleInit");
+    const isLoaded = hasMap && map !== "<empty>";
+    const state = (server.game_state as string) || "";
+    const phase = isLoading ? "loading"
+                : isLoaded ? (state.includes("GAME_IN_PROGRESS") ? "playing" : state.includes("INIT") ? "init" : state.includes("SETUP") ? "setup" : state.includes("POST_GAME") ? "ended" : "in_game")
+                : hasMap ? "menu"
+                : "unknown";
+    const clients = Array.isArray(server.clients) ? server.clients as Array<{ name?: string; bot?: boolean }> : [];
+    const firstPlayer = clients.find(c => !c.bot)?.name || "";
+    return {
+      map: map || "(not loaded)",
+      loaded: isLoaded,
+      loading: isLoading,
+      state: state || "(unknown)",
+      game_state: state || "(unknown)",
+      phase,
+      players: (server.clients_human as number) ?? 0,
+      addon: (server.addon as string) || "",
+      hibernating: !!server.hibernating,
+      cpu_usage: (server.cpu_usage as number) ?? 0,
+      clients_bot: (server.clients_bot as number) ?? 0,
+      clients_proxies: (server.clients_proxies as number) ?? 0,
+      udp_port: (server.udp_port as number) ?? 0,
+      build_version: (status?.build_version as number) ?? 0,
+      process_uptime: (status?.process_uptime as number) ?? 0,
+      network_lag_avg: (server.player_network_lag_avg as number) ?? 0,
+      first_player: firstPlayer,
+    };
   }
 
   // --- API 文档 ---
@@ -445,14 +624,10 @@ async function main(): Promise<void> {
     { query: z.string().describe("Search keyword") },
     async ({ query }) => {
       if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
-      const before = prntBuffer.length;
-      relay.sendCommand(`find ${query}`);
-      for (let i = 0; i < 15; i++) {
-        await new Promise(r => setTimeout(r, 200));
-        if (prntBuffer.length > before + 1) break;
-      }
-      const results = prntBuffer.slice(before).filter(l =>
-        /\S+\s+\S+\s+(cmd|game|client|cheat|server|archive)/.test(l)
+      const out = await queryConsole(`find ${query}`, 3000, 250);
+      // Dota `find` output: header + separator + rows. Drop header/separator, keep rows that mention the query.
+      const results = out.filter(l =>
+        l.includes(query) && /^\S+/.test(l) && !/^=+$/.test(l.trim()) && !/^name\s+value/.test(l)
       );
       if (results.length === 0) return { content: [{ type: "text", text: `No match. Try different keyword or shorter prefix.` }] };
       return {
@@ -470,8 +645,47 @@ async function main(): Promise<void> {
     { command: z.string().describe("Command name") },
     async ({ command }) => {
       if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
-      const out = await queryConsole(`help ${command}`, 2000);
-      return { content: [{ type: "text", text: out.join("\n") || "(no help available)" }] };
+      const out = await queryConsole(`help ${command}`, 3000, 250);
+      // help 命令常先 dump 一批枚举，再给出目标命令行；过滤出真正相关的行
+      const relevant = out.filter(l => l.toLowerCase().includes(command.toLowerCase()));
+      const text = relevant.length > 0 ? relevant.join("\n") : out.join("\n");
+      return { content: [{ type: "text", text: text || "(no help available)" }] };
+    }
+  );
+
+  // Tool: 开关 vconsole2 GUI 输出过滤
+  // 默认过滤掉 status_json / API dump 等大块 JSON 输出，避免人类开发者的 vconsole2 GUI 被刷屏；
+  // MCP 本身仍可通过 console_output / queryStatusJson 读取完整输出。
+  const DEFAULT_GUI_SUPPRESS_PATTERNS = [
+    "^\\s*\\{",       // JSON 对象开始
+    "^\\s*\\}",       // JSON 对象结束
+    "^\\s*\\[",       // JSON 数组开始
+    "^\\s*\\]",       // JSON 数组结束
+    "^\\s*\"[^\"]+\":", // JSON 键值行
+  ];
+  server.tool("console_gui_filter",
+    "Control whether MCP-generated console output is forwarded to the vconsole2 GUI. Default: MCP command output is wrapped with markers and hidden from GUI. Call with auto:false to show all MCP output in GUI.",
+    {
+      enabled: z.boolean().optional().describe("Manual override: true = always suppress lines matching given/custom patterns, false = clear manual patterns."),
+      auto: z.boolean().optional().describe("MCP marker suppress: true = hide all output from MCP-sent commands (default). false = show MCP output in GUI."),
+      patterns: z.array(z.string()).optional().describe("Optional custom regex patterns for manual mode. If omitted, default JSON-like patterns are used."),
+    },
+    async ({ enabled, auto, patterns }) => {
+      // 处理 manual 模式
+      if (typeof enabled === "boolean") {
+        const newPatterns = enabled ? (patterns ?? DEFAULT_GUI_SUPPRESS_PATTERNS) : [];
+        relay.setGuiSuppressPatterns(newPatterns);
+      }
+      // 处理 MCP 屏蔽开关
+      if (typeof auto === "boolean") {
+        relay.setMcpSuppressEnabled(auto);
+      }
+      return { content: [{ type: "text", text: JSON.stringify({
+        manualEnabled: relay.guiSuppressPatterns.length > 0,
+        manualPatterns: relay.guiSuppressPatterns,
+        mcpSuppressEnabled: relay.mcpSuppressEnabled,
+        note: "MCP console_output still receives all output; only vconsole2 GUI forwarding is affected.",
+      }, null, 2) }] };
     }
   );
 
@@ -481,35 +695,79 @@ async function main(): Promise<void> {
     { query: z.string().optional().describe("Function or class name. Empty = list all registered API functions.") },
     async ({ query }) => {
       if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
-      const before = prntBuffer.length;
-      relay.sendCommand(query ? `script_help ${query}` : "script_help");
-      for (let i = 0; i < 10; i++) {
-        await new Promise(r => setTimeout(r, 200));
-        if (prntBuffer.length > before + 3) break;
-      }
-      return { content: [{ type: "text", text: prntBuffer.slice(before).join("\n") || "Sent. Use console_output to see results." }] };
+      const out = await queryConsole(query ? `script_help ${query}` : "script_help", 4000, 300);
+      return { content: [{ type: "text", text: out.join("\n") || "Sent. Use console_output to see results." }] };
     }
   );
 
   // Tool: 在运行中的游戏里执行 Lua 代码
   server.tool("dota_run_lua",
-    "Execute arbitrary server-side Lua code in the running game via ent_fire 0 RunScriptCode. Verifies IsServer() to confirm server-side execution.",
-    { code: z.string().describe("Lua code to run. Use single quotes inside to avoid shell escaping issues.") },
-    async ({ code }) => {
+    "Execute server-side Lua in the running game via ent_fire 0 RunScriptCode. Use 'code' for arbitrary statements or 'expression' to evaluate and DeepPrintTable a value.",
+    {
+      code: z.string().optional().describe("Arbitrary Lua statements to run. Use single quotes inside to avoid shell escaping issues."),
+      expression: z.string().optional().describe("Lua expression to evaluate; its result will be DeepPrintTable'd automatically (e.g. 'PlayerResource:GetAllTeamPlayerIDs()')."),
+    },
+    async ({ code, expression }) => {
       if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
 
-      // 包装用户代码，先打印 IsServer() 验证运行端
-      const wrapped = `print('[MCP-LUA] IsServer: ' .. tostring(IsServer())) ${code}`;
+      let luaBody: string;
+      if (expression) {
+        luaBody = `print('[MCP-LUA] IsServer: ' .. tostring(IsServer())) DeepPrintTable((${expression}))`;
+      } else if (code) {
+        luaBody = `print('[MCP-LUA] IsServer: ' .. tostring(IsServer())) ${code}`;
+      } else {
+        return { content: [{ type: "text", text: "Provide either 'code' or 'expression'." }] };
+      }
+
       // 简单转义：把双引号换成单引号，避免 RunScriptCode 参数字符串冲突
-      const safeCode = wrapped.replace(/"/g, "'");
+      const safeCode = luaBody.replace(/"/g, "'");
 
-      const execOut = await queryConsole(`ent_fire 0 RunScriptCode "${safeCode}"`, 3000);
+      // 使用 collectOutput 直接监听 PRNT，避免 prntLog 滚动和 queryConsole 提前返回导致丢失 VScript 输出
+      const execOut = await collectOutput(`ent_fire 0 RunScriptCode "${safeCode}"`, { waitMs: 15000, settleMs: 400 });
 
-      const filtered = execOut.filter(l =>
-        l.includes("[MCP-LUA]") || l.includes("RunScriptCode") || l.includes("error")
-      );
+      const markerIdx = execOut.findIndex(l => l.includes("[MCP-LUA] IsServer"));
+      if (markerIdx === -1) {
+        const fallback = execOut.filter(l =>
+          l.includes("[MCP-LUA]") || l.includes("DeepPrint") || l.includes("RunScriptCode") || /^\s*\d+\s*=/.test(l) || /error/i.test(l)
+        );
+        return { content: [{ type: "text", text: fallback.join("\n") || "Sent. Check console_output for results." }] };
+      }
 
-      return { content: [{ type: "text", text: filtered.join("\n") || "Sent. Check console_output for results." }] };
+      // expression 模式：捕获 DeepPrintTable 输出的 { ... } 块
+      if (expression) {
+        const blockStart = execOut.findIndex((l, i) => i > markerIdx && l.trim() === "{");
+        if (blockStart !== -1) {
+          let depth = 0;
+          for (let i = blockStart; i < execOut.length; i++) {
+            for (const ch of execOut[i]) {
+              if (ch === "{") depth++;
+              else if (ch === "}") depth--;
+            }
+            if (depth === 0) {
+              const result = execOut.slice(markerIdx, i + 1).join("\n");
+              return { content: [{ type: "text", text: result }] };
+            }
+          }
+        }
+      }
+
+      // code 模式：捕获 marker 之后的用户输出，直到遇到已知的无关系统输出
+      const unrelatedPatterns = [
+        /^\[Lua Memory\]/,
+        /^\[Hashtable Count\]/,
+        /^\[Thinker Count\]/,
+        /^\[Client Lua Memory\]/,
+        /^\[Client FPS\]/,
+        /^iStatusCode=/,
+        /^0\t200\t/,
+      ];
+      const block: string[] = [];
+      for (let i = markerIdx; i < execOut.length; i++) {
+        const l = execOut[i];
+        if (unrelatedPatterns.some(re => re.test(l))) break;
+        block.push(l);
+      }
+      return { content: [{ type: "text", text: block.join("\n") }] };
     }
   );
 

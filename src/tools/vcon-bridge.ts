@@ -47,6 +47,12 @@ import { EventEmitter } from "events";
 export interface VConConfig {
   host: string;
   port: number;
+  /** 编辑或丢弃要转发给 GUI 的 PRNT 消息。
+   * 返回 undefined/true = 原样转发；
+   * 返回 string = 替换文本后转发；
+   * 返回 false/null = 丢弃不转发。
+   * 注意：prnt 事件始终会触发，供 MCP 读取完整输出。 */
+  rawPrntEditor?: (msg: PrntMessage) => string | boolean | null | undefined;
 }
 
 /** 帧头 */
@@ -156,6 +162,14 @@ function parsePrntPayload(payload: Buffer): PrntMessage {
     millisecondTime: payload.readUInt32BE(16),
     text: payload.toString("ascii", 28).replace(/\0/g, "").trim(),
   };
+}
+
+function buildPrntFrame(originalPayload: Buffer, text: string): Buffer {
+  const prefix = originalPayload.subarray(0, 28);
+  const textBuf = Buffer.from(text, "ascii");
+  const payload = Buffer.concat([prefix, textBuf, Buffer.from([0x00])]);
+  const header = buildHeader("PRNT", payload.length);
+  return Buffer.concat([header, payload]);
 }
 
 function parseAinfPayload(payload: Buffer): AinfMessage {
@@ -295,8 +309,21 @@ export class VConClient extends EventEmitter {
       const rawFrame = this.buffer.subarray(0, header.length);
       const payload = this.buffer.subarray(HEADER_SIZE, header.length);
 
-      this.emit("rawFrame", header.type, rawFrame);
-      this._dispatch(header, payload);
+      if (header.type === "PRNT") {
+        const msg = parsePrntPayload(payload);
+        this.emit("prnt", msg);
+        const edit = this.config.rawPrntEditor ? this.config.rawPrntEditor(msg) : undefined;
+        if (edit === false || edit === null) {
+          // 丢弃：不转发到 GUI
+        } else if (typeof edit === "string") {
+          this.emit("rawFrame", header.type, buildPrntFrame(payload, edit));
+        } else {
+          this.emit("rawFrame", header.type, rawFrame);
+        }
+      } else {
+        this.emit("rawFrame", header.type, rawFrame);
+        this._dispatch(header, payload);
+      }
 
       this.buffer = this.buffer.subarray(header.length);
     }
