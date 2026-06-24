@@ -451,53 +451,54 @@ async function main(): Promise<void> {
     });
   }
 
-  // Tool: 启动 Workshop Tools 编辑器
-  server.tool("dota_open_editor",
-    "Launch a Dota 2 Workshop Tools editor. Requires Dota 2 Tools installed.",
-    {
-      editor: z.enum(["assetbrowser", "hammer", "modeldoc", "materialeditor", "particleeditor"]).describe("Editor to launch"),
-      addon: z.string().optional().describe("Addon name to load. Auto-detected if omitted."),
-    },
-    async ({ editor, addon }) => {
-      const a = addon || currentAddon;
-      const args = ["-tools", "-nop4", "-novid"];
-      if (a) args.push("-addon", a);
-      args.push(`+${editor}`);
-
-      const result = await runDotaTool("dota2.exe", args, false);
-      return { content: [{ type: "text", text: result.ok
-        ? `Launched ${editor}${a ? ` for addon ${a}` : ""}. PID: ${result.stdout}`
-        : `Failed: ${result.stderr}`
-      }] };
+  /** 把用户传入的资源路径解析为完整路径
+   *  - 绝对路径：原样返回
+   *  - 以 content/ 或 game/ 开头：相对于 dotaPath
+   *  - 否则：默认 content/dota_addons/{addon}/...
+   */
+  function resolveAssetPath(target: string, addon: string): string {
+    if (path.isAbsolute(target)) return target;
+    const lower = target.toLowerCase().replace(/\\/g, "/");
+    if (lower.startsWith("content/") || lower.startsWith("game/")) {
+      return path.join(dotaPath || "", target);
     }
-  );
+    return path.join(dotaPath || "", "content", "dota_addons", addon, target);
+  }
 
   // Tool: 编译 Source 2 资源
   server.tool("dota_compile_asset",
-    "Compile Source 2 assets using resourcecompiler.exe. Path can be a file, folder, or VPK.",
+    "Compile Source 2 assets using resourcecompiler.exe. Target can be absolute, relative to addon content, or start with content/ / game/.",
     {
       target: z.string().describe("File, folder, or VPK path to compile"),
       recursive: z.boolean().optional().default(false).describe("Recursively scan subdirectories"),
+      force: z.boolean().optional().default(false).describe("Force recompile even if up-to-date"),
       decompile: z.boolean().optional().default(false).describe("Use VRF decompile mode (Source2Viewer-CLI) instead of resourcecompiler"),
     },
-    async ({ target, recursive, decompile }) => {
+    async ({ target, recursive, force, decompile }) => {
+      const addon = currentAddon || addonName;
+      if (!addon) return { content: [{ type: "text", text: "No addon detected. Set DOTA2_ADDON or load a project first." }] };
+
+      const resolved = resolveAssetPath(target, addon);
+
       if (decompile) {
         const result = await runDotaTool("Source2Viewer-CLI.exe", [
-          "-i", target,
+          "-i", resolved,
           ...(recursive ? ["-r"] : []),
           "-d",
         ], true);
         return { content: [{ type: "text", text: result.ok
-          ? `Decompiled ${target}\n${result.stdout.slice(0, 2000)}`
+          ? `Decompiled ${resolved}\n${result.stdout.slice(0, 2000)}`
           : `Decompile failed: ${result.stderr}`
         }] };
       }
 
-      const args = ["-i", target];
+      const gameInfo = path.join(dotaPath || "", "game", "dota");
+      const args = ["-i", resolved, "-game", gameInfo];
       if (recursive) args.push("-r");
+      if (force) args.push("-f");
       const result = await runDotaTool("resourcecompiler.exe", args, true);
       return { content: [{ type: "text", text: result.ok
-        ? `Compiled ${target}\n${result.stdout.slice(0, 2000)}`
+        ? `Compiled ${resolved}\n${result.stdout.slice(0, 2000)}`
         : `Compile failed: ${result.stderr}`
       }] };
     }
