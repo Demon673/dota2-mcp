@@ -66,6 +66,80 @@ async function main(): Promise<void> {
   let prntLog: { text: string; verbosity: number; channel: string }[] = [];
   let prntBuffer: string[] = [];
 
+  // 常见 VConsole2 通道的用途说明（协议本身不带描述，这里做一份可读性补充）
+  const channelDescriptions: Record<string, string> = {
+    General: "通用引擎消息",
+    Console: "控制台回显",
+    Developer: "开发者消息",
+    DeveloperConsole: "开发者控制台",
+    DeveloperVerbose: "开发者详细消息",
+    Assert: "断言失败信息",
+    VScript: "服务器端 Lua / VScript 脚本输出",
+    VScriptDbg: "VScript 调试输出",
+    VScriptScripts: "VScript 脚本系统",
+    Panorama: "Panorama UI 框架",
+    PanoramaScript: "Panorama UI JavaScript 输出",
+    PanoramaContent: "Panorama 内容加载",
+    PanoramaVideoPlayer: "Panorama 视频播放",
+    V8System: "V8 JavaScript 引擎",
+    Client: "客户端消息",
+    Server: "服务端消息",
+    ServerLog: "服务端日志",
+    RenderSystem: "渲染系统",
+    RenderService: "渲染服务",
+    RenderGraph: "渲染图",
+    ResourceSystem: "资源加载系统",
+    ResourceCompilerSystem: "资源编译系统",
+    Filesystem: "文件系统",
+    NetworkService: "网络服务",
+    NetworkClientService: "网络客户端服务",
+    NetworkServerService: "网络服务端服务",
+    Steam: "Steam 集成",
+    SteamNetSockets: "Steam 网络套接字",
+    GCClient: "Game Coordinator 客户端",
+    Workshop: "创意工坊",
+    ModelDoc: "ModelDoc 模型编辑器",
+    Hammer: "Hammer 关卡编辑器",
+    Animgraph: "动画图编辑器",
+    MaterialCompiler: "材质编译器",
+    PanoramaCompiler: "Panorama 编译器",
+    TextureCompiler: "纹理编译器",
+    DotaGuide: "Dota 攻略系统",
+    CombatAnalyzer: "战斗分析器",
+    CustomGameCache: "自定义游戏缓存",
+    CustomNetTable: "自定义网络表",
+    CustomUI: "自定义 UI",
+    DOTAHLTVDirector: "HLTV 导演",
+    HltvDirector: "HLTV 导演",
+    InputService: "输入服务",
+    InputSystem: "输入系统",
+    LocalizationSystem: "本地化系统",
+    Particles: "粒子系统",
+    SoundSystem: "声音系统",
+    SndEmitterSystem: "声音发射系统",
+    Physics: "物理系统",
+    MeshSystem: "网格系统",
+    WorldRenderer: "世界渲染器",
+    SceneSystem: "场景系统",
+    SchemaSystem: "Schema 系统",
+    TypeManager: "类型管理器",
+    EntitySystem: "实体系统",
+    GameEventSystem: "游戏事件系统",
+    HostStateManager: "主机状态管理",
+    CommandQueue: "命令队列",
+    CLCommandQueue: "客户端命令队列",
+    SVCommandQueue: "服务端命令队列",
+    Tracy: "Tracy 性能分析",
+    VProf: "VProf 性能分析",
+    DemoFile: "Demo 文件",
+    Movie: "视频/电影",
+    ScreenShot: "截图",
+    SaveRestore: "存档/读档",
+    WebApi: "Web API",
+    BuildCubemaps: "构建立方体贴图",
+    EntityDump: "实体导出",
+  };
+
   // 事件驱动：relay 收到 PRNT 时立即同步到本地缓冲
   relay.on("prnt", (msg: any) => {
     prntLog.push({ text: msg.text, verbosity: msg.verbosity, channel: msg.channel || "" });
@@ -99,12 +173,16 @@ async function main(): Promise<void> {
 
   // Tool: 列出当前可用的 VConsole2 通道
   server.tool("console_channels",
-    "List all available VConsole2 source channels (e.g. General, VScript, PanoramaScript). Use these names with console_output channel filter.",
+    "List all available VConsole2 source channels with short descriptions. Use the channel names with console_output channel filter.",
     {},
     async () => {
       if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
       const channels = relay.getChannels();
-      return { content: [{ type: "text", text: channels.join("\n") || "(no channels registered yet)" }] };
+      const lines = channels.map(name => {
+        const desc = channelDescriptions[name];
+        return desc ? `${name} - ${desc}` : name;
+      });
+      return { content: [{ type: "text", text: lines.join("\n") || "(no channels registered yet)" }] };
     }
   );
 
