@@ -155,14 +155,17 @@ async function main(): Promise<void> {
       lines: z.number().optional().default(50),
       level: z.number().optional().default(0).describe("0=all, 1=warnings+, 3=errors only"),
       filter: z.string().optional().describe("Optional regex"),
-      channel: z.string().optional().describe("Filter by source channel, e.g. VScript, PanoramaScript, ResourceSystem. Use console_channels to list available channels."),
+      channel: z.string().optional().describe("Filter by source channel(s), e.g. VScript, PanoramaScript, ResourceSystem. Use comma to filter multiple channels like 'VScript, PanoramaScript'. Use console_channels to list available channels."),
     },
     async ({ lines, level, filter, channel }) => {
       if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
       let output = prntLog;
       if (level > 0) output = output.filter(l => l.verbosity >= level);
       if (filter) { const re = new RegExp(filter, "i"); output = output.filter(l => re.test(l.text)); }
-      if (channel) { output = output.filter(l => l.channel.toLowerCase() === channel.toLowerCase()); }
+      if (channel) {
+        const chs = channel.split(",").map(c => c.trim().toLowerCase()).filter(Boolean);
+        output = output.filter(l => chs.includes(l.channel.toLowerCase()));
+      }
       return { content: [{ type: "text", text: output.slice(-lines).map(l => `[${l.channel || "?"}][L${l.verbosity}] ${l.text}`).join("\n") || "(no output)" }] };
     }
   );
