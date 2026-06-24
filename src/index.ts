@@ -115,6 +115,7 @@ async function main(): Promise<void> {
     SceneSystem: "场景系统",
     SchemaSystem: "Schema 系统",
     EntitySystem: "实体系统",
+    "Entity System": "实体系统",
     GameEventSystem: "游戏事件系统",
     "CL CommandQueue": "客户端命令队列",
     "SV CommandQueue": "服务端命令队列",
