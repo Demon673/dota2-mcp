@@ -133,10 +133,6 @@ async function main(): Promise<void> {
     DOTAHLTVDirector: "HLTV 导演",
     "Hltv Director": "HLTV 导演",
     AssetSystem: "资源系统 / AssetSystem 编辑器",
-    AssetBrowser: "资源浏览器",
-    AssetFileHelper: "资源文件辅助工具",
-    AssetListModel: "资源列表模型",
-    AssetThumbnail: "资源缩略图",
   };
 
   // 事件驱动：relay 收到 PRNT 时立即同步到本地缓冲
