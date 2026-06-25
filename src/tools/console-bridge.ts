@@ -13,7 +13,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { findSteamAppByName } from "find-steam-app";
+import { findSteamAppById } from "find-steam-app";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -163,10 +163,10 @@ export function buildExecCommand(cfgName: string = "mcp_cmd.cfg"): string {
 // Default config (auto-detected)
 // ---------------------------------------------------------------------------
 
-/** 尝试自动检测 Dota 2 路径 */
+/** 尝试自动检测 Dota 2 路径（通过 Steam appid 570） */
 export async function detectDotaPath(): Promise<string | null> {
   try {
-    const appPath = await findSteamAppByName("dota 2 beta");
+    const appPath = await findSteamAppById(570);
     if (appPath && fs.existsSync(path.join(appPath, "game", "dota"))) {
       return appPath;
     }

@@ -173,10 +173,10 @@ chmod +x dota2-mcp-linux
 
 | 变量 | 说明 |
 |------|------|
-| `DOTA2_PATH` | Dota 2 beta 目录。未设置时会按平台自动检测常见 Steam 路径。 |
-| `DOTA2_ADDON` | 当自动检测失败时使用的 addon 名称。 |
+| `DOTA2_PATH` | **可选**。Dota 2 beta 目录。正常情况下会通过 Steam appid `570` 自动检测，只有自动检测失败或你想强制指定时才设置。 |
+| `DOTA2_ADDON` | **可选**。当自动检测失败时使用的 addon 名称。 |
 
-常见 `DOTA2_PATH` 示例：
+如果确实需要手动指定，常见路径示例：
 
 - Windows：`D:/SteamLibrary/steamapps/common/dota 2 beta`
 - Linux：`~/.steam/steam/steamapps/common/dota 2 beta`
