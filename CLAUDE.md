@@ -38,8 +38,7 @@ npm run start
 
 ## 环境变量
 
-- `DOTA2_PATH` — Dota 2 beta 目录。未设置时回退到 `consoleBridge.detectDotaPath()`，它会检查常见 Steam 安装路径。
-- `DOTA2_ADDON` — 当自动检测失败时使用的 addon 名称。
+- `DOTA2_ADDON` — 当自动检测失败时使用的 addon 名称。Dota 2 路径现在通过 Steam appid `570` 自动检测，无需手动配置。
 
 ## 架构
 

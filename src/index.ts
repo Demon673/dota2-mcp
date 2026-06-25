@@ -29,7 +29,7 @@ async function main(): Promise<void> {
   // VCon 透明代理 — 监听 29001，vconsole2 会主动连过来
   // -----------------------------------------------------------------------
 
-  const dotaPath = process.env.DOTA2_PATH || (await consoleBridge.detectDotaPath());
+  const dotaPath = await consoleBridge.detectDotaPath();
   const addonName = process.env.DOTA2_ADDON || "";
   const relay = new VConRelay();
 

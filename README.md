@@ -173,22 +173,7 @@ chmod +x dota2-mcp-linux
 
 | 变量 | 说明 |
 |------|------|
-| `DOTA2_PATH` | **可选**。Dota 2 beta 目录。正常情况下会通过 Steam appid `570` 自动检测，只有自动检测失败或想强制指定时才设置。 |
 | `DOTA2_ADDON` | **可选**。当自动检测失败时使用的 addon 名称。 |
-
-如果确实需要手动找路径，最简单的方法：
-
-1. 打开 Steam 库，右键 **Dota 2**
-2. 选择 **管理 → 浏览本地文件**
-3. 弹出的文件夹就是 `dota 2 beta` 目录，复制地址栏路径即可
-
-如果你知道 Steam 根目录，路径结构一般是：
-
-```
-<Steam根目录>/steamapps/common/dota 2 beta
-```
-
-把这个完整路径填进 `DOTA2_PATH` 环境变量。
 
 ## 可用工具
 
@@ -219,7 +204,7 @@ chmod +x dota2-mcp-linux
 
 **AI 提示找不到 Dota 2 怎么办？**
 
-正常情况下会通过 Steam appid `570` 自动定位，不需要手动设置。如果失败，设置 `DOTA2_PATH` 环境变量指向你的 `dota 2 beta` 目录。找不到的话：Steam 库中右键 Dota 2 → 管理 → 浏览本地文件，地址栏里的路径就是。
+确保 Dota 2 是通过 Steam 安装的，并且启动了 VConsole2。程序会通过 Steam appid `570` 自动定位 Dota 2 目录，不需要手动设置路径。
 
 **为什么 vconsole2 GUI 要连 `29001`？**
 
