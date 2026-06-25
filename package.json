@@ -6,7 +6,11 @@
   "main": "dist/index.js",
   "bin": "./dist/index.js",
   "files": [
-    "dist",
+    "dist/index.js",
+    "dist/index.js.map",
+    "dist/index.d.ts",
+    "dist/index.d.ts.map",
+    "dist/tools/**/*",
     "README.md",
     "CLAUDE.md",
     "LICENSE"

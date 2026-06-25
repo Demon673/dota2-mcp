@@ -1,0 +1,11 @@
+# SEA / standalone binaries (not needed for npm install)
+dist/*.exe
+dist/bundle.cjs
+sea-prep.blob
+
+# Source / dev files (not published)
+src/
+scripts/
+sea-config.json
+.github/
+*.tsbuildinfo
