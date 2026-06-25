@@ -182,7 +182,13 @@ chmod +x dota2-mcp-linux
 2. 选择 **管理 → 浏览本地文件**
 3. 弹出的文件夹就是 `dota 2 beta` 目录，复制地址栏路径即可
 
-把这个路径填进 `DOTA2_PATH` 环境变量。
+如果你知道 Steam 根目录，路径结构一般是：
+
+```
+<Steam根目录>/steamapps/common/dota 2 beta
+```
+
+把这个完整路径填进 `DOTA2_PATH` 环境变量。
 
 ## 可用工具
 
