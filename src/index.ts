@@ -15,6 +15,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { spawn } from "child_process";
+import * as fs from "fs";
 import * as path from "path";
 import { VConRelay } from "./tools/vcon-relay.js";
 import * as consoleBridge from "./tools/console-bridge.js";
@@ -30,11 +31,10 @@ async function main(): Promise<void> {
   // -----------------------------------------------------------------------
 
   const dotaPath = await consoleBridge.detectDotaPath();
-  const addonName = process.env.DOTA2_ADDON || "";
   const relay = new VConRelay();
 
   // 追踪 relay 状态供工具使用
-  let currentAddon = addonName;
+  let currentAddon = "";
   let currentMaps: string[] = [];
   let currentAllMaps: string[] = [];
 
@@ -51,14 +51,49 @@ async function main(): Promise<void> {
     console.error("[relay] Failed:", err.message);
   });
 
+  /** 统一的未连接提示 */
+  function notConnectedText(extra = ""): string {
+    return `未连接到 Dota 2 VConsole2（端口 29000）。请确保：
+1) Dota 2 以 -vconsole 启动；
+2) vconsole2 GUI 已连接到 127.0.0.1:29001。${extra}`;
+  }
+
   // 文件系统扫描 maps（relay 断连时的降级方案）
-  function scanMapsFs(addon: string): string[] {
+  function scanMapsFs(addon: string | null): string[] {
+    if (!addon || !dotaPath) return [];
     try {
-      const path = require("path");
-      const dir = path.join(dotaPath || "", "content", "dota_addons", addon, "maps");
-      return require("fs").readdirSync(dir, { withFileTypes: true })
-        .filter((e: any) => e.isFile() && e.name.endsWith(".vmap"))
-        .map((e: any) => e.name.replace(".vmap", ""));
+      const dir = path.join(dotaPath, "content", "dota_addons", addon, "maps");
+      return fs.readdirSync(dir, { withFileTypes: true })
+        .filter((e) => e.isFile() && e.name.endsWith(".vmap"))
+        .map((e) => e.name.replace(".vmap", ""));
+    } catch { return []; }
+  }
+
+  /** 从文件系统自动检测 addon：如果只有一个项目就直接用 */
+  function detectAddonFromFs(): string | null {
+    if (!dotaPath) return null;
+    try {
+      const dir = path.join(dotaPath, "content", "dota_addons");
+      const addons = fs.readdirSync(dir, { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name);
+      if (addons.length === 1) return addons[0];
+    } catch { /* ignore */ }
+    return null;
+  }
+
+  /** 获取当前 addon，优先用 relay 检测，其次文件系统自动推断 */
+  function resolveAddon(preferred?: string): string | null {
+    return preferred || currentAddon || detectAddonFromFs();
+  }
+
+  /** 列出所有 addon，用于提示用户 */
+  function listAddonsFs(): string[] {
+    if (!dotaPath) return [];
+    try {
+      return fs.readdirSync(path.join(dotaPath, "content", "dota_addons"), { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name);
     } catch { return []; }
   }
 
@@ -146,8 +181,6 @@ async function main(): Promise<void> {
     }
   });
 
-  const bridgeConfig = { dotaPath: dotaPath || "", addonName };
-
   // Tool: 读取 console 输出（VCon 实时流，含 verbosity 级别和 channel 来源）
   server.tool("console_output",
     "Read Dota 2 console output with severity filtering. level: 0=all, 1=warnings+, 2=asserts+, 3=errors only.",
@@ -158,7 +191,7 @@ async function main(): Promise<void> {
       channel: z.string().optional().describe("Filter by source channel(s), e.g. VScript, PanoramaScript, ResourceSystem. Use comma to filter multiple channels like 'VScript, PanoramaScript'. Use console_channels to list available channels."),
     },
     async ({ lines, level, filter, channel }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
       let output = prntLog;
       if (level > 0) output = output.filter(l => l.verbosity >= level);
       if (filter) { const re = new RegExp(filter, "i"); output = output.filter(l => re.test(l.text)); }
@@ -175,7 +208,7 @@ async function main(): Promise<void> {
     "List all available VConsole2 source channels with short descriptions. Use the channel names with console_output channel filter.",
     {},
     async () => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
       const channels = relay.getChannels();
       const lines = channels.map(name => {
         const desc = channelDescriptions[name];
@@ -190,7 +223,7 @@ async function main(): Promise<void> {
     "Send console command to Dota 2 via VCon TCP",
     { commands: z.string().describe("Command(s), newline-separated") },
     async ({ commands }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected to Dota 2." }] };
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
       const cmds = commands.split("\n").map(c => c.trim()).filter(Boolean);
       cmds.forEach(c => relay.sendCommand(c));
       return { content: [{ type: "text", text: `Sent ${cmds.length} command(s)` }] };
@@ -203,8 +236,9 @@ async function main(): Promise<void> {
     "Check current addon, map, game state. Call FIRST before other tools.",
     {},
     async () => {
-      const maps = currentMaps.length > 0 ? currentMaps : (currentAddon ? scanMapsFs(currentAddon) : []);
-      const allMaps = currentAllMaps.length > 0 ? currentAllMaps : (currentAddon ? scanMapsFs(currentAddon) : []);
+      const addon = resolveAddon();
+      const maps = currentMaps.length > 0 ? currentMaps : scanMapsFs(addon);
+      const allMaps = currentAllMaps.length > 0 ? currentAllMaps : scanMapsFs(addon);
 
       if (!relay.dotaConnected) {
         return { content: [{ type: "text", text: JSON.stringify({
@@ -254,10 +288,6 @@ async function main(): Promise<void> {
     }
   );
 
-  // 记住上次启动参数
-  let lastAddon = addonName;
-  let lastMap = "";
-
   // Tool: 启动游戏
   server.tool("dota_launch_game",
     "Launch a Dota 2 custom game. Polls status and retries if the game does not start loading. Call project_info first to see available maps.",
@@ -267,13 +297,12 @@ async function main(): Promise<void> {
       timeout: z.number().optional().default(45).describe("Max seconds to wait for the map to finish loading."),
     },
     async ({ addon, map, timeout }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
-      const a = addon || currentAddon;
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
+      const a = resolveAddon(addon);
       const maps = currentMaps.length > 0 ? currentMaps : scanMapsFs(a);
       const m = map || maps[0];
       if (!a) return { content: [{ type: "text", text: "No addon detected. Load a project first." }] };
       if (!m) return { content: [{ type: "text", text: `No map specified and none found in addon '${a}'. Available: ${maps.length > 0 ? maps.join(", ") : "none"}` }] };
-      lastAddon = a; lastMap = m;
 
       const cmd = `dota_launch_custom_game ${a} ${m}`;
       const timeoutMs = Math.max(10, timeout || 45) * 1000;
@@ -312,7 +341,7 @@ async function main(): Promise<void> {
     "Disconnect from current game.",
     {},
     async () => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
       relay.sendCommand("disconnect");
       return { content: [{ type: "text", text: "Disconnected." }] };
     }
@@ -323,7 +352,7 @@ async function main(): Promise<void> {
     "Reload the current map. Uses Source 2 'restart' command.",
     {},
     async () => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
       relay.sendCommand("restart");
       return { content: [{ type: "text", text: "Sent: restart (reloads current map)" }] };
     }
@@ -338,7 +367,7 @@ async function main(): Promise<void> {
     "List all entities currently in the game scene. Use this to inspect game state.",
     {},
     async () => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
       const out = await collectOutput("dump_entity_report", { waitMs: 5000, settleMs: 300 });
       return { content: [{ type: "text", text: out.join("\n") || "Sent. Use console_output." }] };
     }
@@ -349,7 +378,7 @@ async function main(): Promise<void> {
     "Dump modifiers. side='server'→dota_modifier_dump (all on entities), side='client'→cl_dump_modifier_list (all types).",
     { side: z.enum(["server","client"]).optional().default("client").describe("server or client") },
     async ({ side }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
       const cmd = side === "server" ? "dota_modifier_dump" : "cl_dump_modifier_list";
       const out = await queryConsole(cmd, 3000);
       return { content: [{ type: "text", text: out.join("\n") || "(no results)" }] };
@@ -361,7 +390,7 @@ async function main(): Promise<void> {
     "Inspect entity Lua scope. side='server'→ent_script_dump, side='client'→cl_ent_script_dump. Pass entity name/class/entindex.",
     { entity: z.string().describe("Entity identifier"), side: z.enum(["server","client"]).optional().default("client") },
     async ({ entity, side }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
       const cmd = side === "server" ? "ent_script_dump" : "cl_ent_script_dump";
       const out = await queryConsole(`${cmd} ${entity}`, 3000);
       return { content: [{ type: "text", text: out.join("\n") || "(no data)" }] };
@@ -572,7 +601,7 @@ async function main(): Promise<void> {
     "Query Lua API. side='server'→script_help2 (full stub format, needs game), side='client'→cl_script_help2 (always available).",
     { func: z.string().optional().describe("Function/class name. Empty=full dump."), side: z.enum(["server","client"]).optional().default("server").describe("server or client") },
     async ({ func, side }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
       const cmd = side === "client" ? "cl_script_help2" : "script_help2";
       const out = await queryConsole(func ? `${cmd} ${func}` : cmd, 3000);
       return { content: [{ type: "text", text: out.join("\n") || "(no results)" }] };
@@ -584,7 +613,7 @@ async function main(): Promise<void> {
     "Query Panorama JS API (cl_panorama_script_help_2). Enums and classes for UI scripts. Client-side only.",
     { name: z.string().optional().describe("Enum/class name. Empty=full list.") },
     async ({ name }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
       const out = await queryConsole(name ? `cl_panorama_script_help_2 ${name}` : "cl_panorama_script_help_2", 3000);
       return { content: [{ type: "text", text: out.join("\n") || "(no results)" }] };
     }
@@ -595,7 +624,7 @@ async function main(): Promise<void> {
     "Query Panorama CSS properties (dump_panorama_css_properties). Full descriptions + examples. Client-side only.",
     { prop: z.string().optional().describe("CSS property name, e.g. 'wash-color'. Empty=all 128.") },
     async ({ prop }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
       const out = await queryConsole(prop ? `dump_panorama_css_properties ${prop}` : "dump_panorama_css_properties", 3000);
       return { content: [{ type: "text", text: out.join("\n") || "(no results)" }] };
     }
@@ -606,7 +635,7 @@ async function main(): Promise<void> {
     "Query Panorama Panel events (dump_panorama_events). All event handlers with signatures. Client-side only.",
     { event: z.string().optional().describe("Event name, e.g. 'SetPanelSelected'. Empty=all events.") },
     async ({ event }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
       const out = await queryConsole(event ? `dump_panorama_events ${event}` : "dump_panorama_events", 3000);
       return { content: [{ type: "text", text: out.join("\n") || "(no results)" }] };
     }
@@ -623,7 +652,7 @@ async function main(): Promise<void> {
     "Run found commands without arguments to see usage, or use console_help.",
     { query: z.string().describe("Search keyword") },
     async ({ query }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
       const out = await queryConsole(`find ${query}`, 3000, 250);
       // Dota `find` output: header + separator + rows. Drop header/separator, keep rows that mention the query.
       const results = out.filter(l =>
@@ -644,7 +673,7 @@ async function main(): Promise<void> {
     "Show what a Dota 2 console command does and its current value.",
     { command: z.string().describe("Command name") },
     async ({ command }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
       const out = await queryConsole(`help ${command}`, 3000, 250);
       // help 命令常先 dump 一批枚举，再给出目标命令行；过滤出真正相关的行
       const relevant = out.filter(l => l.toLowerCase().includes(command.toLowerCase()));
@@ -694,7 +723,7 @@ async function main(): Promise<void> {
     "Query Dota 2 official Lua API docs via 'script_help'. Pass function name like 'CreateUnitByName' or 'CDOTA_BaseNPC'.",
     { query: z.string().optional().describe("Function or class name. Empty = list all registered API functions.") },
     async ({ query }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
       const out = await queryConsole(query ? `script_help ${query}` : "script_help", 4000, 300);
       return { content: [{ type: "text", text: out.join("\n") || "Sent. Use console_output to see results." }] };
     }
@@ -708,7 +737,7 @@ async function main(): Promise<void> {
       expression: z.string().optional().describe("Lua expression to evaluate; its result will be DeepPrintTable'd automatically (e.g. 'PlayerResource:GetAllTeamPlayerIDs()')."),
     },
     async ({ code, expression }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: "Not connected." }] };
+      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
 
       let luaBody: string;
       if (expression) {
@@ -832,15 +861,22 @@ async function main(): Promise<void> {
     "Compile Source 2 assets using resourcecompiler. Target can be absolute, relative to addon content, or start with content/ / game/.",
     {
       target: z.string().describe("File, folder, or VPK path to compile"),
+      addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
       recursive: z.boolean().optional().default(false).describe("Recursively scan subdirectories"),
       force: z.boolean().optional().default(false).describe("Force recompile even if up-to-date"),
       decompile: z.boolean().optional().default(false).describe("Use VRF decompile mode (Source2Viewer-CLI) instead of resourcecompiler"),
     },
-    async ({ target, recursive, force, decompile }) => {
-      const addon = currentAddon || addonName;
-      if (!addon) return { content: [{ type: "text", text: "No addon detected. Set DOTA2_ADDON or load a project first." }] };
+    async ({ target, addon, recursive, force, decompile }) => {
+      const a = resolveAddon(addon);
+      if (!a) {
+        const addons = listAddonsFs();
+        return { content: [{ type: "text", text: addons.length > 1
+          ? `No addon detected. Please specify one of: ${addons.join(", ")}`
+          : "No addon detected. Load a project first or specify the addon name."
+        }] };
+      }
 
-      const resolved = resolveAssetPath(target, addon);
+      const resolved = resolveAssetPath(target, a);
 
       if (decompile) {
         const result = await runDotaTool("Source2Viewer-CLI", [

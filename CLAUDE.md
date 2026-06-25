@@ -38,7 +38,7 @@ npm run start
 
 ## 环境变量
 
-- `DOTA2_ADDON` — 当自动检测失败时使用的 addon 名称。Dota 2 路径现在通过 Steam appid `570` 自动检测，无需手动配置。
+无需配置环境变量。Dota 2 路径通过 Steam appid `570` 自动检测，addon 名称通过 VCon relay 实时获取或在 `content/dota_addons/` 下自动推断。
 
 ## 架构
 
