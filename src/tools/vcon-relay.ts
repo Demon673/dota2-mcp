@@ -14,9 +14,20 @@ import * as path from "path";
 import { EventEmitter } from "events";
 import { VConClient, PrntMessage, AinfMessage } from "./vcon-bridge.js";
 
-const DOTA_PORT = 29000;  // Dota 2 VCon 端口
-const GUI_PORT = 29001;   // VConsole2 GUI 连接端口
-const CTRL_PORT = 29002;  // MCP 控制端口
+const DEFAULT_DOTA_PORT = 29000;  // Dota 2 VCon 端口
+const DEFAULT_GUI_PORT = 29001;   // VConsole2 GUI 连接端口
+const DEFAULT_CTRL_PORT = 29002;  // MCP 控制端口
+
+function parsePort(name: string, fallback: number): number {
+  const v = process.env[name];
+  if (!v) return fallback;
+  const n = parseInt(v, 10);
+  return Number.isNaN(n) ? fallback : n;
+}
+
+const DOTA_PORT = parsePort("DOTA2_VCON_DOTA_PORT", DEFAULT_DOTA_PORT);
+const GUI_PORT = parsePort("DOTA2_VCON_GUI_PORT", DEFAULT_GUI_PORT);
+const CTRL_PORT = parsePort("DOTA2_VCON_CTRL_PORT", DEFAULT_CTRL_PORT);
 
 export class VConRelay extends EventEmitter {
   private dotaClient: VConClient | null = null;

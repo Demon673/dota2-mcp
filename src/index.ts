@@ -468,12 +468,18 @@ async function main(): Promise<void> {
 
     return new Promise((resolve) => {
       let settled = false;
+      let settleTimer: NodeJS.Timeout | null = null;
+      let waitTimer: NodeJS.Timeout | null = null;
 
       const onPrnt = (msg: any) => {
         collected.push(msg.text);
       };
 
       const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (settleTimer) clearTimeout(settleTimer);
+        if (waitTimer) clearTimeout(waitTimer);
         relay.off("prnt", onPrnt);
         const lines = prntLog.slice(-collected.length).map(l => l.text);
         const result = extractLastStatusJson(collected.length > 0 ? collected : lines);
@@ -494,23 +500,17 @@ async function main(): Promise<void> {
         const elapsed = Date.now() - lastChangeTime;
         const gotSome = collected.length > 0;
         if (gotSome && elapsed > 150) {
-          if (!settled) {
-            settled = true;
-            finish();
-          }
+          finish();
           return;
         }
-        setTimeout(settleCheck, 50);
+        settleTimer = setTimeout(settleCheck, 50);
       };
 
-      setTimeout(() => {
-        if (!settled) {
-          settled = true;
-          finish();
-        }
+      waitTimer = setTimeout(() => {
+        finish();
       }, waitMs);
 
-      setTimeout(settleCheck, 50);
+      settleTimer = setTimeout(settleCheck, 50);
     });
   }
 
@@ -527,8 +527,14 @@ async function main(): Promise<void> {
       let lastLen = 0;
       let lastChangeTime = Date.now();
       let settled = false;
+      let checkTimer: NodeJS.Timeout | null = null;
+      let waitTimer: NodeJS.Timeout | null = null;
 
       const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (checkTimer) clearTimeout(checkTimer);
+        if (waitTimer) clearTimeout(waitTimer);
         relay.off("prnt", onPrnt);
         resolve(collected);
       };
@@ -541,23 +547,17 @@ async function main(): Promise<void> {
         const elapsed = Date.now() - lastChangeTime;
         const gotSome = collected.length > 0;
         if (settleMs && gotSome && elapsed > settleMs) {
-          if (!settled) {
-            settled = true;
-            finish();
-          }
+          finish();
           return;
         }
-        setTimeout(check, 50);
+        checkTimer = setTimeout(check, 50);
       };
 
-      setTimeout(() => {
-        if (!settled) {
-          settled = true;
-          finish();
-        }
+      waitTimer = setTimeout(() => {
+        finish();
       }, waitMs);
 
-      setTimeout(check, 50);
+      checkTimer = setTimeout(check, 50);
     });
   }
 
@@ -848,7 +848,12 @@ async function main(): Promise<void> {
     return process.platform === "win32" ? `${baseName}.exe` : baseName;
   }
 
-  /** 执行 Dota 2 工具目录下的可执行文件 */
+  /** 执行 Dota 2 工具目录下的可执行文件。
+   *
+   * - waitForExit = true：等待进程退出并收集 stdout/stderr。
+   * - waitForExit = false：在进程成功启动后立即返回 PID；
+   *   如果启动失败（如可执行文件不存在）则返回 ok=false。
+   */
   function runDotaTool(exeBase: string, args: string[], waitForExit = false): Promise<{ ok: boolean; stdout: string; stderr: string }> {
     const exePath = path.join(getDotaBinDir(dotaPath || ""), getDotaExeName(exeBase));
     return new Promise((resolve) => {
@@ -858,14 +863,30 @@ async function main(): Promise<void> {
       });
       let stdout = "";
       let stderr = "";
-      proc.stdout?.on("data", (d) => { stdout += d.toString(); });
-      proc.stderr?.on("data", (d) => { stderr += d.toString(); });
-      proc.on("error", (e) => resolve({ ok: false, stdout, stderr: e.message }));
+      let resolved = false;
+
+      const onStdout = (d: Buffer) => { stdout += d.toString(); };
+      const onStderr = (d: Buffer) => { stderr += d.toString(); };
+      proc.stdout?.on("data", onStdout);
+      proc.stderr?.on("data", onStderr);
+
+      const finish = (result: { ok: boolean; stdout: string; stderr: string }) => {
+        if (resolved) return;
+        resolved = true;
+        proc.stdout?.off("data", onStdout);
+        proc.stderr?.off("data", onStderr);
+        resolve(result);
+      };
+
+      proc.on("error", (e) => finish({ ok: false, stdout, stderr: e.message }));
+
       if (waitForExit) {
-        proc.on("close", (code) => resolve({ ok: code === 0, stdout, stderr }));
+        proc.on("close", (code) => finish({ ok: code === 0, stdout, stderr }));
       } else {
-        // 对于 GUI 编辑器，启动后立即返回 PID
-        resolve({ ok: true, stdout: `started pid=${proc.pid}`, stderr });
+        proc.on("spawn", () => {
+          proc.unref();
+          finish({ ok: true, stdout: `started pid=${proc.pid}`, stderr });
+        });
       }
     });
   }
