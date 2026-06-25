@@ -12,18 +12,46 @@
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+import { createRequire } from "module";
 import { VConRelay } from "./tools/vcon-relay.js";
 import * as consoleBridge from "./tools/console-bridge.js";
+
+function getVersion(): string {
+  try {
+    const require = createRequire(import.meta.url);
+    return require("../package.json").version;
+  } catch {
+    return "1.1.1";
+  }
+}
+
+// Stdio MCP 服务器必须保证 stdout 只输出 JSON-RPC，任何 console.log/info 都重定向到 stderr
+console.log = (...args: any[]) => console.error(...args);
+console.info = (...args: any[]) => console.error(...args);
+
+// 防止未捕获异常/未处理 Promise 破坏 stdio 流
+process.on("uncaughtException", (err) => {
+  console.error("[fatal] uncaughtException:", err);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[fatal] unhandledRejection:", reason);
+});
 
 async function main(): Promise<void> {
   const server = new McpServer({
     name: "dota2-mcp",
-    version: "1.1.1",
+    version: getVersion(),
+  }, {
+    capabilities: {
+      tools: { listChanged: false },
+      logging: {},
+    },
   });
 
   // -----------------------------------------------------------------------
@@ -48,7 +76,7 @@ async function main(): Promise<void> {
   });
 
   relay.start().catch((err) => {
-    console.error("[relay] Failed:", err.message);
+    server.sendLoggingMessage({ level: "error", data: `[relay] Failed: ${err.message}` });
   });
 
   /** 统一的未连接提示 */
@@ -185,21 +213,31 @@ async function main(): Promise<void> {
   server.tool("console_output",
     "Read Dota 2 console output with severity filtering. level: 0=all, 1=warnings+, 2=asserts+, 3=errors only.",
     {
-      lines: z.number().optional().default(50),
-      level: z.number().optional().default(0).describe("0=all, 1=warnings+, 3=errors only"),
+      lines: z.number().optional().describe("Number of lines to return. Default 50."),
+      level: z.number().optional().describe("0=all, 1=warnings+, 2=asserts+, 3=errors only. Default 0."),
       filter: z.string().optional().describe("Optional regex"),
       channel: z.string().optional().describe("Filter by source channel(s), e.g. VScript, PanoramaScript, ResourceSystem. Use comma to filter multiple channels like 'VScript, PanoramaScript'. Use console_channels to list available channels."),
     },
     async ({ lines, level, filter, channel }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
+      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      const n = lines ?? 50;
+      const lvl = level ?? 0;
       let output = prntLog;
-      if (level > 0) output = output.filter(l => l.verbosity >= level);
-      if (filter) { const re = new RegExp(filter, "i"); output = output.filter(l => re.test(l.text)); }
+      if (lvl > 0) output = output.filter(l => l.verbosity >= lvl);
+      if (filter) {
+        let re: RegExp;
+        try {
+          re = new RegExp(filter, "i");
+        } catch (e) {
+          throw new McpError(ErrorCode.InvalidRequest, `Invalid regex filter: ${filter}`);
+        }
+        output = output.filter(l => re.test(l.text));
+      }
       if (channel) {
         const chs = channel.split(",").map(c => c.trim().toLowerCase()).filter(Boolean);
         output = output.filter(l => chs.includes(l.channel.toLowerCase()));
       }
-      return { content: [{ type: "text", text: output.slice(-lines).map(l => `[${l.channel || "?"}][L${l.verbosity}] ${l.text}`).join("\n") || "(no output)" }] };
+      return { content: [{ type: "text", text: output.slice(-n).map(l => `[${l.channel || "?"}][L${l.verbosity}] ${l.text}`).join("\n") || "(no output)" }] };
     }
   );
 
@@ -208,7 +246,7 @@ async function main(): Promise<void> {
     "List all available VConsole2 source channels with short descriptions. Use the channel names with console_output channel filter.",
     {},
     async () => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
+      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
       const channels = relay.getChannels();
       const lines = channels.map(name => {
         const desc = channelDescriptions[name];
@@ -223,7 +261,7 @@ async function main(): Promise<void> {
     "Send console command to Dota 2 via VCon TCP",
     { commands: z.string().describe("Command(s), newline-separated") },
     async ({ commands }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
+      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
       const cmds = commands.split("\n").map(c => c.trim()).filter(Boolean);
       cmds.forEach(c => relay.sendCommand(c));
       return { content: [{ type: "text", text: `Sent ${cmds.length} command(s)` }] };
@@ -236,19 +274,10 @@ async function main(): Promise<void> {
     "Check current addon, map, game state. Call FIRST before other tools.",
     {},
     async () => {
+      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
       const addon = resolveAddon();
       const maps = currentMaps.length > 0 ? currentMaps : scanMapsFs(addon);
       const allMaps = currentAllMaps.length > 0 ? currentAllMaps : scanMapsFs(addon);
-
-      if (!relay.dotaConnected) {
-        return { content: [{ type: "text", text: JSON.stringify({
-          addon: currentAddon || "(no project loaded)",
-          maps,
-          allMaps,
-          connection: { dota: false, gui: false },
-          hint: "Not connected to Dota 2. Start relay first.",
-        }, null, 2) }] };
-      }
 
       // 发送 status_json 命令获取运行时状态
       const status = await queryStatusJson(5000);
@@ -294,15 +323,15 @@ async function main(): Promise<void> {
     {
       map: z.string().optional().describe("Map name. Auto-detected if omitted."),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
-      timeout: z.number().optional().default(45).describe("Max seconds to wait for the map to finish loading."),
+      timeout: z.number().optional().describe("Max seconds to wait for the map to finish loading. Default 45."),
     },
     async ({ addon, map, timeout }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
+      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
       const a = resolveAddon(addon);
       const maps = currentMaps.length > 0 ? currentMaps : scanMapsFs(a);
       const m = map || maps[0];
-      if (!a) return { content: [{ type: "text", text: "No addon detected. Load a project first." }] };
-      if (!m) return { content: [{ type: "text", text: `No map specified and none found in addon '${a}'. Available: ${maps.length > 0 ? maps.join(", ") : "none"}` }] };
+      if (!a) throw new McpError(ErrorCode.InvalidRequest, "No addon detected. Load a project first or specify addon.");
+      if (!m) throw new McpError(ErrorCode.InvalidRequest, `No map specified and none found in addon '${a}'. Available: ${maps.length > 0 ? maps.join(", ") : "none"}`);
 
       const cmd = `dota_launch_custom_game ${a} ${m}`;
       const timeoutMs = Math.max(10, timeout || 45) * 1000;
@@ -341,7 +370,7 @@ async function main(): Promise<void> {
     "Disconnect from current game.",
     {},
     async () => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
+      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
       relay.sendCommand("disconnect");
       return { content: [{ type: "text", text: "Disconnected." }] };
     }
@@ -352,7 +381,7 @@ async function main(): Promise<void> {
     "Reload the current map. Uses Source 2 'restart' command.",
     {},
     async () => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
+      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
       relay.sendCommand("restart");
       return { content: [{ type: "text", text: "Sent: restart (reloads current map)" }] };
     }
@@ -367,7 +396,7 @@ async function main(): Promise<void> {
     "List all entities currently in the game scene. Use this to inspect game state.",
     {},
     async () => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
+      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
       const out = await collectOutput("dump_entity_report", { waitMs: 5000, settleMs: 300 });
       return { content: [{ type: "text", text: out.join("\n") || "Sent. Use console_output." }] };
     }
@@ -376,10 +405,11 @@ async function main(): Promise<void> {
   // Tool: 列出所有 modifier
   server.tool("dota_dump_modifiers",
     "Dump modifiers. side='server'→dota_modifier_dump (all on entities), side='client'→cl_dump_modifier_list (all types).",
-    { side: z.enum(["server","client"]).optional().default("client").describe("server or client") },
+    { side: z.enum(["server","client"]).optional().describe("server or client. Default client.") },
     async ({ side }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
-      const cmd = side === "server" ? "dota_modifier_dump" : "cl_dump_modifier_list";
+      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      const s = side ?? "client";
+      const cmd = s === "server" ? "dota_modifier_dump" : "cl_dump_modifier_list";
       const out = await queryConsole(cmd, 3000);
       return { content: [{ type: "text", text: out.join("\n") || "(no results)" }] };
     }
@@ -388,10 +418,11 @@ async function main(): Promise<void> {
   // Tool: 查看实体脚本作用域
   server.tool("dota_entity_inspect",
     "Inspect entity Lua scope. side='server'→ent_script_dump, side='client'→cl_ent_script_dump. Pass entity name/class/entindex.",
-    { entity: z.string().describe("Entity identifier"), side: z.enum(["server","client"]).optional().default("client") },
+    { entity: z.string().describe("Entity identifier"), side: z.enum(["server","client"]).optional().describe("server or client. Default client.") },
     async ({ entity, side }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
-      const cmd = side === "server" ? "ent_script_dump" : "cl_ent_script_dump";
+      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      const s = side ?? "client";
+      const cmd = s === "server" ? "ent_script_dump" : "cl_ent_script_dump";
       const out = await queryConsole(`${cmd} ${entity}`, 3000);
       return { content: [{ type: "text", text: out.join("\n") || "(no data)" }] };
     }
@@ -599,10 +630,11 @@ async function main(): Promise<void> {
   // Tool: Lua API（服务端 + 客户端）
   server.tool("dota_api_lua",
     "Query Lua API. side='server'→script_help2 (full stub format, needs game), side='client'→cl_script_help2 (always available).",
-    { func: z.string().optional().describe("Function/class name. Empty=full dump."), side: z.enum(["server","client"]).optional().default("server").describe("server or client") },
+    { func: z.string().optional().describe("Function/class name. Empty=full dump."), side: z.enum(["server","client"]).optional().describe("server or client. Default server.") },
     async ({ func, side }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
-      const cmd = side === "client" ? "cl_script_help2" : "script_help2";
+      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      const s = side ?? "server";
+      const cmd = s === "client" ? "cl_script_help2" : "script_help2";
       const out = await queryConsole(func ? `${cmd} ${func}` : cmd, 3000);
       return { content: [{ type: "text", text: out.join("\n") || "(no results)" }] };
     }
@@ -613,7 +645,7 @@ async function main(): Promise<void> {
     "Query Panorama JS API (cl_panorama_script_help_2). Enums and classes for UI scripts. Client-side only.",
     { name: z.string().optional().describe("Enum/class name. Empty=full list.") },
     async ({ name }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
+      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
       const out = await queryConsole(name ? `cl_panorama_script_help_2 ${name}` : "cl_panorama_script_help_2", 3000);
       return { content: [{ type: "text", text: out.join("\n") || "(no results)" }] };
     }
@@ -624,7 +656,7 @@ async function main(): Promise<void> {
     "Query Panorama CSS properties (dump_panorama_css_properties). Full descriptions + examples. Client-side only.",
     { prop: z.string().optional().describe("CSS property name, e.g. 'wash-color'. Empty=all 128.") },
     async ({ prop }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
+      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
       const out = await queryConsole(prop ? `dump_panorama_css_properties ${prop}` : "dump_panorama_css_properties", 3000);
       return { content: [{ type: "text", text: out.join("\n") || "(no results)" }] };
     }
@@ -635,7 +667,7 @@ async function main(): Promise<void> {
     "Query Panorama Panel events (dump_panorama_events). All event handlers with signatures. Client-side only.",
     { event: z.string().optional().describe("Event name, e.g. 'SetPanelSelected'. Empty=all events.") },
     async ({ event }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
+      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
       const out = await queryConsole(event ? `dump_panorama_events ${event}` : "dump_panorama_events", 3000);
       return { content: [{ type: "text", text: out.join("\n") || "(no results)" }] };
     }
@@ -645,14 +677,10 @@ async function main(): Promise<void> {
 
   // Tool: 搜索所有 5248 个 console 指令/cvar
   server.tool("console_find",
-    "🔍 UNIVERSAL DISCOVERY: Search all 5248 Dota 2 console commands/convars.\n" +
-    "This is THE most powerful tool — use it to discover ANY command you need.\n" +
-    "Key search prefixes: 'dota_' (game commands), 'script_' (Lua hot reload), 'sv_' (server), 'cl_' (client)\n" +
-    "Example queries: 'restart', 'dota_create', 'script_reload', 'host_timescale', 'dota_dev', 'dota_bot', 'dota_hero'\n" +
-    "Run found commands without arguments to see usage, or use console_help.",
+    "Search all Dota 2 console commands and convars. Use prefixes like 'dota_', 'script_', 'sv_', 'cl_' to narrow results.",
     { query: z.string().describe("Search keyword") },
     async ({ query }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
+      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
       const out = await queryConsole(`find ${query}`, 3000, 250);
       // Dota `find` output: header + separator + rows. Drop header/separator, keep rows that mention the query.
       const results = out.filter(l =>
@@ -673,7 +701,7 @@ async function main(): Promise<void> {
     "Show what a Dota 2 console command does and its current value.",
     { command: z.string().describe("Command name") },
     async ({ command }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
+      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
       const out = await queryConsole(`help ${command}`, 3000, 250);
       // help 命令常先 dump 一批枚举，再给出目标命令行；过滤出真正相关的行
       const relevant = out.filter(l => l.toLowerCase().includes(command.toLowerCase()));
@@ -723,7 +751,7 @@ async function main(): Promise<void> {
     "Query Dota 2 official Lua API docs via 'script_help'. Pass function name like 'CreateUnitByName' or 'CDOTA_BaseNPC'.",
     { query: z.string().optional().describe("Function or class name. Empty = list all registered API functions.") },
     async ({ query }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
+      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
       const out = await queryConsole(query ? `script_help ${query}` : "script_help", 4000, 300);
       return { content: [{ type: "text", text: out.join("\n") || "Sent. Use console_output to see results." }] };
     }
@@ -737,7 +765,7 @@ async function main(): Promise<void> {
       expression: z.string().optional().describe("Lua expression to evaluate; its result will be DeepPrintTable'd automatically (e.g. 'PlayerResource:GetAllTeamPlayerIDs()')."),
     },
     async ({ code, expression }) => {
-      if (!relay.dotaConnected) return { content: [{ type: "text", text: notConnectedText() }] };
+      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
 
       let luaBody: string;
       if (expression) {
@@ -862,26 +890,28 @@ async function main(): Promise<void> {
     {
       target: z.string().describe("File, folder, or VPK path to compile"),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
-      recursive: z.boolean().optional().default(false).describe("Recursively scan subdirectories"),
-      force: z.boolean().optional().default(false).describe("Force recompile even if up-to-date"),
-      decompile: z.boolean().optional().default(false).describe("Use VRF decompile mode (Source2Viewer-CLI) instead of resourcecompiler"),
+      recursive: z.boolean().optional().describe("Recursively scan subdirectories. Default false."),
+      force: z.boolean().optional().describe("Force recompile even if up-to-date. Default false."),
+      decompile: z.boolean().optional().describe("Use VRF decompile mode (Source2Viewer-CLI) instead of resourcecompiler. Default false."),
     },
     async ({ target, addon, recursive, force, decompile }) => {
       const a = resolveAddon(addon);
       if (!a) {
         const addons = listAddonsFs();
-        return { content: [{ type: "text", text: addons.length > 1
+        throw new McpError(ErrorCode.InvalidRequest, addons.length > 1
           ? `No addon detected. Please specify one of: ${addons.join(", ")}`
           : "No addon detected. Load a project first or specify the addon name."
-        }] };
+        );
       }
 
       const resolved = resolveAssetPath(target, a);
+      const r = recursive ?? false;
+      const f = force ?? false;
 
       if (decompile) {
         const result = await runDotaTool("Source2Viewer-CLI", [
           "-i", resolved,
-          ...(recursive ? ["-r"] : []),
+          ...(r ? ["-r"] : []),
           "-d",
         ], true);
         return { content: [{ type: "text", text: result.ok
@@ -892,8 +922,8 @@ async function main(): Promise<void> {
 
       const gameInfo = path.join(dotaPath || "", "game", "dota");
       const args = ["-i", resolved, "-game", gameInfo];
-      if (recursive) args.push("-r");
-      if (force) args.push("-f");
+      if (r) args.push("-r");
+      if (f) args.push("-f");
       const result = await runDotaTool("resourcecompiler", args, true);
       return { content: [{ type: "text", text: result.ok
         ? `Compiled ${resolved}\n${result.stdout.slice(0, 2000)}`
@@ -904,7 +934,7 @@ async function main(): Promise<void> {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("dota2-mcp ready");
+  server.sendLoggingMessage({ level: "info", data: "dota2-mcp ready" });
 }
 
 main().catch((err) => {

@@ -15,7 +15,8 @@
     "dist/tools/**/*",
     "README.md",
     "CLAUDE.md",
-    "LICENSE"
+    "LICENSE",
+    "package.json"
   ],
   "keywords": [
     "mcp",
