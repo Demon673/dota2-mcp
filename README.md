@@ -1,147 +1,170 @@
 # dota2-mcp
 
-一个基于 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 的 Dota 2 自定义游戏开发服务器。
+让 AI 助手直接连接你的 Dota 2 客户端，辅助自定义游戏开发。
 
-它通过 VConsole2 TCP 协议直接与运行中的 Dota 2 客户端通信，让 AI 代理（如 Claude Code）能够：
+`dota2-mcp` 是一个基于 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 的服务器。接入支持 MCP 的 AI 客户端（如 Claude Code、Cursor 等）后，AI 就能在 Dota 2 运行时：
 
-- 实时读写 Dota 2 控制台
-- 查询 Lua / Panorama JS / CSS / 事件等官方 API（实时从引擎获取）
-- 启动、重启、断开游戏
-- 查看实体、修饰器、实体脚本作用域
+- 读取并发送控制台命令
+- 查询 Lua / Panorama JS / CSS / 事件 API
+- 启动、重载、断开自定义游戏地图
+- 查看当前场景中的实体、修饰器、实体脚本
 - 编译 Source 2 资源
 
-所有功能纯 Node.js 实现，无额外二进制依赖。
+无需手动复制粘贴控制台输出，AI 可以直接从游戏里拿到实时信息。
 
 ## 前置条件
 
-- Node.js ≥ 18
-- Dota 2 已安装并启用了 VConsole2（启动参数带 `-vconsole`，或在游戏中打开 vconsole2）
-- vconsole2 GUI 连接到 `127.0.0.1:29001`（而不是默认的 `29000`）
+- Node.js ≥ 18（推荐）
+- Dota 2 已安装，且启动了 VConsole2（游戏启动参数带 `-vconsole`）
+- vconsole2 GUI 连接 `127.0.0.1:29001`（而不是默认的 `29000`）
 
-## 安装与构建
+## 配置 vconsole2 GUI 端口
+
+Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota2-mcp` 已经占用了这个端口，并把 GUI 转发到 `127.0.0.1:29001`，所以需要手动把 vconsole2 切过去。
+
+### 首次设置
+
+1. 打开 vconsole2，在顶部工具栏下方第一排找到连接/设备选择区域。
+2. 选择 **Add a new device to connect.**（添加一个新的连接设备），输入 `29001`，标题会显示为 `Localhost:29001`，然后打开连接。
+3. 选中默认的 `Localhost`（即 `29000`），断开连接。
+
+完成这一步后，vconsole2 就能正常显示 Dota 2 控制台了。
+
+### 设置自动连接（可选）
+
+不想每次手动切换端口，可以设置开机自动连 `29001`：
+
+1. 选中 `Localhost:29001`，点击菜单栏 **Devices → Properties**，开启 **Auto connect at startup**。
+2. 再切换回默认的 `Localhost`（`29000`），同样在 **Devices → Properties** 里关闭 **Auto connect at startup**。
+
+这样下次启动 vconsole2 时会自动连接 `29001`，不会再尝试占用 `29000`。
+
+## 安装
+
+### 方式一：源码运行（开发推荐）
 
 ```bash
+git clone git@github.com:Demon673/dota2-mcp.git
+cd dota2-mcp
 npm install
 npm run build
 ```
 
-## 作为 MCP 服务器使用
+### 方式二：下载独立可执行文件
 
-### 方式一：直接运行（开发/源码）
+从 [GitHub Releases](https://github.com/Demon673/dota2-mcp/releases) 下载对应平台的二进制文件，无需安装 Node.js：
+
+| 平台 | 文件名 |
+|------|--------|
+| Windows | `dota2-mcp-win.exe` |
+| Linux | `dota2-mcp-linux` |
+| macOS | `dota2-mcp-mac` |
+
+Linux / macOS 下载后需要赋予执行权限：
 
 ```bash
-npm run start
+chmod +x dota2-mcp-linux
 ```
 
-MCP 客户端配置：
+## 在 AI 客户端中使用
+
+### Claude Code / Claude Desktop
+
+源码方式：
 
 ```json
 {
   "mcpServers": {
     "dota2": {
       "command": "node",
-      "args": ["C:/path/to/dota2-mcp/dist/index.js"]
+      "args": ["/path/to/dota2-mcp/dist/index.js"]
     }
   }
 }
 ```
 
-### 方式二：使用独立可执行文件（推荐发布）
-
-打包成单个 `.exe`：
-
-```bash
-npm run build
-npm run package
-```
-
-生成 `dist/dota2-mcp.exe`（约 90MB，内含 Node 运行时）。
-
-MCP 客户端配置：
+独立可执行文件方式（Windows）：
 
 ```json
 {
   "mcpServers": {
     "dota2": {
-      "command": "C:/path/to/dota2-mcp/dist/dota2-mcp.exe"
+      "command": "C:/path/to/dota2-mcp-win.exe"
     }
   }
 }
 ```
 
-### 端口说明
+独立可执行文件方式（Linux / macOS）：
 
-服务器启动后会监听三个端口：
+```json
+{
+  "mcpServers": {
+    "dota2": {
+      "command": "/path/to/dota2-mcp-linux"
+    }
+  }
+}
+```
 
-| 端口 | 用途 |
-|------|------|
-| 29000 | Dota 2 VConsole2（由 relay 独占） |
-| 29001 | vconsole2 GUI 连接端口（relay 转发） |
-| 29002 | MCP 控制端口（备用，MCP 主要走 stdio） |
+### Cursor
 
-### 环境变量
+在 Cursor 设置中找到 MCP 配置，添加上述对应内容即可。
+
+## 环境变量
 
 | 变量 | 说明 |
 |------|------|
-| `DOTA2_PATH` | Dota 2 beta 目录，如 `D:/SteamLibrary/steamapps/common/dota 2 beta`。未设置时自动检测常见 Steam 路径。 |
+| `DOTA2_PATH` | Dota 2 beta 目录。未设置时会按平台自动检测常见 Steam 路径。 |
 | `DOTA2_ADDON` | 当自动检测失败时使用的 addon 名称。 |
 
-## 提供的工具
+常见 `DOTA2_PATH` 示例：
 
-| 工具 | 说明 |
+- Windows：`D:/SteamLibrary/steamapps/common/dota 2 beta`
+- Linux：`~/.steam/steam/steamapps/common/dota 2 beta`
+- macOS：`~/Library/Application Support/Steam/steamapps/common/dota 2 beta`
+
+## 可用工具
+
+| 工具 | 用途 |
 |------|------|
-| `project_info` | 当前 addon、地图、游戏状态。建议先调用。 |
+| `project_info` | 获取当前 addon、地图、游戏状态。建议先调用。 |
 | `dota_launch_game` | 启动自定义游戏地图。 |
 | `dota_disconnect` | 断开当前游戏。 |
 | `dota_restart` | 重载当前地图。 |
 | `console_send` | 向 Dota 2 控制台发送命令。 |
-| `console_output` | 读取控制台输出，支持按级别、通道、正则过滤。 |
-| `console_channels` | 列出当前可用的 VConsole2 通道。 |
-| `console_find` | 搜索所有控制台命令/cvar。 |
+| `console_output` | 读取控制台输出。 |
+| `console_channels` | 列出可用的 VConsole2 通道。 |
+| `console_find` | 搜索控制台命令或 cvar。 |
 | `console_help` | 查看命令说明。 |
-| `console_gui_filter` | 控制 MCP 产生的控制台输出是否转发到 vconsole2 GUI（默认开启屏蔽）。 |
-| `dota_api_lua` | 查询 Lua API（`script_help2` / `cl_script_help2`）。 |
+| `console_gui_filter` | 控制 MCP 产生的控制台输出是否显示在 vconsole2 GUI 里（默认屏蔽）。 |
+| `dota_api_lua` | 查询 Lua API。 |
 | `dota_api_panorama_js` | 查询 Panorama JS API。 |
 | `dota_api_css` | 查询 Panorama CSS 属性。 |
 | `dota_api_events` | 查询 Panorama 事件。 |
-| `dota_api_help` | 查询官方 Lua API 文档（`script_help`）。 |
+| `dota_api_help` | 查询官方 Lua API 文档。 |
 | `dota_run_lua` | 在运行中的游戏里执行服务端 Lua。 |
 | `dota_dump_entities` | 列出当前场景实体。 |
 | `dota_dump_modifiers` | 列出修饰器。 |
 | `dota_entity_inspect` | 查看实体 Lua 作用域。 |
-| `dota_compile_asset` | 使用 `resourcecompiler.exe` 编译 Source 2 资源。 |
+| `dota_compile_asset` | 编译 Source 2 资源。 |
 
-## vconsole2 GUI 输出屏蔽
+## 常见问题
 
-默认情况下，MCP 发送的命令及其产生的控制台输出不会显示在 vconsole2 GUI 里，避免人类开发者被大量 JSON/API dump 刷屏。
+**AI 提示找不到 Dota 2 怎么办？**
 
-屏蔽方式：MCP 把命令包在 `ai_disabled; <cmd>; ai_disabled` 中一次性发送，relay 检测到 `ai_disabled = false` / `ai_disabled = true` 这两行标记后，把标记之间的输出从 GUI 转发中丢弃。MCP 工具本身仍能通过 `console_output` 等读取完整输出。
+设置 `DOTA2_PATH` 环境变量指向你的 `dota 2 beta` 目录。
 
-如需临时关闭，调用 `console_gui_filter` 并设置 `auto: false`。
+**为什么 vconsole2 GUI 要连 `29001`？**
 
-## 开发命令
+因为 `dota2-mcp` 需要独占 Dota 2 的 VConsole2 连接，它会把 GUI 转发到 `29001`。这样人类开发者和 AI 都能同时使用控制台。
 
-```bash
-npm run build    # 编译 src/ 到 dist/
-npm run dev      # 监听模式编译
-npm run start    # 运行编译后的服务器
-npm run check    # 仅类型检查
-```
+**我不想让 MCP 输出出现在 vconsole2 GUI 里**
 
-## 测试
-
-```bash
-node scripts/test-mcp-tools.mjs
-```
-
-该脚本会启动服务器、连接 Dota 2，并逐个调用所有工具，最后输出通过/失败摘要。
-
-## 已知限制
-
-- 同一台机器上只能运行一个 relay 实例（端口 29001/29002 唯一）。
-- 很多 API dump / 实体检查工具需要地图已经加载。
-- VConsole2 GUI 必须手动配置为连接 `127.0.0.1:29001`。
+默认就是屏蔽的。如果想临时关闭，调用 `console_gui_filter` 并设置 `auto: false`。
 
 ## 版本
 
-当前版本：`v1.0.0`
+当前版本：`v1.1.0`
+
+详情见 [CHANGELOG.md](./CHANGELOG.md) 与 [GitHub Releases](https://github.com/Demon673/dota2-mcp/releases)。

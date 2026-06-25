@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0 (2026-06-25)
+
+### 新增
+
+- 跨平台支持：Windows、Linux、macOS。
+- 按平台自动检测 Steam / Dota 2 安装路径。
+- `npm run package` 现在使用 Node SEA 生成当前平台的独立可执行文件。
+- 新增 GitHub Actions Release workflow，发布 Release 时自动构建三平台二进制并上传。
+- 添加 MIT 开源协议。
+
 ## 1.0.0 (2026-06-25)
 
 首个可用版本。

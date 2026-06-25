@@ -22,7 +22,7 @@ import * as consoleBridge from "./tools/console-bridge.js";
 async function main(): Promise<void> {
   const server = new McpServer({
     name: "dota2-mcp",
-    version: "0.1.0",
+    version: "1.1.0",
   });
 
   // -----------------------------------------------------------------------
@@ -775,11 +775,25 @@ async function main(): Promise<void> {
   // Workshop Tools 集成 — 启动编辑器 / 编译资源
   // ═══════════════════════════════════════════════════════════════
 
-  const dotaExeDir = path.join(dotaPath || "", "game", "bin", "win64");
+  /** 根据平台返回 Dota 2 工具二进制目录 */
+  function getDotaBinDir(dotaRoot: string): string {
+    const platform = process.platform;
+    const archDir =
+      platform === "win32" ? "win64" :
+      platform === "linux" ? "linuxsteamrt64" :
+      platform === "darwin" ? "osx64" :
+      "win64";
+    return path.join(dotaRoot, "game", "bin", archDir);
+  }
 
-  /** 执行 Dota 2 win64 目录下的工具 exe */
-  function runDotaTool(exeName: string, args: string[], waitForExit = false): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-    const exePath = path.join(dotaExeDir, exeName);
+  /** 根据平台追加 .exe 后缀 */
+  function getDotaExeName(baseName: string): string {
+    return process.platform === "win32" ? `${baseName}.exe` : baseName;
+  }
+
+  /** 执行 Dota 2 工具目录下的可执行文件 */
+  function runDotaTool(exeBase: string, args: string[], waitForExit = false): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+    const exePath = path.join(getDotaBinDir(dotaPath || ""), getDotaExeName(exeBase));
     return new Promise((resolve) => {
       const proc = spawn(exePath, args, {
         detached: !waitForExit,
@@ -815,7 +829,7 @@ async function main(): Promise<void> {
 
   // Tool: 编译 Source 2 资源
   server.tool("dota_compile_asset",
-    "Compile Source 2 assets using resourcecompiler.exe. Target can be absolute, relative to addon content, or start with content/ / game/.",
+    "Compile Source 2 assets using resourcecompiler. Target can be absolute, relative to addon content, or start with content/ / game/.",
     {
       target: z.string().describe("File, folder, or VPK path to compile"),
       recursive: z.boolean().optional().default(false).describe("Recursively scan subdirectories"),
@@ -829,7 +843,7 @@ async function main(): Promise<void> {
       const resolved = resolveAssetPath(target, addon);
 
       if (decompile) {
-        const result = await runDotaTool("Source2Viewer-CLI.exe", [
+        const result = await runDotaTool("Source2Viewer-CLI", [
           "-i", resolved,
           ...(recursive ? ["-r"] : []),
           "-d",
@@ -844,7 +858,7 @@ async function main(): Promise<void> {
       const args = ["-i", resolved, "-game", gameInfo];
       if (recursive) args.push("-r");
       if (force) args.push("-f");
-      const result = await runDotaTool("resourcecompiler.exe", args, true);
+      const result = await runDotaTool("resourcecompiler", args, true);
       return { content: [{ type: "text", text: result.ok
         ? `Compiled ${resolved}\n${result.stdout.slice(0, 2000)}`
         : `Compile failed: ${result.stderr}`
