@@ -4,7 +4,9 @@
   "description": "MCP server for Dota 2 custom game development — real-time console bridge, live API docs, game control and asset tooling via the Model Context Protocol.",
   "type": "module",
   "main": "dist/index.js",
-  "bin": "dist/index.js",
+  "bin": {
+    "dota2-mcp": "dist/index.js"
+  },
   "files": [
     "dist/index.js",
     "dist/index.js.map",
