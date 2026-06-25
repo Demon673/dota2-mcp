@@ -331,9 +331,6 @@ export class VConClient extends EventEmitter {
 
   private _dispatch(header: FrameHeader, payload: Buffer): void {
     switch (header.type) {
-      case "PRNT":
-        this.emit("prnt", parsePrntPayload(payload));
-        break;
       case "AINF":
         this.emit("ainf", parseAinfPayload(payload));
         break;

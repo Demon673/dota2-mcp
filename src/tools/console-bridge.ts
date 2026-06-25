@@ -124,42 +124,6 @@ export function readErrors(
 }
 
 // ---------------------------------------------------------------------------
-// Command sending (via cfg file)
-// ---------------------------------------------------------------------------
-
-/**
- * 通过 cfg 文件向 Dota 2 发送 console 命令。
- *
- * 将命令写入 addon 目录下的临时 .cfg 文件，
- * 然后 Dota 2 通过 exec 执行。
- *
- * 注意：此方法需要游戏内 Lua 调用 SendToServerConsole("exec <file>")
- * 或用户手动在 console 中输入 exec 命令。
- * 完全自动化需要配合 HTTP bridge（见 http-bridge.ts）。
- */
-export function writeCfgCommand(
-  config: ConsoleBridgeConfig,
-  commands: string[],
-  cfgName: string = "mcp_cmd.cfg"
-): string {
-  const cfgDir = path.join(config.dotaPath, "game", "dota_addons", config.addonName);
-  if (!fs.existsSync(cfgDir)) {
-    fs.mkdirSync(cfgDir, { recursive: true });
-  }
-
-  const cfgPath = path.join(cfgDir, cfgName);
-  const content = commands.map((c) => `// MCP command @ ${new Date().toISOString()}\n${c}\n`).join("\n");
-  fs.writeFileSync(cfgPath, content, "utf-8");
-
-  return cfgPath;
-}
-
-/** 生成 exec 命令字符串，供 Lua SendToServerConsole 或手动输入 */
-export function buildExecCommand(cfgName: string = "mcp_cmd.cfg"): string {
-  return `exec ${cfgName}`;
-}
-
-// ---------------------------------------------------------------------------
 // Default config (auto-detected)
 // ---------------------------------------------------------------------------
 
