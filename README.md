@@ -175,6 +175,49 @@ chmod +x dota2-mcp-linux
 
 在 Cursor 设置中找到 MCP 配置，粘贴上述对应内容即可。
 
+### Claude Desktop
+
+编辑 Claude Desktop 的配置文件：
+
+- Windows：`%APPDATA%/Claude/claude_desktop_config.json`
+- macOS：`~/Library/Application Support/Claude/claude_desktop_config.json`
+
+把上面的 JSON 粘进 `mcpServers` 里即可。
+
+### VS Code
+
+VS Code 的 MCP 配置通常放在用户设置或工作区设置中。把同样的 `mcpServers` JSON 粘贴到 `settings.json` 的对应位置即可：
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "dota2": {
+        "command": "npx",
+        "args": ["-y", "dota2-mcp"]
+      }
+    }
+  }
+}
+```
+
+### Cline
+
+打开 Cline 设置 → MCP Servers，新增一个 server，把上面的 JSON 配置粘贴进去即可。
+
+### Codex (OpenAI Codex CLI)
+
+编辑 Codex CLI 的配置文件：
+
+- Windows：`%USERPROFILE%/.codex/config.json`
+- macOS / Linux：`~/.codex/config.json`
+
+把上面的 JSON 粘进 `mcpServers` 里即可（Codex CLI 的 MCP 配置格式与 Claude Desktop 类似）。
+
+### 其他客户端
+
+任何支持 MCP 的客户端，只要支持 `command` + `args` 启动外部程序，都可以使用同样的配置格式。如果客户端要求填写 `command` 和 `args` 分开，就对应填上即可。
+
 ## 环境变量
 
 | 变量 | 说明 |
