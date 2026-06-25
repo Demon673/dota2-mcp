@@ -25,8 +25,8 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 ### 首次设置
 
 1. 打开 vconsole2，在顶部工具栏下方第一排找到连接/设备选择区域。
-2. 选择 **Add a new device to connect.**（添加一个新的连接设备），输入 `29001`，标题会显示为 `Localhost:29001`，然后打开连接。
-3. 选中默认的 `Localhost`（即 `29000`），断开连接。
+2. 选择 **Add a new device to connect.**（添加一个新的连接设备），设置端口为 `29001`，创建成功后会多一个端口页签，标题会显示为 `Localhost:29001`，然后打开连接（**Devices → Connect**）。
+3. 选中默认的 `Localhost`（即 `29000`），断开连接（**Devices → Disconnect**）。
 
 完成这一步后，vconsole2 就能正常显示 Dota 2 控制台了。
 
@@ -39,6 +39,8 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 
 这样下次启动 vconsole2 时会自动连接 `29001`，不会再尝试占用 `29000`。
 
+如果后续想正常使用，只需把默认的`Localhost`（`29000`）端口再次连接（**Devices → Connect**）就行，反之要用MCP就断开（**Devices → Disconnect**）。
+
 ## 安装
 
 ### 方式一：源码运行（开发推荐）
@@ -50,7 +52,42 @@ npm install
 npm run build
 ```
 
-### 方式二：下载独立可执行文件
+### 方式二：通过 npm 安装（推荐，无需手动路径）
+
+全局安装：
+
+```bash
+npm install -g dota2-mcp
+```
+
+MCP 配置：
+
+```json
+{
+  "mcpServers": {
+    "dota2": {
+      "command": "dota2-mcp"
+    }
+  }
+}
+```
+
+或者使用 `npx`（无需全局安装）：
+
+```json
+{
+  "mcpServers": {
+    "dota2": {
+      "command": "npx",
+      "args": ["-y", "dota2-mcp"]
+    }
+  }
+}
+```
+
+> 这是 npm / Node.js 运行方式，不是独立 exe。独立 exe 请从 GitHub Releases 下载。
+
+### 方式三：下载独立可执行文件
 
 从 [GitHub Releases](https://github.com/Demon673/dota2-mcp/releases) 下载对应平台的二进制文件，无需安装 Node.js：
 
@@ -68,11 +105,36 @@ chmod +x dota2-mcp-linux
 
 ## 在 AI 客户端中使用
 
-> 下面配置里的 `/path/to/dota2-mcp` 只是占位符，请替换为你本地实际存放本项目的**绝对路径**。
-
 ### Claude Code / Claude Desktop
 
-源码方式：
+#### 通过 npm 安装后（推荐）
+
+```json
+{
+  "mcpServers": {
+    "dota2": {
+      "command": "dota2-mcp"
+    }
+  }
+}
+```
+
+或使用 `npx`（无需全局安装）：
+
+```json
+{
+  "mcpServers": {
+    "dota2": {
+      "command": "npx",
+      "args": ["-y", "dota2-mcp"]
+    }
+  }
+}
+```
+
+#### 源码方式
+
+> 下面 `/path/to/dota2-mcp` 是占位符，请替换为你本地实际存放本项目的绝对路径。
 
 ```json
 {
@@ -85,7 +147,9 @@ chmod +x dota2-mcp-linux
 }
 ```
 
-独立可执行文件方式（Windows）：
+#### 独立可执行文件方式
+
+从 GitHub Releases 下载对应平台二进制后，填写绝对路径：
 
 ```json
 {
@@ -96,8 +160,6 @@ chmod +x dota2-mcp-linux
   }
 }
 ```
-
-独立可执行文件方式（Linux / macOS）：
 
 ```json
 {
@@ -111,7 +173,7 @@ chmod +x dota2-mcp-linux
 
 ### Cursor
 
-在 Cursor 设置中找到 MCP 配置，添加上述对应内容即可。
+在 Cursor 设置中找到 MCP 配置，粘贴上述对应内容即可。
 
 ## 环境变量
 
