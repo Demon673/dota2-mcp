@@ -15,6 +15,7 @@
 - 资源工具：`dota_compile_asset`。
 - vconsole2 GUI 输出屏蔽：默认把 MCP 命令输出用 `ai_disabled; ...; ai_disabled` 包裹，relay 自动隐藏标记间输出；MCP 仍可读完整输出。
 - 全量冒烟测试脚本 `scripts/test-mcp-tools.mjs`。
+- 支持打包为独立 Windows 可执行文件 `dist/dota2-mcp.exe`（esbuild + Node SEA）。
 
 ### 修复
 

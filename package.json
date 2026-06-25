@@ -4,9 +4,7 @@
   "description": "MCP server for Dota 2 custom game development — real-time console bridge, live API docs, game control and asset tooling via the Model Context Protocol.",
   "type": "module",
   "main": "dist/index.js",
-  "bin": {
-    "dota2-mcp": "./dist/index.js"
-  },
+  "bin": "./dist/index.js",
   "files": [
     "dist",
     "README.md",
@@ -23,6 +21,8 @@
   ],
   "scripts": {
     "build": "tsc",
+    "bundle": "esbuild dist/index.js --bundle --platform=node --format=cjs --outfile=dist/bundle.cjs",
+    "package": "npm run bundle && node --experimental-sea-config sea-config.json && cp \"C:/Program Files/nodejs/node.exe\" dist/dota2-mcp.exe && npx postject dist/dota2-mcp.exe NODE_SEA_BLOB sea-prep.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 --macho-segment-name NODE_SEA",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "check": "tsc --noEmit"
@@ -33,6 +33,8 @@
   },
   "devDependencies": {
     "@types/node": "^18.19.100",
+    "esbuild": "^0.28.1",
+    "postject": "^1.0.0-alpha.6",
     "typescript": "^5.8.3"
   },
   "engines": {

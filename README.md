@@ -27,23 +27,13 @@ npm run build
 
 ## 作为 MCP 服务器使用
 
-### 1. 启动服务器
+### 方式一：直接运行（开发/源码）
 
 ```bash
 npm run start
 ```
 
-服务器会同时监听三个端口：
-
-| 端口 | 用途 |
-|------|------|
-| 29000 | Dota 2 VConsole2（由 relay 独占） |
-| 29001 | vconsole2 GUI 连接端口（relay 转发） |
-| 29002 | MCP 控制端口（备用，MCP 主要走 stdio） |
-
-### 2. 在 MCP 客户端中配置
-
-以 Claude Code 为例，在配置中添加：
+MCP 客户端配置：
 
 ```json
 {
@@ -56,7 +46,40 @@ npm run start
 }
 ```
 
-### 3. 环境变量
+### 方式二：使用独立可执行文件（推荐发布）
+
+打包成单个 `.exe`：
+
+```bash
+npm run build
+npm run package
+```
+
+生成 `dist/dota2-mcp.exe`（约 90MB，内含 Node 运行时）。
+
+MCP 客户端配置：
+
+```json
+{
+  "mcpServers": {
+    "dota2": {
+      "command": "C:/path/to/dota2-mcp/dist/dota2-mcp.exe"
+    }
+  }
+}
+```
+
+### 端口说明
+
+服务器启动后会监听三个端口：
+
+| 端口 | 用途 |
+|------|------|
+| 29000 | Dota 2 VConsole2（由 relay 独占） |
+| 29001 | vconsole2 GUI 连接端口（relay 转发） |
+| 29002 | MCP 控制端口（备用，MCP 主要走 stdio） |
+
+### 环境变量
 
 | 变量 | 说明 |
 |------|------|
