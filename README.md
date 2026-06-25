@@ -68,6 +68,8 @@ chmod +x dota2-mcp-linux
 
 ## 在 AI 客户端中使用
 
+> 下面配置里的 `/path/to/dota2-mcp` 只是占位符，请替换为你本地实际存放本项目的**绝对路径**。
+
 ### Claude Code / Claude Desktop
 
 源码方式：
@@ -165,6 +167,6 @@ chmod +x dota2-mcp-linux
 
 ## 版本
 
-当前版本：`v1.1.0`
+当前版本：`v1.1.1`
 
 详情见 [CHANGELOG.md](./CHANGELOG.md) 与 [GitHub Releases](https://github.com/Demon673/dota2-mcp/releases)。

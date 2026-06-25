@@ -22,14 +22,14 @@ import * as consoleBridge from "./tools/console-bridge.js";
 async function main(): Promise<void> {
   const server = new McpServer({
     name: "dota2-mcp",
-    version: "1.1.0",
+    version: "1.1.1",
   });
 
   // -----------------------------------------------------------------------
   // VCon 透明代理 — 监听 29001，vconsole2 会主动连过来
   // -----------------------------------------------------------------------
 
-  const dotaPath = process.env.DOTA2_PATH || consoleBridge.detectDotaPath();
+  const dotaPath = process.env.DOTA2_PATH || (await consoleBridge.detectDotaPath());
   const addonName = process.env.DOTA2_ADDON || "";
   const relay = new VConRelay();
 

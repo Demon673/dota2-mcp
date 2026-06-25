@@ -13,7 +13,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import * as os from "os";
+import { findSteamAppByName } from "find-steam-app";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -163,69 +163,15 @@ export function buildExecCommand(cfgName: string = "mcp_cmd.cfg"): string {
 // Default config (auto-detected)
 // ---------------------------------------------------------------------------
 
-/** 返回常见 Steam 安装根目录（用于查找 libraryfolders.vdf） */
-function getSteamRootCandidates(): string[] {
-  const platform = os.platform();
-  if (platform === "win32") {
-    return [
-      "C:/Program Files (x86)/Steam",
-      "C:/Program Files/Steam",
-    ];
-  }
-  if (platform === "linux") {
-    return [
-      path.join(os.homedir(), ".steam", "steam"),
-      path.join(os.homedir(), ".local", "share", "Steam"),
-    ];
-  }
-  if (platform === "darwin") {
-    return [
-      path.join(os.homedir(), "Library", "Application Support", "Steam"),
-    ];
-  }
-  return [];
-}
-
-/** 解析 Steam 的 libraryfolders.vdf，返回所有库文件夹路径 */
-function parseLibraryFolders(vdfPath: string): string[] {
-  try {
-    const content = fs.readFileSync(vdfPath, "utf-8");
-    const paths: string[] = [];
-    const regex = /"path"\s+"([^"]+)"/g;
-    let match: RegExpExecArray | null;
-    while ((match = regex.exec(content)) !== null) {
-      // VDF 里反斜杠是转义的，如 D:\\SteamLibrary
-      paths.push(match[1].replace(/\\\\/g, "\\"));
-    }
-    return paths;
-  } catch {
-    return [];
-  }
-}
-
 /** 尝试自动检测 Dota 2 路径 */
-export function detectDotaPath(): string | null {
-  const candidates = new Set<string>();
-
-  // 1. 从 Steam 的 libraryfolders.vdf 动态读取库目录
-  for (const steamRoot of getSteamRootCandidates()) {
-    const vdfPath = path.join(steamRoot, "steamapps", "libraryfolders.vdf");
-    for (const lib of parseLibraryFolders(vdfPath)) {
-      candidates.add(path.join(lib, "steamapps", "common", "dota 2 beta"));
+export async function detectDotaPath(): Promise<string | null> {
+  try {
+    const appPath = await findSteamAppByName("dota 2 beta");
+    if (appPath && fs.existsSync(path.join(appPath, "game", "dota"))) {
+      return appPath;
     }
-    // Steam 安装目录本身也是一个库
-    candidates.add(path.join(steamRoot, "steamapps", "common", "dota 2 beta"));
+  } catch {
+    // ignore and fall through
   }
-
-  for (const p of candidates) {
-    if (fs.existsSync(path.join(p, "game", "dota", "console.log"))) {
-      return p;
-    }
-    // Fallback: check if game/dota dir exists
-    if (fs.existsSync(path.join(p, "game", "dota"))) {
-      return p;
-    }
-  }
-
   return null;
 }
