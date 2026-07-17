@@ -217,6 +217,13 @@ export class VConRelay extends EventEmitter {
       return;
     }
 
+    // 设置 token 后，未完成握手的连接禁止使用任何命令（防本机未认证进程
+    // 绕过 HELLO 直接 CMD: 注入，RunScriptCode 等于 RCE）。
+    if (this.expectedToken && !this.clients.has(conn)) {
+      conn.sock.write(JSON.stringify({ type: "hello-err", reason: "handshake required" }) + "\n");
+      return;
+    }
+
     // 以下命令要求已完成握手（在 clients 集合中）或旧协议直通
     if (text === "STATUS") {
       conn.sock.write(JSON.stringify({

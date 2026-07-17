@@ -60,7 +60,15 @@ export class RelayClient extends EventEmitter {
   private _connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       if (this.destroyed) { reject(new Error("client destroyed")); return; }
+      let settled = false;
+      const fail = (e: Error) => { if (!settled) { settled = true; reject(e); } };
+      const ok = () => { if (!settled) { settled = true; resolve(); } };
+
       this.sock = new net.Socket();
+      // connect 超时：TCP 连上但 hello-ok 永不来（如 daemon 刚好崩溃），
+      // 不能让他 Promise 永远挂起导致 createRelay 卡死。
+      const timeout = setTimeout(() => fail(new Error("connect timeout (no hello-ok)")), 8000);
+
       this.sock.connect(this.port, "127.0.0.1", () => {
         const hello = this.token ? `HELLO ${this.token}` : "HELLO";
         this.sock!.write(hello + "\n");
@@ -68,7 +76,7 @@ export class RelayClient extends EventEmitter {
       this.sock.on("data", (data: Buffer) => this._onData(data));
       this.sock.on("error", (e: Error) => {
         if (!this.connected) {
-          reject(e);
+          fail(e);
         } else {
           // 已连接后出错（如 daemon 重启）：不往外抛 error 事件
           // （EventEmitter 对无监听的 error 会 throw），只走 close → 自动重连。
@@ -77,16 +85,21 @@ export class RelayClient extends EventEmitter {
         }
       });
       this.sock.on("close", () => {
+        clearTimeout(timeout);
         const wasConnected = this.connected;
         this.connected = false;
         this._dotaConnected = false;
         this._guiConnected = false;
+        // 若 connect 还没 settle（TCP 断开导致 hello-ok 没到），以失败结束 Promise，
+        // 避免 createRelay 永久 await。
+        if (!settled) fail(new Error("connection closed before handshake"));
         this.emit("close");
         if (wasConnected && !this.destroyed) this._scheduleReconnect();
       });
 
       const onHello = (msg: any) => {
         if (msg.type === "hello-ok") {
+          clearTimeout(timeout);
           this.connected = true;
           this.reconnectAttempts = 0;
           this.off("hello", onHello);
@@ -99,10 +112,11 @@ export class RelayClient extends EventEmitter {
           // 补发断线期间缓冲的命令
           for (const c of this.pendingCommands) this.sock!.write(`CMD:${c}\n`);
           this.pendingCommands = [];
-          resolve();
+          ok();
         } else if (msg.type === "hello-err") {
+          clearTimeout(timeout);
           this.off("hello", onHello);
-          reject(new Error(`relay rejected: ${msg.reason}`));
+          fail(new Error(`relay rejected: ${msg.reason}`));
         }
       };
       this.on("hello", onHello);

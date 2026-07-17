@@ -168,6 +168,45 @@ async function main() {
   if (badResult === "rejected") console.log("[test] PASS wrong token rejected");
   else console.log(`[test] FAIL wrong token: ${badResult}`);
 
+  // 5a. 对抗：未握手直接发 CMD 应被拒（绕过 HELLO 的命令注入）
+  {
+    const raw = new net.Socket();
+    const r = await new Promise((resolve) => {
+      let buf = "";
+      raw.connect(CTRL_PORT, "127.0.0.1", () => raw.write("CMD:echo pwned\n"));
+      raw.on("data", (d) => {
+        buf += d.toString();
+        if (buf.includes("handshake required")) resolve("blocked");
+        else if (buf.includes("OK")) resolve("allowed");
+      });
+      setTimeout(() => resolve("timeout"), 3000);
+    });
+    if (r === "blocked") console.log("[test] PASS unauthenticated CMD blocked (handshake required)");
+    else console.log(`[test] FAIL unauthenticated CMD: ${r}`);
+    raw.destroy();
+  }
+
+  // 5b. 对抗：hello-ok 永不来时 connect 应超时 reject（僵尸 Promise）
+  {
+    const { RelayClient } = await import("../dist/relay-client.js");
+    // 起一个假 relay：接受连接但从不回 hello-ok
+    const fakeRelay = net.createServer((s) => { /* 收 HELLO 但不回 */ });
+    const FAKE_PORT = CTRL_PORT + 2000;
+    await new Promise((res) => fakeRelay.listen(FAKE_PORT, "127.0.0.1", res));
+    const c = new RelayClient({ port: FAKE_PORT, token: null });
+    const t0 = Date.now();
+    let err = null;
+    try { await c.connect(); } catch (e) { err = e; }
+    const elapsed = Date.now() - t0;
+    if (err && /timeout|closed/.test(err.message) && elapsed < 10000) {
+      console.log(`[test] PASS connect rejects on no hello-ok (${elapsed}ms): ${err.message}`);
+    } else {
+      console.log(`[test] FAIL connect zombie promise: err=${err} elapsed=${elapsed}`);
+    }
+    c.destroy();
+    fakeRelay.close();
+  }
+
   // 5b. RelayClient-level: reconnect + pending command resend.
   //     Use the compiled RelayClient against the live daemon: connect, kill
   //     the daemon, send a command while disconnected (should buffer), restart
