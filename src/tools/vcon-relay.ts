@@ -17,6 +17,8 @@ import { VConClient, PrntMessage, AinfMessage } from "./vcon-bridge.js";
 const DEFAULT_DOTA_PORT = 29000;  // Dota 2 VCon 端口
 const DEFAULT_GUI_PORT = 29001;   // VConsole2 GUI 连接端口
 const DEFAULT_CTRL_PORT = 29002;  // MCP 控制端口
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 无客户端连接 5 分钟后自动退出
+const PROTOCOL_VERSION = 1;
 
 function parsePort(name: string, fallback: number): number {
   const v = process.env[name];
@@ -28,6 +30,13 @@ function parsePort(name: string, fallback: number): number {
 const DOTA_PORT = parsePort("DOTA2_VCON_DOTA_PORT", DEFAULT_DOTA_PORT);
 const GUI_PORT = parsePort("DOTA2_VCON_GUI_PORT", DEFAULT_GUI_PORT);
 const CTRL_PORT = parsePort("DOTA2_VCON_CTRL_PORT", DEFAULT_CTRL_PORT);
+
+/** 瘦客户端连接状态 */
+interface ClientConn {
+  sock: net.Socket;
+  buffer: string;
+  streaming: boolean;
+}
 
 export class VConRelay extends EventEmitter {
   private dotaClient: VConClient | null = null;
@@ -51,15 +60,28 @@ export class VConRelay extends EventEmitter {
   private _mcpMarkerSuppress = false;
   private _mcpSuppressEnabled = true;
 
+  // 守护进程模式新增
+  private clients = new Set<ClientConn>();
+  private idleTimer: NodeJS.Timeout | null = null;
+  private expectedToken: string | null = null;
+  private portConflict = false;
+
   /** 设置 Dota 2 根目录（由 detectDotaPath() 提供），用于地图扫描 */
   setDotaPath(p: string | null): void {
     this._dotaPath = p;
+  }
+
+  /** 守护进程模式下设置期望的 token（瘦客户端 HELLO 校验） */
+  setExpectedToken(token: string): void {
+    this.expectedToken = token;
   }
 
   get dotaConnected() { return this._dotaConnected; }
   get guiConnected() { return this._guiConnected; }
   get guiSuppressPatterns(): string[] { return [...this._guiSuppressPatterns]; }
   get mcpSuppressEnabled(): boolean { return this._mcpSuppressEnabled; }
+  /** 端口被占用（守护进程模式下另一个实例在跑） */
+  get portInUse(): boolean { return this.portConflict; }
 
   /** 设置/清空要阻止转发到 vconsole2 GUI 的 PRNT 正则模式（MCP 仍可通过 prnt 事件读取） */
   setGuiSuppressPatterns(patterns: string[]): void {
@@ -75,66 +97,33 @@ export class VConRelay extends EventEmitter {
 
   async start(): Promise<void> {
     this.guiServer = net.createServer((sock) => this._onGuiConnect(sock));
+    this.guiServer.on("error", (e: any) => {
+      if (e.code === "EADDRINUSE") {
+        this.portConflict = true;
+        console.error(`[relay] GUI port ${GUI_PORT} in use — another instance is running`);
+      } else {
+        console.error("[relay] GUI server error:", e.message);
+      }
+    });
     this.guiServer.listen(GUI_PORT, "127.0.0.1", () => {
       console.error(`[relay] GUI :${GUI_PORT}, waiting vconsole2...`);
     });
 
     // 控制端口 — MCP 通过这个端口发命令、读输出
-    const ctrlServer = net.createServer((sock) => {
-      sock.on("error", (e: Error) => console.error("[relay] ctrl error:", e.message));
-      sock.on("data", (data: Buffer) => {
-        const text = data.toString().trim();
-        if (text === "STATUS") {
-          sock.write(JSON.stringify({
-            dota: this._dotaConnected,
-            gui: this._guiConnected,
-            addon: this._addonName,
-            maps: this._maps,
-            allMaps: this._allMaps,
-          }) + "\n");
-        } else if (text.startsWith("CMD:")) {
-          let cmd = text.slice(4);
-          if (cmd.startsWith("dota_launch_custom_game") && this._addonName) {
-            const parts = cmd.split(/\s+/);
-            // Only map given: dota_launch_custom_game <map>
-            if (parts.length === 2 && parts[1] && !parts[1].startsWith("-")) {
-              cmd = `dota_launch_custom_game ${this._addonName} ${parts[1]}`;
-              console.error("[relay] Auto-addon:", cmd);
-            }
-            // No args at all: auto-pick first map
-            if (parts.length === 1 && this._maps.length > 0) {
-              cmd = `dota_launch_custom_game ${this._addonName} ${this._maps[0]}`;
-              console.error("[relay] Auto-all:", cmd);
-            }
-          }
-          this.sendCommand(cmd);
-          sock.write("OK\n");
-        } else if (text.startsWith("TAIL:")) {
-          const n = parseInt(text.slice(5)) || 20;
-          sock.write(this.getRecentOutput(n).join("\n") + "\n");
-        } else if (text === "FILTERS") {
-          sock.write(JSON.stringify({ patterns: this._guiSuppressPatterns }) + "\n");
-        } else if (text.startsWith("SETFILTERS:")) {
-          try {
-            const patterns = JSON.parse(text.slice(11));
-            if (Array.isArray(patterns)) {
-              this.setGuiSuppressPatterns(patterns.map(String));
-              sock.write("OK\n");
-            } else {
-              sock.write("ERR: expected array\n");
-            }
-          } catch (e: any) {
-            sock.write("ERR: " + e.message + "\n");
-          }
-        } else {
-          this.sendCommand(text);
-          sock.write("OK\n");
-        }
-      });
+    const ctrlServer = net.createServer((sock) => this._onCtrlConnect(sock));
+    ctrlServer.on("error", (e: any) => {
+      if (e.code === "EADDRINUSE") {
+        this.portConflict = true;
+        console.error(`[relay] Control port ${CTRL_PORT} in use — another instance is running`);
+      } else {
+        console.error("[relay] ctrl server error:", e.message);
+      }
     });
     ctrlServer.listen(CTRL_PORT, "127.0.0.1", () => {
-      console.error(`[relay] Control :${CTRL_PORT} (STATUS|CMD:xxx|TAIL:50|FILTERS|SETFILTERS:[...])`);
+      console.error(`[relay] Control :${CTRL_PORT}`);
     });
+
+    this._resetIdleTimer();
   }
 
   sendCommand(cmd: string): void {
@@ -155,9 +144,134 @@ export class VConRelay extends EventEmitter {
   }
 
   close(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
     this.dotaClient?.close();
     this.guiSocket?.destroy();
     this.guiServer?.close();
+    for (const c of this.clients) c.sock.destroy();
+  }
+
+  // ---- 守护进程：空闲计时 ----
+
+  private _resetIdleTimer(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => {
+      if (this.clients.size === 0 && !this._guiConnected) {
+        console.error("[relay] idle timeout, exiting");
+        process.exit(0);
+      }
+      this._resetIdleTimer();
+    }, IDLE_TIMEOUT_MS);
+  }
+
+  // ---- 守护进程：瘦客户端连接 ----
+
+  private _onCtrlConnect(sock: net.Socket): void {
+    const conn: ClientConn = { sock, buffer: "", streaming: false };
+    sock.on("error", (e: Error) => console.error("[relay] ctrl error:", e.message));
+    sock.on("data", (data: Buffer) => {
+      conn.buffer += data.toString();
+      let idx: number;
+      while ((idx = conn.buffer.indexOf("\n")) !== -1) {
+        const line = conn.buffer.slice(0, idx).trim();
+        conn.buffer = conn.buffer.slice(idx + 1);
+        if (line) this._handleCtrlLine(conn, line);
+      }
+    });
+    sock.on("close", () => {
+      this.clients.delete(conn);
+      this._resetIdleTimer();
+    });
+  }
+
+  private _handleCtrlLine(conn: ClientConn, text: string): void {
+    // 握手（新协议）
+    if (text.startsWith("HELLO")) {
+      const token = text.slice(5).trim() || null;
+      if (this.expectedToken && token !== this.expectedToken) {
+        conn.sock.write(JSON.stringify({ type: "hello-err", reason: "bad token" }) + "\n");
+        conn.sock.destroy();
+        return;
+      }
+      this.clients.add(conn);
+      this._resetIdleTimer();
+      conn.sock.write(JSON.stringify({
+        type: "hello-ok",
+        version: PROTOCOL_VERSION,
+        dota: this._dotaConnected,
+        gui: this._guiConnected,
+        addon: this._addonName,
+        maps: this._maps,
+        allMaps: this._allMaps,
+      }) + "\n");
+      return;
+    }
+
+    // 以下命令要求已完成握手（在 clients 集合中）或旧协议直通
+    if (text === "STATUS") {
+      conn.sock.write(JSON.stringify({
+        dota: this._dotaConnected,
+        gui: this._guiConnected,
+        addon: this._addonName,
+        maps: this._maps,
+        allMaps: this._allMaps,
+      }) + "\n");
+    } else if (text === "STREAM") {
+      conn.streaming = true;
+    } else if (text === "SHUTDOWN") {
+      if (this.clients.size === 0) {
+        console.error("[relay] SHUTDOWN requested, exiting");
+        process.exit(0);
+      }
+    } else if (text.startsWith("SETMCPSUPPRESS:")) {
+      this.setMcpSuppressEnabled(text.slice(15) === "1");
+    } else if (text.startsWith("CMD:")) {
+      let cmd = text.slice(4);
+      if (cmd.startsWith("dota_launch_custom_game") && this._addonName) {
+        const parts = cmd.split(/\s+/);
+        if (parts.length === 2 && parts[1] && !parts[1].startsWith("-")) {
+          cmd = `dota_launch_custom_game ${this._addonName} ${parts[1]}`;
+          console.error("[relay] Auto-addon:", cmd);
+        }
+        if (parts.length === 1 && this._maps.length > 0) {
+          cmd = `dota_launch_custom_game ${this._addonName} ${this._maps[0]}`;
+          console.error("[relay] Auto-all:", cmd);
+        }
+      }
+      this.sendCommand(cmd);
+      conn.sock.write("OK\n");
+    } else if (text.startsWith("TAIL:")) {
+      const n = parseInt(text.slice(5)) || 20;
+      conn.sock.write(this.getRecentOutput(n).join("\n") + "\n");
+    } else if (text === "FILTERS") {
+      conn.sock.write(JSON.stringify({ patterns: this._guiSuppressPatterns }) + "\n");
+    } else if (text.startsWith("SETFILTERS:")) {
+      try {
+        const patterns = JSON.parse(text.slice(11));
+        if (Array.isArray(patterns)) {
+          this.setGuiSuppressPatterns(patterns.map(String));
+          conn.sock.write("OK\n");
+        } else {
+          conn.sock.write("ERR: expected array\n");
+        }
+      } catch (e: any) {
+        conn.sock.write("ERR: " + e.message + "\n");
+      }
+    } else {
+      // 旧协议直通
+      this.sendCommand(text);
+      conn.sock.write("OK\n");
+    }
+  }
+
+  /** 向所有订阅了 STREAM 的瘦客户端推送 JSON 行 */
+  private _broadcast(obj: any): void {
+    const line = JSON.stringify(obj) + "\n";
+    for (const c of this.clients) {
+      if (c.streaming && !c.sock.destroyed) {
+        c.sock.write(line);
+      }
+    }
   }
 
   private _scanMaps(): void {
@@ -239,6 +353,7 @@ export class VConRelay extends EventEmitter {
       this.dotaClient?.close();
       this.dotaClient = null;
       this._dotaConnected = false;
+      this._resetIdleTimer();
     });
 
     sock.on("error", (e: Error) => console.error("[relay] GUI:", e.message));
@@ -270,6 +385,7 @@ export class VConRelay extends EventEmitter {
       this._dotaConnected = true;
       this._mcpMarkerSuppress = false;
       console.error("[relay] Dota 2 connected");
+      this._broadcast({ type: "status", dota: true, gui: this._guiConnected });
     });
 
     this.dotaClient.on("rawFrame", (_type: string, rawData: Buffer) => {
@@ -293,6 +409,8 @@ export class VConRelay extends EventEmitter {
       if (this.prntBuffer.length > 500) { this.prntBuffer.shift(); this._prntLog.shift(); }
       // 转发给 MCP server，实现事件驱动（包括被 GUI 屏蔽的 MCP 命令输出）
       this.emit("prnt", enhanced);
+      // 广播给瘦客户端
+      this._broadcast({ type: "prnt", text: msg.text, verbosity: msg.verbosity, channel: channelName });
     });
 
     this.dotaClient.on("adon", (a) => {
@@ -300,6 +418,7 @@ export class VConRelay extends EventEmitter {
       this._scanMaps();
       console.error("[relay] Addon:", a.addonName, "Maps:", this._maps.join(", "), "AllMaps:", this._allMaps.join(", "));
       this.emit("adon", a);
+      this._broadcast({ type: "adon", addonName: a.addonName, maps: this._maps, allMaps: this._allMaps });
     });
 
     this.dotaClient.on("chan", (channels) => {
@@ -308,6 +427,7 @@ export class VConRelay extends EventEmitter {
       }
       console.error("[relay] Channels:", channels.map(c => `${c.id}:${c.name}`).join(", "));
       this.emit("chan", channels);
+      this._broadcast({ type: "chan", channels: this.getChannels() });
     });
 
     this.dotaClient.on("ainf", (a) => {
@@ -320,6 +440,7 @@ export class VConRelay extends EventEmitter {
       this._dotaConnected = false;
       this._mcpMarkerSuppress = false;
       this.dotaClient = null;
+      this._broadcast({ type: "status", dota: false, gui: this._guiConnected });
       // 只有在 VConsole2 还连着时才需要自动重连；否则释放 :29000
       if (this._guiConnected) {
         console.error("[relay] Dota 2 disconnected, retrying in 2s...");
