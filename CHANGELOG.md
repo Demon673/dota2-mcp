@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.1 (2026-07-18)
+
+### 新增
+
+- **`dota2_skill` 内置技能工具**（Roblox skill 模式）：skill 内容随 MCP 分发，agent 调用 `dota2_skill` 即可拉取，无需单独安装 skill 文件。首个技能 `dota2-runtime-dev` 讲清"Dota 2 自定义游戏是长驻进程 + 热重载"的核心认知——改代码经 `reload_script`（服务端）/ Panorama 热重载生效，而非重启地图；并覆盖生成代码边界（改 `.ts/.tsx` 别碰生成的 `.lua/.js`）与 KV 只读约定。skill 以标准 `skills/<name>/SKILL.md` 存放，新增技能只需丢入文件夹。
+
 ## 1.3.0 (2026-07-17)
 
 ### 新增
