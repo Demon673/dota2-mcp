@@ -13,6 +13,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { EventEmitter } from "events";
 import { VConClient, PrntMessage, AinfMessage } from "./vcon-bridge.js";
+import { pidPath } from "../daemon-utils.js";
 
 const DEFAULT_DOTA_PORT = 29000;  // Dota 2 VCon 端口
 const DEFAULT_GUI_PORT = 29001;   // VConsole2 GUI 连接端口
@@ -158,10 +159,19 @@ export class VConRelay extends EventEmitter {
     this.idleTimer = setTimeout(() => {
       if (this.clients.size === 0 && !this._guiConnected) {
         console.error("[relay] idle timeout, exiting");
+        this._cleanupStateFiles();
         process.exit(0);
       }
       this._resetIdleTimer();
     }, IDLE_TIMEOUT_MS);
+  }
+
+  /** 空闲退出前清理 PID 文件，避免下次启动走 stale 检测。token 保留复用。 */
+  private _cleanupStateFiles(): void {
+    try {
+      const f = pidPath();
+      if (fs.existsSync(f)) fs.unlinkSync(f);
+    } catch { /* ignore */ }
   }
 
   // ---- 守护进程：瘦客户端连接 ----
@@ -337,10 +347,24 @@ export class VConRelay extends EventEmitter {
     // 按需连接 Dota 2：VConsole2 连上 relay 时才去占 :29000
     this._connectDota();
 
-    // vconsole2 → Dota 2
+    // vconsole2 → Dota 2：按 VCon 帧边界重组后再转发。
+    // TCP 不保证一个 data 事件就是一帧，半帧直接 rawWrite 会让 Dota 2 协议错乱。
+    let guiBuffer: Buffer = Buffer.alloc(0);
     sock.on("data", (data: Buffer) => {
-      if (this._dotaConnected && this.dotaClient) {
-        this.dotaClient.rawWrite(data);
+      if (!this._dotaConnected || !this.dotaClient) return;
+      guiBuffer = Buffer.concat([guiBuffer, data]);
+      // 按 12 字节帧头里的 length 字段切出完整帧
+      while (guiBuffer.length >= 12) {
+        const frameLen = guiBuffer.readUInt32BE(6);
+        if (frameLen < 12 || guiBuffer.length < frameLen) break; // 半帧，等下一个 data
+        const frame = guiBuffer.subarray(0, frameLen);
+        this.dotaClient.rawWrite(frame);
+        guiBuffer = guiBuffer.subarray(frameLen);
+      }
+      // 防御：buffer 异常膨胀（GUI 发了非 VCon 数据）时清空重同步
+      if (guiBuffer.length > 1024 * 1024) {
+        console.error("[relay] GUI buffer overflow, resyncing");
+        guiBuffer = Buffer.alloc(0);
       }
     });
 

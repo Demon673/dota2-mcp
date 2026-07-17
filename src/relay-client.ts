@@ -203,9 +203,4 @@ export class RelayClient extends EventEmitter {
     this._mcpSuppressEnabled = enabled;
     if (this.connected && this.sock) this.sock.write(`SETMCPSUPPRESS:${enabled ? "1" : "0"}\n`);
   }
-
-  /** 状态轮询（index.ts 的 project_info 依赖 relay.dotaConnected 实时性） */
-  async pollStatus(): Promise<void> {
-    if (this.connected && this.sock) this.sock.write("STATUS\n");
-  }
 }

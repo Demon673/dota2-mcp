@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * 离线验证守护进程链路（不需要 Dota 2）：
+ *   0. createRelay 路径：MCP 实例自己 spawn detached daemon 并接入（核心）
  *   1. spawn detached relay daemon
  *   2. 瘦客户端 HELLO 握手 + token 校验
  *   3. 第二个瘦客户端接入（多实例）
@@ -59,6 +60,42 @@ function connectClient(name) {
 
 async function main() {
   cleanup();
+
+  // 0. createRelay 路径（核心）：用 daemon-utils 的公开 API 复现 index.ts
+  //    的 spawn 链路 — acquireLock → spawnRelayDaemon → waitForRelay → connect。
+  {
+    const daemon = await import("../dist/daemon-utils.js");
+    const { RelayClient } = await import("../dist/relay-client.js");
+    const path2 = await import("path");
+    const relayMain = path2.resolve("dist/relay-main.js");
+
+    if (!daemon.acquireLock()) {
+      console.log("[test] FAIL acquireLock should succeed on clean state");
+      process.exit(1);
+    }
+    const pid = daemon.spawnRelayDaemon(relayMain);
+    console.log(`[test] PASS spawnRelayDaemon via daemon-utils, pid=${pid}`);
+    const ready = await daemon.waitForRelay(10000);
+    if (!ready) { console.log("[test] FAIL daemon not ready in 10s"); process.exit(1); }
+    const token = daemon.readToken();
+    const client = new RelayClient({ port: CTRL_PORT, token });
+    await client.connect();
+    console.log("[test] PASS createRelay-path: spawn + waitForRelay + thin client connect");
+    // second instance: probeRelay true → connect directly without spawning
+    if (!(await daemon.probeRelay())) { console.log("[test] FAIL probeRelay should be true"); process.exit(1); }
+    const client2 = new RelayClient({ port: CTRL_PORT, token });
+    await client2.connect();
+    console.log("[test] PASS second instance reuses daemon via probeRelay (no double spawn)");
+    client.destroy();
+    client2.destroy();
+    daemon.releaseLock();
+    // cleanup this daemon before the manual-spawn phase below
+    const live = daemon.livePid();
+    if (live) { try { process.kill(live); } catch {} }
+    await new Promise(r => setTimeout(r, 500));
+    cleanup();
+    console.log("[test] PASS createRelay-path cleanup");
+  }
 
   // 1. spawn daemon
   console.log("[test] spawning relay daemon...");

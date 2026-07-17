@@ -55,16 +55,22 @@ export function releaseLock(): void {
 /** 读 PID 文件，进程已死则视为 stale 并清理。返回活 PID 或 null。 */
 export function livePid(): number | null {
   let pid: number;
+  let raw: string;
   try {
-    pid = parseInt(fs.readFileSync(pidPath(), "utf-8"), 10);
+    raw = fs.readFileSync(pidPath(), "utf-8");
+    pid = parseInt(raw, 10);
   } catch { return null; }
   if (Number.isNaN(pid)) return null;
   try {
     process.kill(pid, 0);
     return pid;
   } catch {
-    // stale：清理 PID 和锁
-    try { fs.unlinkSync(pidPath()); } catch { /* ignore */ }
+    // stale：清理 PID 和锁。删之前先比对内容仍是自己读到的那个 stale PID，
+    // 避免另一个进程已 spawn 新 daemon 并写入新 PID 时被误删。
+    try {
+      const now = fs.readFileSync(pidPath(), "utf-8");
+      if (now === raw) fs.unlinkSync(pidPath());
+    } catch { /* ignore */ }
     releaseLock();
     return null;
   }

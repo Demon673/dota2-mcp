@@ -76,18 +76,52 @@ async function main(): Promise<void> {
         return client;
       } catch (e: any) {
         console.error("[relay] daemon handshake failed:", e.message);
-        // 握手失败（token 不对/协议不兼容）→ 走本地启动
+        // 握手失败（token 不对/协议不兼容）→ 走下方重新拉起 daemon
       }
     }
 
-    // 2) 本地启动 VConRelay
+    // 2) 没有可用 daemon → 抢锁，抢到的人 spawn detached daemon，
+    //    自己也以瘦客户端身份接入。这样 relay 生命周期独立于任何 MCP 会话。
+    const require = createRequire(import.meta.url);
+    const relayMainPath = require.resolve("./relay-main.js");
+    if (daemon.acquireLock()) {
+      try {
+        const pid = daemon.spawnRelayDaemon(relayMainPath);
+        console.error(`[relay] spawned daemon pid=${pid}`);
+        if (await daemon.waitForRelay(10000)) {
+          const token = daemon.readToken();
+          const client = new RelayClient({ port: CTRL_PORT, token });
+          await client.connect();
+          console.error("[relay] connected to spawned daemon (thin client mode)");
+          return client;
+        }
+        console.error("[relay] daemon did not become ready in 10s");
+      } finally {
+        daemon.releaseLock();
+      }
+    } else {
+      // 别人正在 spawn，等它就绪
+      console.error("[relay] another instance is spawning daemon, waiting...");
+      if (await daemon.waitForRelay(10000)) {
+        const token = daemon.readToken();
+        const client = new RelayClient({ port: CTRL_PORT, token });
+        try {
+          await client.connect();
+          console.error("[relay] connected to daemon spawned by peer (thin client mode)");
+          return client;
+        } catch (e: any) {
+          console.error("[relay] peer daemon handshake failed:", e.message);
+        }
+      }
+    }
+
+    // 3) daemon 方案全部失败 → 退化到本地 VConRelay（单实例旧行为），
+    //    保证工具至少可用，同时明确报错。
+    console.error("[relay] daemon unavailable, falling back to local relay (single-instance mode)");
     const relay = new VConRelay();
     relay.setDotaPath(dotaPath);
     await relay.start();
-
     if (relay.portInUse) {
-      // 端口被占：另一个本地实例已在跑，但 probe 失败（旧版本无握手）。
-      // 报错更清晰，而不是误导性的"未连接 Dota 2"。
       console.error(`[relay] Ports 29001/29002 in use by another dota2-mcp instance. Tools will report unavailable.`);
     }
     return relay;
