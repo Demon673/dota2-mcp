@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.2.0 (2026-07-17)
+
+### 新增
+
+- **多实例共存：relay 守护进程 + 瘦客户端模式。** 多个 AI agent / 会话可同时通过 MCP 接入，共享同一个常驻 relay（独占 Dota 2 `:29000`），不再因 `:29001/:29002` 端口冲突导致后启动实例全部不可用。
+- relay 守护进程独立存活（detached spawn），无客户端连接 5 分钟后自动退出。
+- 瘦客户端通过 `:29002` 接入：`HELLO` 握手 + token 校验（`<tmpdir>/dota2-mcp/relay.token`，0600）、`STREAM` 实时 PRNT 推送、`SHUTDOWN` 空客户端自杀。
+- 守护进程协调：文件锁 + PID + stale 检测，防止并发 spawn 竞态。
+- 端口被占用时工具报错明确指向"另一个实例冲突"，而非误导性的"未连接 Dota 2"。
+- 新增 `scripts/test-daemon.mjs`：离线守护进程链路测试（无需 Dota 2）。
+
+### 修复
+
+- `zod` 补入 `dependencies`（此前依赖 `@modelcontextprotocol/sdk` 的间接提升）。
+- relay 的 Dota 2 路径硬编码改为跟随 `detectDotaPath()` 自动检测。
+
 ## 1.1.1 (未发布)
 
 ### 改进

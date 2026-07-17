@@ -20,7 +20,9 @@ import * as fs from "fs";
 import * as path from "path";
 import { createRequire } from "module";
 import { VConRelay } from "./tools/vcon-relay.js";
+import { RelayClient } from "./relay-client.js";
 import * as consoleBridge from "./tools/console-bridge.js";
+import * as daemon from "./daemon-utils.js";
 
 function getVersion(): string {
   try {
@@ -55,12 +57,44 @@ async function main(): Promise<void> {
   });
 
   // -----------------------------------------------------------------------
-  // VCon 透明代理 — 监听 29001，vconsole2 会主动连过来
+  // Relay 接入：优先连已有守护进程，否则本地启动
   // -----------------------------------------------------------------------
 
+  /** 统一接口：VConRelay（本地）或 RelayClient（瘦客户端） */
+  type RelayLike = VConRelay | RelayClient;
+
+  async function createRelay(dotaPath: string | null): Promise<RelayLike> {
+    const CTRL_PORT = parseInt(process.env.DOTA2_VCON_CTRL_PORT || "29002", 10);
+
+    // 1) 已有守护进程在跑 → 瘦客户端接入
+    if (await daemon.probeRelay()) {
+      const token = daemon.readToken();
+      const client = new RelayClient({ port: CTRL_PORT, token });
+      try {
+        await client.connect();
+        console.error("[relay] connected to existing daemon (thin client mode)");
+        return client;
+      } catch (e: any) {
+        console.error("[relay] daemon handshake failed:", e.message);
+        // 握手失败（token 不对/协议不兼容）→ 走本地启动
+      }
+    }
+
+    // 2) 本地启动 VConRelay
+    const relay = new VConRelay();
+    relay.setDotaPath(dotaPath);
+    await relay.start();
+
+    if (relay.portInUse) {
+      // 端口被占：另一个本地实例已在跑，但 probe 失败（旧版本无握手）。
+      // 报错更清晰，而不是误导性的"未连接 Dota 2"。
+      console.error(`[relay] Ports 29001/29002 in use by another dota2-mcp instance. Tools will report unavailable.`);
+    }
+    return relay;
+  }
+
   const dotaPath = await consoleBridge.detectDotaPath();
-  const relay = new VConRelay();
-  relay.setDotaPath(dotaPath);
+  const relay = await createRelay(dotaPath);
 
   // 追踪 relay 状态供工具使用
   let currentAddon = "";
@@ -76,12 +110,19 @@ async function main(): Promise<void> {
     }, 1000);
   });
 
-  relay.start().catch((err) => {
-    server.sendLoggingMessage({ level: "error", data: `[relay] Failed: ${err.message}` });
-  });
+  // relay 在 createRelay 中已完成启动（本地 relay.start() 或瘦客户端 connect()）
+  if (relay instanceof VConRelay) {
+    relay.start().catch((err: Error) => {
+      server.sendLoggingMessage({ level: "error", data: `[relay] Failed: ${err.message}` });
+    });
+  }
 
   /** 统一的未连接提示 */
   function notConnectedText(extra = ""): string {
+    // 守护进程模式下端口被别的实例占用：报错指向真实原因
+    if ((relay as VConRelay).portInUse) {
+      return `另一个 dota2-mcp 实例已占用端口 29001/29002（多实例冲突）。请关闭其他实例，或等待守护进程方案落地后自动接入。`;
+    }
     return `未连接到 Dota 2 VConsole2（端口 29000）。请确保：
 1) Dota 2 以 -vconsole 启动；
 2) vconsole2 GUI 已连接到 127.0.0.1:29001。${extra}`;
