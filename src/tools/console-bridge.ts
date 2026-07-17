@@ -13,6 +13,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { execSync } from "child_process";
 import { findSteamAppById } from "find-steam-app";
 
 // ---------------------------------------------------------------------------
@@ -142,35 +143,62 @@ export async function detectDotaPath(): Promise<string | null> {
   return detectDotaPathManual();
 }
 
-/** 手动解析 libraryfolders.vdf，兼容新旧两种 VDF 格式。 */
+/** 从 Windows 注册表读 Steam 安装路径（Steam 自己记录的，比猜默认位置可靠）。 */
+function steamPathFromRegistry(): string | null {
+  if (process.platform !== "win32") return null;
+  try {
+    const out = execSync(
+      'reg query "HKCU\\Software\\Valve\\Steam" /v SteamPath',
+      { encoding: "utf-8", windowsHide: true }
+    );
+    const m = out.match(/SteamPath\s+REG_SZ\s+(\S+)/);
+    return m ? m[1].replace(/\\/g, "/") : null;
+  } catch { return null; }
+}
+
+/** 解析 libraryfolders.vdf 提取所有库路径，兼容新旧两种格式。 */
+function parseLibraryFolders(vdfPath: string): string[] {
+  try {
+    const content = fs.readFileSync(vdfPath, "utf-8");
+    const libPaths: string[] = [];
+    // 匹配 "path"		"D:\\SteamLibrary"（新格式）或 "0"		"D:\\SteamLibrary"（旧格式）
+    for (const m of content.matchAll(/"(?:path|\d+)"\s+"([^"]+)"/g)) {
+      libPaths.push(m[1].replace(/\\\\/g, "/"));
+    }
+    return libPaths;
+  } catch { return []; }
+}
+
+/** 在候选 Steam 根及其 libraryfolders 列出的所有库中查找 Dota 2。 */
+function findDotaInLibraries(steamRoot: string): string | null {
+  // Steam 根本身也是一个库
+  const candidates = [steamRoot];
+  const vdfPath = path.join(steamRoot, "steamapps", "libraryfolders.vdf");
+  candidates.push(...parseLibraryFolders(vdfPath));
+
+  for (const lib of candidates) {
+    const dota = path.join(lib, "steamapps", "common", "dota 2 beta");
+    if (fs.existsSync(path.join(dota, "game", "dota"))) {
+      return dota;
+    }
+  }
+  return null;
+}
+
+/** 手动检测：注册表 → 环境变量 → 默认位置，每个都展开 libraryfolders.vdf。 */
 function detectDotaPathManual(): string | null {
   const steamRoots = [
+    steamPathFromRegistry(),
     process.env.STEAM_PATH,
-    "C:/Program Files (x86)/Steam",
-    "C:/Program Files/Steam",
-    "D:/SteamLibrary",
-    "E:/SteamLibrary",
+    process.platform === "win32" ? "C:/Program Files (x86)/Steam" : null,
+    process.platform === "win32" ? "C:/Program Files/Steam" : null,
+    process.platform === "linux" ? "~/.steam/steam" : null,
+    process.platform === "darwin" ? "~/Library/Application Support/Steam" : null,
   ].filter((p): p is string => !!p);
 
   for (const root of steamRoots) {
-    const vdfPath = path.join(root, "steamapps", "libraryfolders.vdf");
-    if (!fs.existsSync(vdfPath)) continue;
-    try {
-      const content = fs.readFileSync(vdfPath, "utf-8");
-      // 匹配 "path"		"D:\\SteamLibrary"（新格式）或 "0"		"D:\\SteamLibrary"（旧格式）
-      const libPaths: string[] = [];
-      for (const m of content.matchAll(/"(?:path|\d+)"\s+"([^"]+)"/g)) {
-        libPaths.push(m[1].replace(/\\\\/g, "/"));
-      }
-      // 加上 root 本身
-      libPaths.unshift(root);
-      for (const lib of libPaths) {
-        const dota = path.join(lib, "steamapps", "common", "dota 2 beta");
-        if (fs.existsSync(path.join(dota, "game", "dota"))) {
-          return dota;
-        }
-      }
-    } catch { /* next root */ }
+    const found = findDotaInLibraries(root);
+    if (found) return found;
   }
   return null;
 }
