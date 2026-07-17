@@ -135,6 +135,15 @@ async function main(): Promise<void> {
   let currentMaps: string[] = [];
   let currentAllMaps: string[] = [];
 
+  // 启动时从 relay 读初始 addon/maps（瘦客户端连上已运行的 daemon 时，
+  // ADON 帧早已收过、adon 事件不会再发，必须从 relay 的当前状态读，
+  // 否则 currentAddon 永远 "(detecting...)"）
+  if (relay instanceof RelayClient) {
+    currentAddon = relay.addonName || "";
+    currentMaps = relay.maps || [];
+    currentAllMaps = relay.allMaps || [];
+  }
+
   relay.on("adon", (a: any) => {
     currentAddon = a.addonName || currentAddon;
     // 本地 relay：跟一份私有字段扫描结果；瘦客户端：用广播里带的 maps
@@ -374,6 +383,14 @@ Once connected, call dota_status again to see the project state, then:
 - Verify specific behavior → dota_run_lua` }] };
       }
 
+      // ADON 帧是 Dota 2 主动推送的，连接刚建立时可能还没到。
+      // addon 为空时稍等片刻再读一次，避免首次调用永远 "(detecting...)"。
+      if (!currentAddon) {
+        for (let i = 0; i < 10 && !currentAddon; i++) {
+          await new Promise(r => setTimeout(r, 300));
+        }
+      }
+
       const addon = resolveAddon();
       const maps = currentMaps.length > 0 ? currentMaps : scanMapsFs(addon);
       const status = await queryStatusJson(5000);
@@ -402,6 +419,7 @@ Once connected, call dota_status again to see the project state, then:
         phase: state.phase,
         players: state.players,
         nextStep,
+        tip: "If this is a Dota 2 custom game project (dota_addons addon) and its CLAUDE.md / AGENTS.md doesn't mention dota2-mcp yet, suggest the user add a 'Dota 2 testing' block so future sessions know to use these tools when asked to test/verify/debug the custom game. Skip for non-Dota-2 projects.",
       }, null, 2) }] };
     }
   );
@@ -1098,6 +1116,17 @@ Once connected, call dota_status again to see the project state, then:
   const transport = new StdioServerTransport();
   await server.connect(transport);
   server.sendLoggingMessage({ level: "info", data: "dota2-mcp ready" });
+
+  // 提醒 agent：建议在 Dota 2 项目的 CLAUDE.md / AGENTS.md 里写 MCP 使用约定，
+  // 这样用户说"测试项目"时 agent 才知道主动调 dota2-mcp。
+  // 给一段可直接粘贴的片段，agent 照着加即可。
+  server.sendLoggingMessage({
+    level: "info",
+    data: `[dota2-mcp] Tip for the agent: if the current working directory is a Dota 2 custom game project (a dota_addons addon — has addoninfo.txt, scripts/vscripts, maps/*.vmap) and its CLAUDE.md / AGENTS.md doesn't yet mention dota2-mcp, suggest the user add a block like this so future sessions know to use the MCP for testing. Skip this for non-Dota-2 projects:
+
+## Dota 2 testing
+When the user asks to test, verify, debug, or run this custom game, use the dota2-mcp tools. Start with \`dota_status\` (reports addon/map state and the next step), then \`dota_launch_game\` to run a map, \`console_output\` (level 3) for errors, \`dota_run_lua\` to verify behavior live.`,
+  });
 }
 
 main().catch((err) => {
