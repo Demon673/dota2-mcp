@@ -299,7 +299,7 @@ async function main(): Promise<void> {
 
   // Tool: 读取 console 输出（VCon 实时流，含 verbosity 级别和 channel 来源）
   server.tool("console_output",
-    "Read Dota 2 console output with severity filtering. level: 0=all, 1=warnings+, 2=asserts+, 3=errors only.",
+    "Use when the user reports an in-game bug, error, crash, Lua/Panorama failure, or asks what went wrong while testing. Reads Dota 2 console output with severity filtering. level: 0=all, 1=warnings+, 2=asserts+, 3=errors only.",
     {
       lines: z.number().optional().describe("Number of lines to return. Default 50."),
       level: z.number().optional().describe("0=all, 1=warnings+, 2=asserts+, 3=errors only. Default 0."),
@@ -346,7 +346,7 @@ async function main(): Promise<void> {
 
   // Tool: send console command via VCon
   server.tool("console_send",
-    "Send console command to Dota 2 via VCon TCP",
+    "Use to run any Dota 2 console command — change convars, trigger cheats, exec cfgs, or drive the engine directly while testing. Sends command(s) to the live Dota 2 console.",
     { commands: z.string().describe("Command(s), newline-separated") },
     async ({ commands }) => {
       if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
@@ -357,9 +357,59 @@ async function main(): Promise<void> {
   );
 
 
+  // Tool: 任务入口 — 测试 / 验证 / 调试 Dota 2 自定义游戏
+  server.tool("dota_status",
+    "Test, verify, or debug a Dota 2 custom game project. Use this FIRST whenever the user asks to test a Dota 2 addon / custom game, check why something doesn't work in-game, run a map, or inspect live game state. Reports connection + addon + map status and tells you the next step (launch a map, read console_output for errors, run Lua to verify).",
+    {},
+    async () => {
+      if (!relay.dotaConnected) {
+        return { content: [{ type: "text", text:
+`Dota 2 is not connected. Before testing a custom game, ensure:
+1) Dota 2 is running, launched with -vconsole;
+2) vconsole2 GUI is connected to 127.0.0.1:29001 (not the default 29000).
+
+Once connected, call dota_status again to see the project state, then:
+- No map loaded → dota_launch_game
+- Map running, checking for errors → console_output (level 3)
+- Verify specific behavior → dota_run_lua` }] };
+      }
+
+      const addon = resolveAddon();
+      const maps = currentMaps.length > 0 ? currentMaps : scanMapsFs(addon);
+      const status = await queryStatusJson(5000);
+      const state = parseGameState(status);
+
+      // 根据状态给出下一步指引
+      let nextStep: string;
+      if (state.loading) {
+        nextStep = "Map is loading. Wait, then call dota_status again or watch console_output.";
+      } else if (!state.loaded) {
+        nextStep = `No map running. To test the addon, launch a map: dota_launch_game${maps.length > 0 ? ` (available: ${maps.join(", ")})` : ""}.`;
+      } else {
+        nextStep = `Map "${state.map}" is running (${state.phase}). To test/debug:
+- Check for errors → console_output (level 3, or channel filter 'VScript' for Lua errors)
+- Verify specific behavior / reproduce a bug → dota_run_lua
+- Inspect entities → dota_dump_entities; modifiers → dota_dump_modifiers
+- Reload after editing Lua/KV/Panorama → dota_restart`;
+      }
+
+      return { content: [{ type: "text", text: JSON.stringify({
+        connected: true,
+        addon: currentAddon || addon || "(detecting...)",
+        availableMaps: maps,
+        map: state.map,
+        running: state.loaded,
+        phase: state.phase,
+        players: state.players,
+        nextStep,
+      }, null, 2) }] };
+    }
+  );
+
+
   // Tool: 查询当前项目与游戏状态
   server.tool("project_info",
-    "Check current addon, map, game state. Call FIRST before other tools.",
+    "Check the current Dota 2 custom game project's addon, available maps, and live game state. Use to see which addon is loaded, whether a map is running, and connection health before launching or debugging.",
     {},
     async () => {
       if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
@@ -407,7 +457,7 @@ async function main(): Promise<void> {
 
   // Tool: 启动游戏
   server.tool("dota_launch_game",
-    "Launch a Dota 2 custom game. Polls status and retries if the game does not start loading. Call project_info first to see available maps.",
+    "Use to start / run / load a Dota 2 custom game map when the user wants to test or play their addon. Launches the map and polls until it finishes loading. Call project_info first to see available maps.",
     {
       map: z.string().optional().describe("Map name. Auto-detected if omitted."),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
@@ -455,7 +505,7 @@ async function main(): Promise<void> {
 
   // Tool: 断开
   server.tool("dota_disconnect",
-    "Disconnect from current game.",
+    "Use to disconnect / quit the current Dota 2 custom game and return to the main menu, e.g. after finishing a test run.",
     {},
     async () => {
       if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
@@ -466,7 +516,7 @@ async function main(): Promise<void> {
 
   // Tool: 重启当前游戏
   server.tool("dota_restart",
-    "Reload the current map. Uses Source 2 'restart' command.",
+    "Use to quickly reload / restart the current map after changing Lua, KV, or Panorama files, so the user can re-test without relaunching manually.",
     {},
     async () => {
       if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
@@ -481,7 +531,7 @@ async function main(): Promise<void> {
 
   // Tool: 列出所有实体
   server.tool("dota_dump_entities",
-    "List all entities currently in the game scene. Use this to inspect game state.",
+    "Use to inspect live game state while debugging — lists all entities currently in the scene (heroes, units, thinkers) to verify spawns, positions, or whether an entity exists at all.",
     {},
     async () => {
       if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
@@ -492,7 +542,7 @@ async function main(): Promise<void> {
 
   // Tool: 列出所有 modifier
   server.tool("dota_dump_modifiers",
-    "Dump modifiers. side='server'→dota_modifier_dump (all on entities), side='client'→cl_dump_modifier_list (all types).",
+    "Use to debug buffs/debuffs/modifiers while testing — dumps active modifiers on entities (server) or all registered modifier types (client) to verify an ability applied its modifier correctly.",
     { side: z.enum(["server","client"]).optional().describe("server or client. Default client.") },
     async ({ side }) => {
       if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
@@ -505,7 +555,7 @@ async function main(): Promise<void> {
 
   // Tool: 查看实体脚本作用域
   server.tool("dota_entity_inspect",
-    "Inspect entity Lua scope. side='server'→ent_script_dump, side='client'→cl_ent_script_dump. Pass entity name/class/entindex.",
+    "Use to inspect a specific entity's Lua script scope (its properties, functions, member values) while debugging ability or unit behavior. Pass entity name/class/entindex.",
     { entity: z.string().describe("Entity identifier"), side: z.enum(["server","client"]).optional().describe("server or client. Default client.") },
     async ({ entity, side }) => {
       if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
@@ -717,7 +767,7 @@ async function main(): Promise<void> {
 
   // Tool: Lua API（服务端 + 客户端）
   server.tool("dota_api_lua",
-    "Query Lua API. side='server'→script_help2 (full stub format, needs game), side='client'→cl_script_help2 (always available).",
+    "Use to look up a Dota 2 Lua API function or class signature while writing server-side script — e.g. 'what args does CreateUnitByName take' or 'what methods does CDOTA_BaseNPC have'.",
     { func: z.string().optional().describe("Function/class name. Empty=full dump."), side: z.enum(["server","client"]).optional().describe("server or client. Default server.") },
     async ({ func, side }) => {
       if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
@@ -730,7 +780,7 @@ async function main(): Promise<void> {
 
   // Tool: Panorama JS API
   server.tool("dota_api_panorama_js",
-    "Query Panorama JS API (cl_panorama_script_help_2). Enums and classes for UI scripts. Client-side only.",
+    "Use to look up Panorama JS API enums/classes (GameUI, CustomUIElement, $) while writing custom HUD / UI for the custom game.",
     { name: z.string().optional().describe("Enum/class name. Empty=full list.") },
     async ({ name }) => {
       if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
@@ -741,7 +791,7 @@ async function main(): Promise<void> {
 
   // Tool: Panorama CSS 属性
   server.tool("dota_api_css",
-    "Query Panorama CSS properties (dump_panorama_css_properties). Full descriptions + examples. Client-side only.",
+    "Use to look up a Panorama CSS property (e.g. wash-color, blur) with description and examples while styling the custom game's UI.",
     { prop: z.string().optional().describe("CSS property name, e.g. 'wash-color'. Empty=all 128.") },
     async ({ prop }) => {
       if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
@@ -752,7 +802,7 @@ async function main(): Promise<void> {
 
   // Tool: Panorama Panel 事件
   server.tool("dota_api_events",
-    "Query Panorama Panel events (dump_panorama_events). All event handlers with signatures. Client-side only.",
+    "Use to look up Panorama panel event handlers (e.g. SetPanelSelected, onactivate) and their signatures while wiring UI interactions.",
     { event: z.string().optional().describe("Event name, e.g. 'SetPanelSelected'. Empty=all events.") },
     async ({ event }) => {
       if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
@@ -765,7 +815,7 @@ async function main(): Promise<void> {
 
   // Tool: 搜索所有 5248 个 console 指令/cvar
   server.tool("console_find",
-    "Search all Dota 2 console commands and convars. Use prefixes like 'dota_', 'script_', 'sv_', 'cl_' to narrow results.",
+    "Use to discover a Dota 2 console command or convar when you don't know its exact name — e.g. find a cheat, a debug flag, or a launch option. Use prefixes like 'dota_', 'sv_', 'cl_' to narrow.",
     { query: z.string().describe("Search keyword") },
     async ({ query }) => {
       if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
@@ -786,7 +836,7 @@ async function main(): Promise<void> {
 
   // Tool: 查看命令用途
   server.tool("console_help",
-    "Show what a Dota 2 console command does and its current value.",
+    "Use to check what a specific Dota 2 console command or convar does and its current value before using it.",
     { command: z.string().describe("Command name") },
     async ({ command }) => {
       if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
@@ -836,7 +886,7 @@ async function main(): Promise<void> {
 
   // Tool: 查询官方 Lua API 文档
   server.tool("dota_api_help",
-    "Query Dota 2 official Lua API docs via 'script_help'. Pass function name like 'CreateUnitByName' or 'CDOTA_BaseNPC'.",
+    "Use to look up the official Dota 2 Lua API doc string for a function or class (script_help), e.g. 'CreateUnitByName' or 'CDOTA_BaseNPC'.",
     { query: z.string().optional().describe("Function or class name. Empty = list all registered API functions.") },
     async ({ query }) => {
       if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
@@ -847,7 +897,7 @@ async function main(): Promise<void> {
 
   // Tool: 在运行中的游戏里执行 Lua 代码
   server.tool("dota_run_lua",
-    "Execute server-side Lua in the running game via ent_fire 0 RunScriptCode. Use 'code' for arbitrary statements or 'expression' to evaluate and DeepPrintTable a value.",
+    "Use to run server-side Lua in the live game while testing — verify a function works, inspect a value, spawn a unit, or reproduce a bug without editing files and reloading. 'expression' auto-DeepPrintTables the result.",
     {
       code: z.string().optional().describe("Arbitrary Lua statements to run. Use single quotes inside to avoid shell escaping issues."),
       expression: z.string().optional().describe("Lua expression to evaluate; its result will be DeepPrintTable'd automatically (e.g. 'PlayerResource:GetAllTeamPlayerIDs()')."),
@@ -996,7 +1046,7 @@ async function main(): Promise<void> {
 
   // Tool: 编译 Source 2 资源
   server.tool("dota_compile_asset",
-    "Compile Source 2 assets using resourcecompiler. Target can be absolute, relative to addon content, or start with content/ / game/.",
+    "Use to compile Source 2 assets (models, maps, particles, materials) after editing them, or decompile a compiled asset to inspect it. Target can be absolute, relative to addon content, or start with content/ / game/.",
     {
       target: z.string().describe("File, folder, or VPK path to compile"),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),

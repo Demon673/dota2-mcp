@@ -12,6 +12,7 @@ const EXPECTED_TOOLS = new Set([
   "console_output",
   "console_channels",
   "console_send",
+  "dota_status",
   "project_info",
   "dota_launch_game",
   "dota_disconnect",
