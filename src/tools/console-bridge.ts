@@ -140,7 +140,15 @@ export async function detectDotaPath(): Promise<string | null> {
     // find-steam-app 1.0.2 无法解析新版 libraryfolders.vdf（条目是对象不是字符串），
     // 抛 TypeError。fall through 到手动解析。
   }
-  return detectDotaPathManual();
+  const manual = detectDotaPathManual();
+  if (!manual) {
+    console.error(
+      "[dota2-mcp] Failed to detect Dota 2 path. Tried: find-steam-app, " +
+      "HKCU registry SteamPath, STEAM_PATH env, platform default Steam locations. " +
+      "Asset compilation and addon map scanning will be unavailable."
+    );
+  }
+  return manual;
 }
 
 /** 从 Windows 注册表读 Steam 安装路径（Steam 自己记录的，比猜默认位置可靠）。 */

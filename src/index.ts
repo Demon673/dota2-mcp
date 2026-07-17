@@ -128,6 +128,13 @@ async function main(): Promise<void> {
 2) vconsole2 GUI 已连接到 127.0.0.1:29001。${extra}`;
   }
 
+  /** 依赖 dotaPath 的工具在路径未检测到时返回的可操作错误 */
+  function dotaPathNotDetectedText(): string {
+    return `未能检测到 Dota 2 安装目录（asset 编译和 addon 地图扫描依赖此路径）。
+已尝试：find-steam-app、注册表 SteamPath、STEAM_PATH 环境变量、各平台默认 Steam 位置。
+请确认 Dota 2 是通过 Steam 安装的（appid 570），或设置 STEAM_PATH 指向你的 Steam 目录。`;
+  }
+
   // 文件系统扫描 maps（relay 断连时的降级方案）
   function scanMapsFs(addon: string | null): string[] {
     if (!addon || !dotaPath) return [];
@@ -895,9 +902,10 @@ async function main(): Promise<void> {
    * - waitForExit = true：等待进程退出并收集 stdout/stderr。
    * - waitForExit = false：在进程成功启动后立即返回 PID；
    *   如果启动失败（如可执行文件不存在）则返回 ok=false。
+   * 调用前需确保 dotaPath 非空（dota_compile_asset 已检查）。
    */
   function runDotaTool(exeBase: string, args: string[], waitForExit = false): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-    const exePath = path.join(getDotaBinDir(dotaPath || ""), getDotaExeName(exeBase));
+    const exePath = path.join(getDotaBinDir(dotaPath!), getDotaExeName(exeBase));
     return new Promise((resolve) => {
       const proc = spawn(exePath, args, {
         detached: !waitForExit,
@@ -942,9 +950,9 @@ async function main(): Promise<void> {
     if (path.isAbsolute(target)) return target;
     const lower = target.toLowerCase().replace(/\\/g, "/");
     if (lower.startsWith("content/") || lower.startsWith("game/")) {
-      return path.join(dotaPath || "", target);
+      return path.join(dotaPath!, target);
     }
-    return path.join(dotaPath || "", "content", "dota_addons", addon, target);
+    return path.join(dotaPath!, "content", "dota_addons", addon, target);
   }
 
   // Tool: 编译 Source 2 资源
@@ -958,6 +966,9 @@ async function main(): Promise<void> {
       decompile: z.boolean().optional().describe("Use VRF decompile mode (Source2Viewer-CLI) instead of resourcecompiler. Default false."),
     },
     async ({ target, addon, recursive, force, decompile }) => {
+      if (!dotaPath) {
+        throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
+      }
       const a = resolveAddon(addon);
       if (!a) {
         const addons = listAddonsFs();
@@ -983,7 +994,7 @@ async function main(): Promise<void> {
         }] };
       }
 
-      const gameInfo = path.join(dotaPath || "", "game", "dota");
+      const gameInfo = path.join(dotaPath!, "game", "dota");
       const args = ["-i", resolved, "-game", gameInfo];
       if (r) args.push("-r");
       if (f) args.push("-f");
