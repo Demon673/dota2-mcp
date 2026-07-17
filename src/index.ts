@@ -103,11 +103,16 @@ async function main(): Promise<void> {
 
   relay.on("adon", (a: any) => {
     currentAddon = a.addonName || currentAddon;
-    // relay 内部已扫描 maps，但我们也跟一份
-    setTimeout(() => {
-      currentMaps = (relay as any)._maps || [];
-      currentAllMaps = (relay as any)._allMaps || [];
-    }, 1000);
+    // 本地 relay：跟一份私有字段扫描结果；瘦客户端：用广播里带的 maps
+    if (relay instanceof RelayClient) {
+      currentMaps = relay.maps || [];
+      currentAllMaps = relay.allMaps || [];
+    } else {
+      setTimeout(() => {
+        currentMaps = (relay as any)._maps || [];
+        currentAllMaps = (relay as any)._allMaps || [];
+      }, 1000);
+    }
   });
 
   // relay 在 createRelay 中已完成启动（本地 relay.start() 或瘦客户端 connect()）

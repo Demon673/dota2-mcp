@@ -5,6 +5,8 @@
  * setGuiSuppressPatterns / setMcpSuppressEnabled / dotaConnected / guiConnected /
  * guiSuppressPatterns / mcpSuppressEnabled），通过 :29002 控制端口与真正的 relay
  * 守护进程通信。index.ts 无需改动即可在守护进程模式下工作。
+ *
+ * 断线后自动重连：socket 关闭时按退避重试，直到重新握手成功。
  */
 
 import * as net from "net";
@@ -14,6 +16,9 @@ export interface RelayClientConfig {
   port: number;
   token: string | null;
 }
+
+const MAX_BUFFER = 1024 * 1024; // 1MB，超过则丢弃（防 relay 异常刷数据撑爆内存）
+const MAX_LINE = 256 * 1024;    // 单行上限，超过截断
 
 export class RelayClient extends EventEmitter {
   private sock: net.Socket | null = null;
@@ -27,6 +32,15 @@ export class RelayClient extends EventEmitter {
   private prntBuffer: string[] = [];
   private port: number;
   private token: string | null;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private reconnectAttempts = 0;
+  private destroyed = false;
+  /** 断线期间缓冲的命令，重连成功后补发（上限 100 条防堆积） */
+  private pendingCommands: string[] = [];
+  /** hello-ok 中携带的 addon/maps（瘦客户端模式下 _maps 等私有字段不可用，走这里） */
+  addonName = "";
+  maps: string[] = [];
+  allMaps: string[] = [];
 
   constructor(config: RelayClientConfig) {
     super();
@@ -40,31 +54,51 @@ export class RelayClient extends EventEmitter {
   get guiSuppressPatterns(): string[] { return [...this._guiSuppressPatterns]; }
 
   async connect(): Promise<void> {
+    return this._connect();
+  }
+
+  private _connect(): Promise<void> {
     return new Promise((resolve, reject) => {
+      if (this.destroyed) { reject(new Error("client destroyed")); return; }
       this.sock = new net.Socket();
       this.sock.connect(this.port, "127.0.0.1", () => {
-        // 握手
         const hello = this.token ? `HELLO ${this.token}` : "HELLO";
         this.sock!.write(hello + "\n");
       });
       this.sock.on("data", (data: Buffer) => this._onData(data));
       this.sock.on("error", (e: Error) => {
-        if (!this.connected) reject(e);
-        else this.emit("error", e);
+        if (!this.connected) {
+          reject(e);
+        } else {
+          // 已连接后出错（如 daemon 重启）：不往外抛 error 事件
+          // （EventEmitter 对无监听的 error 会 throw），只走 close → 自动重连。
+          // 记录到 stderr 供排查，但对 MCP 调用方透明。
+          console.error("[relay-client] connection lost:", e.message);
+        }
       });
       this.sock.on("close", () => {
+        const wasConnected = this.connected;
         this.connected = false;
         this._dotaConnected = false;
         this._guiConnected = false;
         this.emit("close");
+        if (wasConnected && !this.destroyed) this._scheduleReconnect();
       });
 
       const onHello = (msg: any) => {
         if (msg.type === "hello-ok") {
           this.connected = true;
+          this.reconnectAttempts = 0;
           this.off("hello", onHello);
-          // 订阅 PRNT 流
+          this._dotaConnected = !!msg.dota;
+          this._guiConnected = !!msg.gui;
+          this.addonName = msg.addon || "";
+          this.maps = msg.maps || [];
+          this.allMaps = msg.allMaps || [];
           this.sock!.write("STREAM\n");
+          // 补发断线期间缓冲的命令
+          for (const c of this.pendingCommands) this.sock!.write(`CMD:${c}\n`);
+          this.pendingCommands = [];
           resolve();
         } else if (msg.type === "hello-err") {
           this.off("hello", onHello);
@@ -75,12 +109,38 @@ export class RelayClient extends EventEmitter {
     });
   }
 
+  private _scheduleReconnect(): void {
+    if (this.reconnectTimer || this.destroyed) return;
+    // 指数退避，封顶 5s
+    const delay = Math.min(500 * Math.pow(1.5, this.reconnectAttempts), 5000);
+    this.reconnectAttempts++;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this._connect().catch(() => {
+        // 重连失败会继续触发 close → _scheduleReconnect
+      });
+    }, delay);
+  }
+
+  /** 主动断开并不再重连 */
+  destroy(): void {
+    this.destroyed = true;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.sock?.destroy();
+  }
+
   private _onData(data: Buffer): void {
     this.buffer += data.toString();
+    // 单行过长或 buffer 超限：丢弃，防内存被异常数据撑爆
+    if (this.buffer.length > MAX_BUFFER) {
+      const lastNl = this.buffer.lastIndexOf("\n");
+      this.buffer = lastNl === -1 ? "" : this.buffer.slice(lastNl + 1);
+    }
     let idx: number;
     while ((idx = this.buffer.indexOf("\n")) !== -1) {
-      const line = this.buffer.slice(0, idx);
+      let line = this.buffer.slice(0, idx);
       this.buffer = this.buffer.slice(idx + 1);
+      if (line.length > MAX_LINE) line = line.slice(0, MAX_LINE);
       this._handleLine(line);
     }
   }
@@ -105,6 +165,9 @@ export class RelayClient extends EventEmitter {
         this.emit("prnt", { text: msg.text, verbosity: msg.verbosity ?? 0, channel: msg.channel ?? "" });
         break;
       case "adon":
+        this.addonName = msg.addonName || this.addonName;
+        this.maps = msg.maps || this.maps;
+        this.allMaps = msg.allMaps || this.allMaps;
         this.emit("adon", { addonName: msg.addonName });
         break;
       case "chan":
@@ -113,8 +176,14 @@ export class RelayClient extends EventEmitter {
     }
   }
 
+  /** 发送命令。断线期间缓冲，重连后补发（对调用方无感）。 */
   sendCommand(cmd: string): void {
-    this.sock?.write(`CMD:${cmd}\n`);
+    if (this.connected && this.sock) {
+      this.sock.write(`CMD:${cmd}\n`);
+    } else {
+      this.pendingCommands.push(cmd);
+      if (this.pendingCommands.length > 100) this.pendingCommands.shift();
+    }
   }
 
   getRecentOutput(n = 50): string[] {
@@ -127,16 +196,16 @@ export class RelayClient extends EventEmitter {
 
   setGuiSuppressPatterns(patterns: string[]): void {
     this._guiSuppressPatterns = [...patterns];
-    this.sock?.write(`SETFILTERS:${JSON.stringify(patterns)}\n`);
+    if (this.connected && this.sock) this.sock.write(`SETFILTERS:${JSON.stringify(patterns)}\n`);
   }
 
   setMcpSuppressEnabled(enabled: boolean): void {
     this._mcpSuppressEnabled = enabled;
-    this.sock?.write(`SETMCPSUPPRESS:${enabled ? "1" : "0"}\n`);
+    if (this.connected && this.sock) this.sock.write(`SETMCPSUPPRESS:${enabled ? "1" : "0"}\n`);
   }
 
   /** 状态轮询（index.ts 的 project_info 依赖 relay.dotaConnected 实时性） */
   async pollStatus(): Promise<void> {
-    this.sock?.write("STATUS\n");
+    if (this.connected && this.sock) this.sock.write("STATUS\n");
   }
 }

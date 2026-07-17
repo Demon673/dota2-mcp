@@ -12,6 +12,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import * as net from "net";
+import * as crypto from "crypto";
 import { spawn } from "child_process";
 
 const CTRL_PORT = parseInt(process.env.DOTA2_VCON_CTRL_PORT || "29002", 10);
@@ -69,14 +70,23 @@ export function livePid(): number | null {
   }
 }
 
-/** 生成 token 并写 0600 文件。已存在则直接读。 */
+/** 生成 token 并写 0600 文件。原子创建（wx），已存在则直接读。 */
 export function ensureToken(): string {
   try {
     return fs.readFileSync(tokenPath(), "utf-8").trim();
   } catch { /* create */ }
-  const token = Buffer.from(Array.from({ length: 24 }, () => Math.floor(Math.random() * 256))).toString("hex");
-  fs.writeFileSync(tokenPath(), token, { mode: 0o600 });
-  return token;
+  const token = crypto.randomBytes(24).toString("hex");
+  try {
+    // wx：已存在则不覆盖，避免两个进程并发时后写覆盖先写
+    fs.writeFileSync(tokenPath(), token, { mode: 0o600, flag: "wx" });
+    return token;
+  } catch (e: any) {
+    if (e.code === "EEXIST") {
+      // 另一个进程先写了，读它的
+      return fs.readFileSync(tokenPath(), "utf-8").trim();
+    }
+    throw e;
+  }
 }
 
 export function readToken(): string | null {
