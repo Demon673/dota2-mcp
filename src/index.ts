@@ -23,6 +23,7 @@ import { VConRelay } from "./tools/vcon-relay.js";
 import { RelayClient } from "./relay-client.js";
 import * as consoleBridge from "./tools/console-bridge.js";
 import * as daemon from "./daemon-utils.js";
+import { SKILL_RUNTIME_DEV } from "./skills.js";
 
 function getVersion(): string {
   try {
@@ -362,6 +363,25 @@ async function main(): Promise<void> {
       const cmds = commands.split("\n").map(c => c.trim()).filter(Boolean);
       cmds.forEach(c => relay.sendCommand(c));
       return { content: [{ type: "text", text: `Sent ${cmds.length} command(s)` }] };
+    }
+  );
+
+
+  // Tool: 获取内置 skill — 教 agent 怎么用这套 MCP（Roblox skill 模式）
+  server.tool("dota2_skill",
+    "Retrieve built-in skill / knowledge on how to develop a Dota 2 custom game with this MCP. Call this to learn the runtime development model (long-lived process + hot reload, no map restarts for code edits), how code changes take effect, generated-code boundaries, and how to use the tools correctly. Currently provides: 'runtime-dev'.",
+    {
+      name: z.string().optional().describe("Skill name. Currently only 'runtime-dev'. Omit to list available skills."),
+    },
+    async ({ name }) => {
+      const catalog = { "runtime-dev": "Dota 2 custom game runtime development model: hot reload, generated-code boundaries, tool usage." };
+      if (!name) {
+        return { content: [{ type: "text", text: `Available skills:\n${Object.entries(catalog).map(([k, v]) => `- ${k}: ${v}`).join("\n")}\n\nCall dota2_skill with a name to retrieve it.` }] };
+      }
+      if (name === "runtime-dev") {
+        return { content: [{ type: "text", text: SKILL_RUNTIME_DEV }] };
+      }
+      return { content: [{ type: "text", text: `Unknown skill '${name}'. Available: ${Object.keys(catalog).join(", ")}` }] };
     }
   );
 
