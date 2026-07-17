@@ -13,6 +13,7 @@
     "dist/*.d.ts",
     "dist/*.d.ts.map",
     "dist/tools/**/*",
+    "skills/**/*",
     "README.md",
     "CLAUDE.md",
     "LICENSE",

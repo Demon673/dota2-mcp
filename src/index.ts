@@ -23,7 +23,6 @@ import { VConRelay } from "./tools/vcon-relay.js";
 import { RelayClient } from "./relay-client.js";
 import * as consoleBridge from "./tools/console-bridge.js";
 import * as daemon from "./daemon-utils.js";
-import { SKILL_RUNTIME_DEV } from "./skills.js";
 
 function getVersion(): string {
   try {
@@ -367,21 +366,52 @@ async function main(): Promise<void> {
   );
 
 
+  // 内置 skill 目录：skills/<name>/SKILL.md，frontmatter 带 name/description
+  function skillsDir(): string {
+    const require = createRequire(import.meta.url);
+    return path.join(path.dirname(require.resolve("../package.json")), "skills");
+  }
+  function loadSkills(): { name: string; description: string; body: string }[] {
+    const dir = skillsDir();
+    const out: { name: string; description: string; body: string }[] = [];
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const file = path.join(dir, e.name, "SKILL.md");
+      try {
+        const raw = fs.readFileSync(file, "utf-8");
+        const fm = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+        const meta = fm ? fm[1] : "";
+        const body = fm ? fm[2] : raw;
+        const name = (meta.match(/^name:\s*(.+)$/m)?.[1] || e.name).trim();
+        const description = (meta.match(/^description:\s*(.+)$/m)?.[1] || "").trim();
+        out.push({ name, description, body: body.trim() });
+      } catch { /* skip */ }
+    }
+    return out;
+  }
+
   // Tool: 获取内置 skill — 教 agent 怎么用这套 MCP（Roblox skill 模式）
   server.tool("dota2_skill",
-    "Retrieve built-in skill / knowledge on how to develop a Dota 2 custom game with this MCP. Call this to learn the runtime development model (long-lived process + hot reload, no map restarts for code edits), how code changes take effect, generated-code boundaries, and how to use the tools correctly. Currently provides: 'runtime-dev'.",
+    "Retrieve built-in skill / knowledge on how to develop a Dota 2 custom game with this MCP. Call with no argument to list available skills, or with a skill name to retrieve its content. Learn the runtime development model (long-lived process + hot reload, no map restarts for code edits) before testing or editing.",
     {
-      name: z.string().optional().describe("Skill name. Currently only 'runtime-dev'. Omit to list available skills."),
+      name: z.string().optional().describe("Skill name, e.g. 'dota2-runtime-dev'. Omit to list available skills."),
     },
     async ({ name }) => {
-      const catalog = { "runtime-dev": "Dota 2 custom game runtime development model: hot reload, generated-code boundaries, tool usage." };
+      const skills = loadSkills();
+      if (skills.length === 0) {
+        return { content: [{ type: "text", text: "No built-in skills found (skills/ directory missing)." }] };
+      }
       if (!name) {
-        return { content: [{ type: "text", text: `Available skills:\n${Object.entries(catalog).map(([k, v]) => `- ${k}: ${v}`).join("\n")}\n\nCall dota2_skill with a name to retrieve it.` }] };
+        const list = skills.map(s => `- ${s.name}: ${s.description}`).join("\n");
+        return { content: [{ type: "text", text: `Available skills:\n${list}\n\nCall dota2_skill with a name to retrieve it.` }] };
       }
-      if (name === "runtime-dev") {
-        return { content: [{ type: "text", text: SKILL_RUNTIME_DEV }] };
+      const skill = skills.find(s => s.name === name || s.name === `dota2-${name}`);
+      if (!skill) {
+        return { content: [{ type: "text", text: `Unknown skill '${name}'. Available: ${skills.map(s => s.name).join(", ")}` }] };
       }
-      return { content: [{ type: "text", text: `Unknown skill '${name}'. Available: ${Object.keys(catalog).join(", ")}` }] };
+      return { content: [{ type: "text", text: skill.body }] };
     }
   );
 
