@@ -41,7 +41,7 @@ export class VConRelay extends EventEmitter {
   private _maps: string[] = [];      // addoninfo.txt 中的官方地图
   private _allMaps: string[] = [];   // maps/ 目录下所有 .vmap
   private _ainf: any = null;
-  private _dotaPath = "D:/SteamLibrary/steamapps/common/dota 2 beta";
+  private _dotaPath: string | null = null;
   private _channels = new Map<number, string>(); // channelId (from CHAN.id / PRNT.channelCRC) -> name
   private _guiSuppressPatterns: string[] = [];
   /** MCP 命令包装标记：把命令包在 `ai_disabled; ...; ai_disabled` 中一次性发给 Dota，
@@ -50,6 +50,11 @@ export class VConRelay extends EventEmitter {
   private _mcpMarker = "ai_disabled =";
   private _mcpMarkerSuppress = false;
   private _mcpSuppressEnabled = true;
+
+  /** 设置 Dota 2 根目录（由 detectDotaPath() 提供），用于地图扫描 */
+  setDotaPath(p: string | null): void {
+    this._dotaPath = p;
+  }
 
   get dotaConnected() { return this._dotaConnected; }
   get guiConnected() { return this._guiConnected; }
@@ -156,7 +161,7 @@ export class VConRelay extends EventEmitter {
   }
 
   private _scanMaps(): void {
-    if (!this._addonName) return;
+    if (!this._addonName || !this._dotaPath) return;
 
     // 同时扫描 maps/ 目录下的所有 .vmap（完整可用地图）
     const mapsDir = path.join(this._dotaPath, "content", "dota_addons", this._addonName, "maps");
@@ -176,6 +181,7 @@ export class VConRelay extends EventEmitter {
 
   /** 从 addoninfo.txt 解析 maps 数组 */
   private _readAddonInfoMaps(): string[] {
+    if (!this._dotaPath) return [];
     const candidates = [
       path.join(this._dotaPath, "game", "dota_addons", this._addonName, "addoninfo.txt"),
       path.join(this._dotaPath, "content", "dota_addons", this._addonName, "addoninfo.txt"),

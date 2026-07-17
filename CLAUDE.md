@@ -21,9 +21,11 @@ npm run build        # tsc — 把 src/ 编译到 dist/
 npm run dev          # tsc --watch — 监听模式编译
 npm run start        # node dist/index.js — 运行编译后的 MCP 服务器
 npm run check        # tsc --noEmit — 仅类型检查
+npm run bundle       # esbuild → dist/bundle.cjs（打包前置步骤）
+npm run package      # bundle + Node SEA 单文件可执行程序（scripts/sea-package.mjs）
 ```
 
-目前未配置测试、lint 或格式化脚本。
+目前没有 lint/format/test 脚本。唯一的测试是 `scripts/test-mcp-tools.mjs`（`node scripts/test-mcp-tools.mjs`）——它会 spawn 服务器并冒烟测试所有工具，**需要 Dota 2 正在运行且已连接 VCon**，不是离线单元测试。
 
 ### 开发时运行服务器
 
@@ -34,7 +36,7 @@ npm run build
 npm run start
 ```
 
-启动后，服务器会立即尝试在 `127.0.0.1:29001`（GUI 端口）和 `:29002`（控制端口）启动 VCon relay。
+启动后，服务器会立即尝试在 `127.0.0.1:29001`（GUI 端口）和 `:29002`（控制端口）启动 VCon relay。注意：relay 只在 **vconsole2 GUI 连接到 :29001 之后**才会去连 Dota 2 的 `:29000`；GUI 断开时会释放 `:29000`。
 
 ## 环境变量
 
@@ -106,9 +108,10 @@ Relay/Client 实现了已针对 Dota 2 验证的 VConsole2 二进制帧格式：
 工具注册在 `src/index.ts` 中：
 
 - **游戏控制：** `project_info`、`dota_launch_game`、`dota_disconnect`、`dota_restart`
-- **控制台 I/O：** `console_send`、`console_output`、`console_find`、`console_help`
+- **控制台 I/O：** `console_send`、`console_output`、`console_channels`、`console_find`、`console_help`、`console_gui_filter`
 - **API 文档（实时控制台查询）：** `dota_api_lua`、`dota_api_panorama_js`、`dota_api_css`、`dota_api_events`、`dota_api_help`
-- **调试检查：** `dota_dump_entities`、`dota_dump_modifiers`、`dota_entity_inspect`
+- **调试检查：** `dota_dump_entities`、`dota_dump_modifiers`、`dota_entity_inspect`、`dota_run_lua`
+- **资源：** `dota_compile_asset`（resourcecompiler / Source2Viewer-CLI）
 
 所有 API 参考工具都向运行中的引擎实时查询，不使用本地 JSON 数据库，因为 Dota 2 API 内容随引擎版本变化。
 
@@ -125,7 +128,6 @@ Relay/Client 实现了已针对 Dota 2 验证的 VConsole2 二进制帧格式：
 
 ## 已知问题 / 注意事项
 
-- `src/index.ts` 直接依赖 `zod` 定义 MCP 工具参数 schema，但 `package.json` 的 `dependencies` 中**没有显式声明 `zod`**。当前 `node_modules` 里能解析到它，是因为 `@modelcontextprotocol/sdk` 把它作为间接依赖引入（npm 依赖提升）。建议执行 `npm install zod` 将其加入 `dependencies`，避免后续环境依赖不完整。
 - VCon relay 会占用端口 `29001`（GUI）和 `29002`（MCP 控制）；同一台机器上同时只能运行一个实例。
 - VConsole2 GUI 需要手动配置连接 `127.0.0.1:29001`（而不是默认的 `29000`），因为 Dota 2 只允许一个 VCon 客户端直接连 `:29000`。
 - Dota 2 必须带 `-vconsole` 参数启动（或已启用 vconsole2 监听器），relay 才能连上 `:29000`。
@@ -136,3 +138,17 @@ Relay/Client 实现了已针对 Dota 2 验证的 VConsole2 二进制帧格式：
 - `AGENTS.md` — 完整的中文项目笔记、已验证控制台命令和 TODO 列表。
 - 相关本地仓库：`C:\Repositories\tui12`、`C:\Repositories\dota2-tools`
 - VConsole2 协议参考：VConsole2.Client（C#）、VConsoleLib.python、luaconsole2
+
+## Agent skills
+
+### Issue tracker
+
+Issues 追踪在 GitHub Issues（`gh` CLI）。见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+使用默认五标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix。见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+Single-context：根目录 `CONTEXT.md` + `docs/adr/`（不存在时静默跳过）。见 `docs/agents/domain.md`。

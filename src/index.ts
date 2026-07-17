@@ -60,6 +60,7 @@ async function main(): Promise<void> {
 
   const dotaPath = await consoleBridge.detectDotaPath();
   const relay = new VConRelay();
+  relay.setDotaPath(dotaPath);
 
   // 追踪 relay 状态供工具使用
   let currentAddon = "";
