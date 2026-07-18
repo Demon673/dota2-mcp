@@ -29,12 +29,14 @@
     "console-bridge"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "npm run sync-version && tsc",
     "bundle": "esbuild dist/index.js --bundle --platform=node --format=cjs --outfile=dist/bundle.cjs",
     "package": "npm run bundle && node scripts/sea-package.mjs",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit && node scripts/sync-version.mjs --check",
+    "sync-version": "node scripts/sync-version.mjs",
+    "prepack": "npm run sync-version"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
