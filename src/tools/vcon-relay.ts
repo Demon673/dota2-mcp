@@ -1,5 +1,8 @@
 /**
- * VCon 透明代理 — vconsole2 连上来时才去连 Dota 2
+ * VCon 透明代理 + Dota 2 连接持有者
+ *
+ * 启动即主动连接 Dota 2 :29000 并常驻持有（断线每 2s 重连，不依赖 GUI）。
+ * vconsole2 连 :29001 获得透明转发（可选，纯观察者）。
  *
  * ```
  * vconsole2 ──→ :29001 (relay) ──→ :29000 (Dota 2)
@@ -66,6 +69,10 @@ export class VConRelay extends EventEmitter {
   private idleTimer: NodeJS.Timeout | null = null;
   private expectedToken: string | null = null;
   private portConflict = false;
+  /** close() 后不再重连 Dota 2 */
+  private _closed = false;
+  /** 仅守护进程模式启用空闲退出（内嵌为本地 relay 时本进程是 MCP server，不能退出） */
+  private idleExitEnabled = false;
 
   /** 设置 Dota 2 根目录（由 detectDotaPath() 提供），用于地图扫描 */
   setDotaPath(p: string | null): void {
@@ -75,6 +82,12 @@ export class VConRelay extends EventEmitter {
   /** 守护进程模式下设置期望的 token（瘦客户端 HELLO 校验） */
   setExpectedToken(token: string): void {
     this.expectedToken = token;
+  }
+
+  /** 守护进程调用：启用无客户端空闲 5 分钟自动退出。本地内嵌模式绝不能调用 */
+  enableIdleExit(): void {
+    this.idleExitEnabled = true;
+    this._resetIdleTimer();
   }
 
   get dotaConnected() { return this._dotaConnected; }
@@ -125,6 +138,9 @@ export class VConRelay extends EventEmitter {
     });
 
     this._resetIdleTimer();
+
+    // 启动即主动连接 Dota 2（不等 vconsole2 GUI 触发），断线自动重连
+    this._connectDota();
   }
 
   sendCommand(cmd: string): void {
@@ -145,6 +161,7 @@ export class VConRelay extends EventEmitter {
   }
 
   close(): void {
+    this._closed = true;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.dotaClient?.close();
     this.guiSocket?.destroy();
@@ -155,6 +172,7 @@ export class VConRelay extends EventEmitter {
   // ---- 守护进程：空闲计时 ----
 
   private _resetIdleTimer(): void {
+    if (!this.idleExitEnabled) return;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => {
       if (this.clients.size === 0 && !this._guiConnected) {
@@ -349,10 +367,7 @@ export class VConRelay extends EventEmitter {
   private _onGuiConnect(sock: net.Socket): void {
     this.guiSocket = sock;
     this._guiConnected = true;
-    console.error("[relay] vconsole2 connected, connecting to Dota 2...");
-
-    // 按需连接 Dota 2：VConsole2 连上 relay 时才去占 :29000
-    this._connectDota();
+    console.error("[relay] vconsole2 connected");
 
     // vconsole2 → Dota 2：按 VCon 帧边界重组后再转发。
     // TCP 不保证一个 data 事件就是一帧，半帧直接 rawWrite 会让 Dota 2 协议错乱。
@@ -378,12 +393,8 @@ export class VConRelay extends EventEmitter {
     sock.on("close", () => {
       this._guiConnected = false;
       this.guiSocket = null;
-      console.error("[relay] vconsole2 disconnected, releasing Dota 2 connection");
-      // VConsole2 断开后释放 Dota 2 的 :29000，让 Dota 2 认为 VConsole2 已关闭，
-      // 从而可以从 Dota 2 快捷键重新启动 VConsole2。
-      this.dotaClient?.close();
-      this.dotaClient = null;
-      this._dotaConnected = false;
+      // 不再随 GUI 断开释放 :29000：relay 常驻持有 Dota 连接，MCP 工具不依赖 GUI
+      console.error("[relay] vconsole2 disconnected");
       this._resetIdleTimer();
     });
 
@@ -391,7 +402,7 @@ export class VConRelay extends EventEmitter {
   }
 
   private _connectDota(): void {
-    if (this.dotaClient) return; // already connected/connecting
+    if (this.dotaClient || this._closed) return; // already connected/connecting (or shut down)
 
     this.dotaClient = new VConClient({
       port: DOTA_PORT,
@@ -472,12 +483,9 @@ export class VConRelay extends EventEmitter {
       this._mcpMarkerSuppress = false;
       this.dotaClient = null;
       this._broadcast({ type: "status", dota: false, gui: this._guiConnected });
-      // 只有在 VConsole2 还连着时才需要自动重连；否则释放 :29000
-      if (this._guiConnected) {
+      if (!this._closed) {
         console.error("[relay] Dota 2 disconnected, retrying in 2s...");
         setTimeout(() => this._connectDota(), 2000);
-      } else {
-        console.error("[relay] Dota 2 disconnected, no VConsole2 attached");
       }
     });
 
@@ -485,14 +493,14 @@ export class VConRelay extends EventEmitter {
       console.error("[relay] Dota error:", e.message);
       this._mcpMarkerSuppress = false;
       this.dotaClient = null;
-      if (this._guiConnected) {
+      if (!this._closed) {
         setTimeout(() => this._connectDota(), 2000);
       }
     });
 
     this.dotaClient.connect().catch(() => {
       this.dotaClient = null;
-      if (this._guiConnected) {
+      if (!this._closed) {
         setTimeout(() => this._connectDota(), 2000);
       }
     });

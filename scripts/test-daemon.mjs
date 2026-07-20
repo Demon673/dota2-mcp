@@ -208,9 +208,9 @@ async function main() {
   }
 
   // 5b. RelayClient-level: reconnect + pending command resend.
-  //     Use the compiled RelayClient against the live daemon: connect, kill
-  //     the daemon, send a command while disconnected (should buffer), restart
-  //     daemon, verify the client reconnects and the buffered command is resent.
+  //     杀掉 daemon 后等 3.5s（多次重连尝试失败——验证重连链不断），再重启 daemon，
+  //     以重握手（hello 事件）作为重连成功的真实凭据。旧断言（sendCommand 不抛错）
+  //     是空转的：断线时 sendCommand 只缓冲，永远不抛。
   {
     const { RelayClient } = await import("../dist/relay-client.js");
     const token = fs.readFileSync(tokenPath, "utf-8").trim();
@@ -218,7 +218,9 @@ async function main() {
     await client.connect();
     // kill daemon
     try { process.kill(child.pid); } catch {}
-    await new Promise(r => setTimeout(r, 800)); // let close fire + reconnect timer start
+    // 重握手凭据：初始握手已完成，之后收到的 hello-ok 只能来自重连成功
+    const rehello = new Promise((res) => client.on("hello", (m) => { if (m.type === "hello-ok") res(true); }));
+    await new Promise(r => setTimeout(r, 3500)); // 多次失败的重连尝试（链不能断）
     // send while disconnected — should buffer, not throw
     let threw = false;
     try { client.sendCommand("echo buffered"); } catch { threw = true; }
@@ -231,17 +233,9 @@ async function main() {
       env: { ...process.env },
     });
     child2.unref();
-    // wait for reconnect (client auto-reconnects)
-    await new Promise(r => setTimeout(r, 4000));
-    if (client.dotaConnected !== undefined && client.addonName !== undefined) {
-      // reconnected if connected flag true — check via a fresh command round-trip
-      try {
-        client.sendCommand("echo after-reconnect");
-        console.log("[test] PASS client auto-reconnected after daemon restart");
-      } catch (e) {
-        console.log("[test] FAIL client did not reconnect:", e.message);
-      }
-    }
+    const reconnected = await Promise.race([rehello, new Promise(r => setTimeout(() => r(false), 10000))]);
+    if (reconnected) console.log("[test] PASS client auto-reconnected after daemon restart (re-handshake)");
+    else { console.log("[test] FAIL client did not reconnect within 10s of daemon restart"); process.exitCode = 1; }
     client.destroy();
     try { process.kill(child2.pid); } catch {}
     await new Promise(r => setTimeout(r, 300));
@@ -250,6 +244,185 @@ async function main() {
   // 6. 空闲计时已由 5b 间接覆盖（daemon 在客户端断开后仍存活才能重连）。
   //    这里直接清理第一个 daemon 的残留（它在 5b 已被 kill，防御性再杀一次）。
   try { process.kill(child.pid); } catch {}
+
+  // 7. 主动连接：无 GUI 连接时 daemon 也应主动连 Dota 端口。
+  //    起一个假 Dota VCon TCP server（只 accept），spawn daemon 指向它，
+  //    断言：没有任何 GUI 连上 :29001，daemon 依然连上了 fake Dota。
+  {
+    const DOTA_FAKE_PORT = CTRL_PORT + 3000;
+    const CTRL2 = CTRL_PORT + 4000;
+    const GUI2 = CTRL2 + 1000;
+    let fakeGotConn = false;
+    const fakeDota = net.createServer((s) => { fakeGotConn = true; s.on("error", () => {}); });
+    await new Promise((res) => fakeDota.listen(DOTA_FAKE_PORT, "127.0.0.1", res));
+    const child3 = spawn(process.execPath, ["dist/relay-main.js"], {
+      detached: true, stdio: "ignore", windowsHide: true,
+      env: { ...process.env,
+        DOTA2_VCON_DOTA_PORT: String(DOTA_FAKE_PORT),
+        DOTA2_VCON_CTRL_PORT: String(CTRL2),
+        DOTA2_VCON_GUI_PORT: String(GUI2) },
+    });
+    child3.unref();
+    const t0 = Date.now();
+    while (!fakeGotConn && Date.now() - t0 < 8000) {
+      await new Promise(r => setTimeout(r, 200));
+    }
+    if (fakeGotConn) console.log("[test] PASS daemon proactively connects to Dota without GUI");
+    else { console.log("[test] FAIL daemon did not connect to Dota without GUI"); process.exitCode = 1; }
+    try { process.kill(child3.pid); } catch {}
+    fakeDota.close();
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  // 8. 用户场景：agent 在线但 Dota 未开，超过 5 分钟后 Dota 才启动。
+  //    压缩时间模拟：daemon 指向无人监听的 Dota 端口，瘦客户端保持连接
+  //    （模拟开着的 agent，同时阻止 daemon 空闲退出），数秒后才起 fake Dota。
+  //    断言：daemon 自动连上，且瘦客户端收到 dota:true 的状态广播。
+  {
+    const DOTA3 = CTRL_PORT + 5000;
+    const CTRL3 = CTRL_PORT + 6000;
+    const GUI3 = CTRL3 + 1000;
+    const child4 = spawn(process.execPath, ["dist/relay-main.js"], {
+      detached: true, stdio: "ignore", windowsHide: true,
+      env: { ...process.env,
+        DOTA2_VCON_DOTA_PORT: String(DOTA3),
+        DOTA2_VCON_CTRL_PORT: String(CTRL3),
+        DOTA2_VCON_GUI_PORT: String(GUI3) },
+    });
+    child4.unref();
+
+    // 等 daemon 的 ctrl 端口就绪
+    await new Promise((res, rej) => {
+      const t0 = Date.now();
+      const tick = () => {
+        const s = new net.Socket();
+        s.connect(CTRL3, "127.0.0.1", () => { s.destroy(); res(); });
+        s.on("error", () => {
+          if (Date.now() - t0 > 8000) return rej(new Error("daemon3 never listened"));
+          setTimeout(tick, 200);
+        });
+      };
+      tick();
+    });
+
+    // 瘦客户端保持连接（模拟开着的 agent 会话）
+    const token = fs.readFileSync(tokenPath, "utf-8").trim();
+    const sock = new net.Socket();
+    let helloDota = null;
+    let dotaStatusSeen = false;
+    let buf8 = "";
+    sock.on("data", (d) => {
+      buf8 += d.toString();
+      let i;
+      while ((i = buf8.indexOf("\n")) !== -1) {
+        const line = buf8.slice(0, i); buf8 = buf8.slice(i + 1);
+        let msg; try { msg = JSON.parse(line); } catch { continue; }
+        if (msg.type === "hello-ok") { helloDota = msg.dota; sock.write("STREAM\n"); }
+        else if (msg.type === "status" && msg.dota) { dotaStatusSeen = true; }
+      }
+    });
+    sock.on("error", () => {});
+    await new Promise((res) => sock.connect(CTRL3, "127.0.0.1", () => sock.write(`HELLO ${token}\n`, res)));
+    await new Promise(r => setTimeout(r, 500));
+    if (helloDota !== false) console.log(`[test] note: hello-ok dota=${helloDota} (expected false, Dota not up yet)`);
+
+    // 模拟"Dota 5 分钟后才开"：压缩成 6s（3 个重连周期），期间 daemon 不得退出或崩溃
+    await new Promise(r => setTimeout(r, 6000));
+
+    let fakeGotConn = false;
+    const fakeDota2 = net.createServer((s) => { fakeGotConn = true; s.on("error", () => {}); });
+    await new Promise((res) => fakeDota2.listen(DOTA3, "127.0.0.1", res));
+
+    const t0 = Date.now();
+    while (!dotaStatusSeen && Date.now() - t0 < 6000) {
+      await new Promise(r => setTimeout(r, 200));
+    }
+    if (fakeGotConn && dotaStatusSeen) {
+      console.log("[test] PASS late-start Dota picked up automatically + status broadcast reached client");
+    } else {
+      console.log(`[test] FAIL late-start Dota: conn=${fakeGotConn} statusBroadcast=${dotaStatusSeen}`);
+      process.exitCode = 1;
+    }
+    sock.destroy();
+    try { process.kill(child4.pid); } catch {}
+    fakeDota2.close();
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  // 10. 会话内守护进程被杀 → index.js 应在瘦客户端重连连续失败约 5 次后自动重拉。
+  //     起完整 MCP server（dist/index.js），等它拉起初始守护进程，杀掉守护进程
+  //     （保留 index.js = 会话还在），断言 stderr 出现第二次 "connected to spawned daemon"。
+  {
+    const C10 = CTRL_PORT + 8000;
+    const G10 = C10 + 1000;
+    const D10 = C10 + 2000;
+    const child5 = spawn(process.execPath, ["dist/index.js"], {
+      stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
+      env: { ...process.env,
+        DOTA2_VCON_CTRL_PORT: String(C10),
+        DOTA2_VCON_GUI_PORT: String(G10),
+        DOTA2_VCON_DOTA_PORT: String(D10) },
+    });
+    let stderr10 = "";
+    child5.stderr.on("data", (d) => { stderr10 += d.toString(); });
+    child5.stdout.on("data", () => {});
+    child5.on("error", () => {});
+
+    // 等 index.js 拉起初始守护进程（ctrl 端口就绪）
+    await new Promise((res, rej) => {
+      const t0 = Date.now();
+      const tick = () => {
+        const s = new net.Socket();
+        s.connect(C10, "127.0.0.1", () => { s.destroy(); res(); });
+        s.on("error", () => {
+          if (Date.now() - t0 > 15000) return rej(new Error("index.js daemon never listened"));
+          setTimeout(tick, 300);
+        });
+      };
+      tick();
+    });
+
+    // 确认初始接入是瘦客户端模式：慢机上守护进程冷启动可能超过 waitForRelay(30s)
+    // 导致降级本地 relay（端口在听≠daemon 模式），那种情况没有"会话内重拉"可测，跳过
+    const tInit = Date.now();
+    while (!stderr10.includes("connected to spawned daemon") && Date.now() - tInit < 45000) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+    const daemon = await import("../dist/daemon-utils.js");
+    if (!stderr10.includes("connected to spawned daemon")) {
+      console.log("[test] SKIP respawn check: initial spawn fell back to local relay (slow daemon boot)");
+    } else {
+      // 杀掉守护进程进程（保留 index.js = 会话还在）
+      const pid0 = daemon.livePid();
+      if (!pid0) { console.log("[test] FAIL no live daemon pid before kill"); process.exitCode = 1; }
+      else { try { process.kill(pid0); } catch {} }
+
+      // 等第二次 "connected to spawned daemon"（重拉成功的标志）。
+      // 窗口 60s：createRelay 的 waitForRelay 已放宽到 30s 以容忍守护进程冷启动
+      const t0 = Date.now();
+      let respawned = false;
+      while (Date.now() - t0 < 60000) {
+        const n = (stderr10.match(/connected to spawned daemon/g) || []).length;
+        if (n >= 2) { respawned = true; break; }
+        await new Promise(r => setTimeout(r, 500));
+      }
+      if (respawned) console.log("[test] PASS index.js respawned daemon in-session after kill");
+      else {
+        console.log("[test] FAIL index.js did not respawn daemon.");
+        console.log("[test] --- full index.js stderr ---\n" + stderr10);
+        try {
+          const logTail = fs.readFileSync(path.join(stateDir, "relay.log"), "utf-8").slice(-1500);
+          console.log("[test] --- relay.log tail ---\n" + logTail);
+        } catch {}
+        process.exitCode = 1;
+      }
+      const pid1 = daemon.livePid();
+      if (pid1 && pid1 !== pid0) { try { process.kill(pid1); } catch {} }
+    }
+    try { process.kill(child5.pid); } catch {}
+    await new Promise(r => setTimeout(r, 300));
+  }
+
   cleanup();
   console.log("[test] done");
   process.exit(0);

@@ -27,6 +27,7 @@ async function main(): Promise<void> {
   const relay = new VConRelay();
   relay.setDotaPath(dotaPath);
   relay.setExpectedToken(token);
+  relay.enableIdleExit();
   await relay.start();
   console.error("[relay-daemon] ready");
 }

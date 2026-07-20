@@ -76,6 +76,7 @@ async function main(): Promise<void> {
         return client;
       } catch (e: any) {
         console.error("[relay] daemon handshake failed:", e.message);
+        client.destroy();
         // 握手失败（token 不对/协议不兼容）→ 走下方重新拉起 daemon
       }
     }
@@ -88,21 +89,35 @@ async function main(): Promise<void> {
       try {
         const pid = daemon.spawnRelayDaemon(relayMainPath);
         console.error(`[relay] spawned daemon pid=${pid}`);
-        if (await daemon.waitForRelay(10000)) {
+        // 30s：守护进程冷启动 = node 冷启动 + detectDotaPath（注册表/Steam 库扫描），
+        // Windows 上叠加 Defender 实时扫描可能远超 10s，超时太短会误入本地降级
+        if (await daemon.waitForRelay(30000)) {
           const token = daemon.readToken();
           const client = new RelayClient({ port: CTRL_PORT, token });
-          await client.connect();
-          console.error("[relay] connected to spawned daemon (thin client mode)");
-          return client;
+          try {
+            await client.connect();
+            console.error("[relay] connected to spawned daemon (thin client mode)");
+            return client;
+          } catch (e: any) {
+            // 守护进程秒崩/握手被拒：不能让异常逃出 createRelay（respawn 路径会让
+            // 会话永久卡死在被 destroy 的旧客户端上）。销毁泄漏的 client、杀掉刚
+            // spawn 的守护进程，走下方本地降级
+            console.error("[relay] spawned daemon handshake failed:", e.message);
+            client.destroy();
+            try { process.kill(pid); } catch { /* ignore */ }
+          }
         }
-        console.error("[relay] daemon did not become ready in 10s");
+        console.error("[relay] daemon did not become ready in 30s");
+        // 超时放弃前杀掉自己 spawn 的慢守护进程，否则它启动完成后会去绑
+        // 同一批端口，与下方降级的本地 relay 并存成僵尸双绑状态
+        try { process.kill(pid); } catch { /* ignore */ }
       } finally {
         daemon.releaseLock();
       }
     } else {
       // 别人正在 spawn，等它就绪
       console.error("[relay] another instance is spawning daemon, waiting...");
-      if (await daemon.waitForRelay(10000)) {
+      if (await daemon.waitForRelay(30000)) {
         const token = daemon.readToken();
         const client = new RelayClient({ port: CTRL_PORT, token });
         try {
@@ -111,6 +126,7 @@ async function main(): Promise<void> {
           return client;
         } catch (e: any) {
           console.error("[relay] peer daemon handshake failed:", e.message);
+          client.destroy();
         }
       }
     }
@@ -128,42 +144,94 @@ async function main(): Promise<void> {
   }
 
   const dotaPath = await consoleBridge.detectDotaPath();
-  const relay = await createRelay(dotaPath);
 
   // 追踪 relay 状态供工具使用
   let currentAddon = "";
   let currentMaps: string[] = [];
   let currentAllMaps: string[] = [];
 
-  // 启动时从 relay 读初始 addon/maps（瘦客户端连上已运行的 daemon 时，
-  // ADON 帧早已收过、adon 事件不会再发，必须从 relay 的当前状态读，
-  // 否则 currentAddon 永远 "(detecting...)"）
-  if (relay instanceof RelayClient) {
-    currentAddon = relay.addonName || "";
-    currentMaps = relay.maps || [];
-    currentAllMaps = relay.allMaps || [];
-  }
+  // 结构化存 console 输出（含 verbosity 级别和 channel 来源）+ 文本缓冲（兼容旧代码）
+  let prntLog: { text: string; verbosity: number; channel: string }[] = [];
+  let prntBuffer: string[] = [];
 
-  relay.on("adon", (a: any) => {
-    currentAddon = a.addonName || currentAddon;
-    // 本地 relay：跟一份私有字段扫描结果；瘦客户端：用广播里带的 maps
-    if (relay instanceof RelayClient) {
-      currentMaps = relay.maps || [];
-      currentAllMaps = relay.allMaps || [];
+  /** 当前接入的 relay（瘦客户端或本地）。守护进程被杀时由 respawnRelay 整体替换 */
+  let relay: RelayLike;
+
+  /** 把 relay 接进工具层：同步初始 addon/maps + 挂事件。初始接入与会话内重拉共用 */
+  function attachRelay(r: RelayLike): void {
+    relay = r;
+    // 从 relay 读初始 addon/maps（瘦客户端连上已运行的 daemon 时 ADON 帧早已收过；
+    // 本地 relay 启动即主动连 Dota，ADON 也可能在 handler 挂载前到达。
+    // 两种情况 adon 事件都不会再发，必须从当前状态读，否则 currentAddon 永远 "(detecting...)"）
+    if (r instanceof RelayClient) {
+      currentAddon = r.addonName || "";
+      currentMaps = r.maps || [];
+      currentAllMaps = r.allMaps || [];
     } else {
-      setTimeout(() => {
-        currentMaps = (relay as any)._maps || [];
-        currentAllMaps = (relay as any)._allMaps || [];
-      }, 1000);
+      currentAddon = (r as any)._addonName || "";
+      currentMaps = (r as any)._maps || [];
+      currentAllMaps = (r as any)._allMaps || [];
     }
-  });
 
-  // relay 在 createRelay 中已完成启动（本地 relay.start() 或瘦客户端 connect()）
-  if (relay instanceof VConRelay) {
-    relay.start().catch((err: Error) => {
-      server.sendLoggingMessage({ level: "error", data: `[relay] Failed: ${err.message}` });
+    r.on("adon", (a: any) => {
+      currentAddon = a.addonName || currentAddon;
+      // 本地 relay：跟一份私有字段扫描结果；瘦客户端：用广播里带的 maps
+      if (r instanceof RelayClient) {
+        currentMaps = r.maps || [];
+        currentAllMaps = r.allMaps || [];
+      } else {
+        setTimeout(() => {
+          currentMaps = (r as any)._maps || [];
+          currentAllMaps = (r as any)._allMaps || [];
+        }, 1000);
+      }
     });
+    // 事件驱动：relay 收到 PRNT 时立即同步到本地缓冲
+    r.on("prnt", (msg: any) => {
+      prntLog.push({ text: msg.text, verbosity: msg.verbosity, channel: msg.channel || "" });
+      prntBuffer.push(msg.text);
+      if (prntLog.length > 10000) {
+        prntLog.shift();
+        prntBuffer.shift();
+      }
+    });
+    r.on("close", onRelayClose);
   }
+
+  // 守护进程进程被杀时：瘦客户端每次失败的重连尝试都会 emit "close"。
+  // 连续约 5 次（≈5s）连不上说明守护进程不是重启而是没了 → 重新走 createRelay 拉起。
+  let relayCloseCount = 0;
+  let lastRelayCloseAt = 0;
+  let respawning = false;
+
+  function onRelayClose(): void {
+    if (!(relay instanceof RelayClient) || respawning) return;
+    const now = Date.now();
+    if (now - lastRelayCloseAt > 15000) relayCloseCount = 0; // 只统计连续失败
+    lastRelayCloseAt = now;
+    if (++relayCloseCount < 5) return;
+    relayCloseCount = 0;
+    void respawnRelay();
+  }
+
+  async function respawnRelay(): Promise<void> {
+    if (respawning) return;
+    respawning = true;
+    try {
+      console.error("[relay] daemon unreachable, respawning...");
+      try { (relay as RelayClient).destroy(); } catch { /* ignore */ }
+      attachRelay(await createRelay(dotaPath));
+    } catch (e: any) {
+      console.error(`[relay] respawn failed: ${e.message}, retrying in 5s`);
+      // createRelay 内部已尽量降级兜底，能抛到这里的是硬错误（spawn/锁/状态目录）。
+      // 5s 后重试（respawning 已在 finally 复位），避免会话永久卡死在死客户端上
+      setTimeout(() => void respawnRelay(), 5000);
+    } finally {
+      respawning = false;
+    }
+  }
+
+  attachRelay(await createRelay(dotaPath));
 
   /** 统一的未连接提示 */
   function notConnectedText(extra = ""): string {
@@ -171,9 +239,7 @@ async function main(): Promise<void> {
     if ((relay as VConRelay).portInUse) {
       return `另一个 dota2-mcp 实例已占用端口 29001/29002（多实例冲突）。请关闭其他实例，或等待守护进程方案落地后自动接入。`;
     }
-    return `未连接到 Dota 2 VConsole2（端口 29000）。请确保：
-1) Dota 2 以 -vconsole 启动；
-2) vconsole2 GUI 已连接到 127.0.0.1:29001。${extra}`;
+    return `未连接到 Dota 2 VConsole2（端口 29000）。请确保 Dota 2 以 -vconsole 启动且正在运行（relay 启动后会自动连接并重连）。${extra}`;
   }
 
   /** 依赖 dotaPath 的工具在路径未检测到时返回的可操作错误 */
@@ -221,10 +287,6 @@ async function main(): Promise<void> {
         .map((e) => e.name);
     } catch { return []; }
   }
-
-  // 结构化存 console 输出（含 verbosity 级别和 channel 来源）+ 文本缓冲（兼容旧代码）
-  let prntLog: { text: string; verbosity: number; channel: string }[] = [];
-  let prntBuffer: string[] = [];
 
   // 常见 VConsole2 通道的用途说明（协议本身不带描述，仅对名称含义明确的通道做补充）
   const channelDescriptions: Record<string, string> = {
@@ -295,16 +357,6 @@ async function main(): Promise<void> {
     "Hltv Director": "HLTV 导演",
     AssetSystem: "资源系统 / AssetSystem 编辑器",
   };
-
-  // 事件驱动：relay 收到 PRNT 时立即同步到本地缓冲
-  relay.on("prnt", (msg: any) => {
-    prntLog.push({ text: msg.text, verbosity: msg.verbosity, channel: msg.channel || "" });
-    prntBuffer.push(msg.text);
-    if (prntLog.length > 10000) {
-      prntLog.shift();
-      prntBuffer.shift();
-    }
-  });
 
   // Tool: 读取 console 输出（VCon 实时流，含 verbosity 级别和 channel 来源）
   server.tool("console_output",
@@ -423,9 +475,7 @@ async function main(): Promise<void> {
     async () => {
       if (!relay.dotaConnected) {
         return { content: [{ type: "text", text:
-`Dota 2 is not connected. Before testing a custom game, ensure:
-1) Dota 2 is running, launched with -vconsole;
-2) vconsole2 GUI is connected to 127.0.0.1:29001 (not the default 29000).
+`Dota 2 is not connected. Before testing a custom game, ensure Dota 2 is running and launched with -vconsole. The relay connects automatically and keeps retrying; no vconsole2 GUI is required.
 
 Once connected, call dota_status again to see the project state, then:
 - No map loaded → dota_launch_game

@@ -65,9 +65,13 @@ export class RelayClient extends EventEmitter {
       const ok = () => { if (!settled) { settled = true; resolve(); } };
 
       this.sock = new net.Socket();
-      // connect 超时：TCP 连上但 hello-ok 永不来（如 daemon 刚好崩溃），
-      // 不能让他 Promise 永远挂起导致 createRelay 卡死。
-      const timeout = setTimeout(() => fail(new Error("connect timeout (no hello-ok)")), 8000);
+      // connect 超时：TCP 连上但 hello-ok 永不来（如 daemon 刚好崩溃/hang 住），
+      // 不能让他 Promise 永远挂起导致 createRelay 卡死。超时要销毁 socket：
+      // 只 reject 会泄漏 FD 和 onHello 监听器，且 close 事件无法进入重连/重拉统计
+      const timeout = setTimeout(() => {
+        this.sock?.destroy();
+        fail(new Error("connect timeout (no hello-ok)"));
+      }, 8000);
 
       this.sock.connect(this.port, "127.0.0.1", () => {
         const hello = this.token ? `HELLO ${this.token}` : "HELLO";
@@ -131,7 +135,9 @@ export class RelayClient extends EventEmitter {
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this._connect().catch(() => {
-        // 重连失败会继续触发 close → _scheduleReconnect
+        // 失败继续排下一次（退避递增，封顶 5s），直到重连成功或 destroy。
+        // close 处理器只在 wasConnected 时排程，靠它链会在首次失败后断掉。
+        this._scheduleReconnect();
       });
     }, delay);
   }
