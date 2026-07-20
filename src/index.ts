@@ -29,7 +29,7 @@ function getVersion(): string {
     const require = createRequire(import.meta.url);
     return require("../package.json").version;
   } catch {
-    return "1.3.1";
+    return "1.3.2";
   }
 }
 
