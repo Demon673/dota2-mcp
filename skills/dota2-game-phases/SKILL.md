@@ -20,7 +20,7 @@ for 15s. This doc is the full reference for that report.
 
 | game_state | normal | how to advance when stuck |
 |---|---|---|
-| INIT | seconds | Engine init; check console_output for engine/resource errors |
+| INIT | duration of map load | Normal during map load — big maps can take minutes. Never finishing → console_output channel ResourceSystem (missing/uncompiled assets → dota_compile_asset) |
 | WAIT_FOR_PLAYERS_TO_LOAD | seconds | Usually self-resolves; console_output shows which client never loads |
 | CUSTOM_GAME_SETUP | until addon ends it | `dota_run_lua` code: `GameRules:FinishCustomGameSetup()` — if it re-sticks, addon setup code is erroring (see SOP 1) |
 | HERO_SELECTION | addon-defined | Assign heroes via dota_run_lua, or GameRules:SetHeroSelectionTime(0) in addon code |

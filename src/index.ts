@@ -379,7 +379,7 @@ async function main(): Promise<void> {
     TEAM_SHOWCASE: "Timed phase, advances automatically. To shorten in addon code: GameRules:SetShowcaseTime(0).",
     WAIT_FOR_MAP_TO_LOAD: "Map still loading — should pass quickly. If stuck: console_output (channel 'ResourceSystem') — the map may not be compiled; run dota_compile_asset on it.",
     PRE_GAME: "Pre-game, advances automatically. To shorten in addon code: GameRules:SetPreGameTime(0).",
-    INIT: "Engine initializing — should pass in seconds. If stuck, check console_output for engine/resource errors.",
+    INIT: "Map loading / game-rules init — big maps can take minutes, this is normal while loading. If it never finishes: console_output (channel 'ResourceSystem') — assets may be missing or uncompiled; run dota_compile_asset.",
     POST_GAME: "Game ended. Use dota_restart to run again.",
   };
 
@@ -631,7 +631,9 @@ Then call dota_status again.` }] };
         if (cur.game_state.includes("GAME_IN_PROGRESS")) {
           return { content: [{ type: "text", text: `Launched and in game: ${a}/${m} (map: ${cur.map}, state: ${cur.game_state})` }] };
         }
-        if (lastState && Date.now() - lastChangeAt > 15000) {
+        // 地图加载期间 game_state 恒为 INIT 是正常现象，不作卡住判定；
+        // 加载真卡死由 timeout 兜底报告（含 ResourceSystem 错误）
+        if (!cur.loading && lastState && Date.now() - lastChangeAt > 15000) {
           return { content: [{ type: "text", text: buildStuckReport(lastState, Date.now() - lastChangeAt) }] };
         }
       }
