@@ -373,6 +373,20 @@ async function main(): Promise<void> {
     AssetSystem: "资源系统 / AssetSystem 编辑器",
   };
 
+  // 相位卡住时的推进指引（game_state 子串匹配；命令名经 vscode-dota2-tools
+  // 的 script_help2 引擎转储佐证，活体复核见 plan Task 7）
+  const PHASE_GUIDANCE: Record<string, string> = {
+    CUSTOM_GAME_SETUP: "Addon setup phase — it ends when the addon calls GameRules:FinishCustomGameSetup(). To advance now: dota_run_lua with code `GameRules:FinishCustomGameSetup()`. If it won't advance, the addon's setup logic is erroring → console_output (level 3, channel 'VScript').",
+    WAIT_FOR_PLAYERS_TO_LOAD: "Waiting for players/bots to finish loading — usually resolves on its own. If stuck, check console_output for which client never finishes loading.",
+    HERO_SELECTION: "Hero selection is controlled by the addon. Advance by assigning heroes via dota_run_lua, or set selection time to 0 in the addon (GameRules:SetHeroSelectionTime).",
+    STRATEGY_TIME: "Timed phase, advances automatically. To shorten in addon code: GameRules:SetStrategyTime(0).",
+    TEAM_SHOWCASE: "Timed phase, advances automatically. To shorten in addon code: GameRules:SetShowcaseTime(0).",
+    WAIT_FOR_MAP_TO_LOAD: "Map still loading — should pass quickly. If stuck: console_output (channel 'ResourceSystem') — the map may not be compiled; run dota_compile_asset on it.",
+    PRE_GAME: "Pre-game, advances automatically. To shorten in addon code: GameRules:SetPreGameTime(0).",
+    INIT: "Engine initializing — should pass in seconds. If stuck, check console_output for engine/resource errors.",
+    POST_GAME: "Game ended. Use dota_restart to run again.",
+  };
+
   // Tool: 读取 console 输出（VCon 实时流，含 verbosity 级别和 channel 来源）
   server.tool("console_output",
     "Use when the user reports an in-game bug, error, crash, Lua/Panorama failure, or asks what went wrong while testing. Reads Dota 2 console output with severity filtering. level: 0=all, 1=warnings+, 2=asserts+, 3=errors only.",
@@ -561,13 +575,13 @@ Then call dota_status again.` }] };
   );
 
 
-  // Tool: 启动游戏
+  // Tool: 启动游戏（轮询到 GAME_IN_PROGRESS；卡相位返回推进指引）
   server.tool("dota_launch_game",
-    "Use to start / run / load a Dota 2 custom game map when the user wants to test or play their addon. Launches the map and polls until it finishes loading. Call project_info first to see available maps.",
+    "Use to start / run / load a Dota 2 custom game map when the user wants to test or play their addon. Launches the map and polls until the game reaches GAME_IN_PROGRESS; if it gets stuck in a phase (e.g. CUSTOM_GAME_SETUP), returns the phase, how to advance it, and recent errors. Call dota_status first to see available maps. Requires an open vconsole (see dota_open_vconsole).",
     {
       map: z.string().optional().describe("Map name. Auto-detected if omitted."),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
-      timeout: z.number().optional().describe("Max seconds to wait for the map to finish loading. Default 45."),
+      timeout: z.number().optional().describe("Max seconds to wait for GAME_IN_PROGRESS. Default 90."),
     },
     async ({ addon, map, timeout }) => {
       requireConsole();
@@ -577,35 +591,56 @@ Then call dota_status again.` }] };
       if (!a) throw new McpError(ErrorCode.InvalidRequest, "No addon detected. Load a project first or specify addon.");
       if (!m) throw new McpError(ErrorCode.InvalidRequest, `No map specified and none found in addon '${a}'. Available: ${maps.length > 0 ? maps.join(", ") : "none"}`);
 
-      const cmd = `dota_launch_custom_game ${a} ${m}`;
-      const timeoutMs = Math.max(10, timeout || 45) * 1000;
+      const timeoutMs = Math.max(15, timeout || 90) * 1000;
 
-      // 如果已经加载了地图，直接返回
-      const initialStatus = parseGameState(await queryStatusJson(5000));
-      if (initialStatus.loaded) {
-        return { content: [{ type: "text", text: `Already loaded: ${initialStatus.map}` }] };
+      /** 卡相位报告：相位原文 + 已卡时长 + 推进指引 + 近期错误 + skill 文档指路 */
+      const buildStuckReport = (state: string, stuckMs: number): string => {
+        const key = Object.keys(PHASE_GUIDANCE).find(k => state.includes(k));
+        const guidance = key ? PHASE_GUIDANCE[key] : "Unrecognized phase. Check console_output for errors.";
+        const errors = prntLog
+          .filter(l => l.verbosity >= 3 || l.channel === "VScript")
+          .slice(-8)
+          .map(l => `[${l.channel || "?"}][L${l.verbosity}] ${l.text}`);
+        return [
+          `Game has been stuck in ${state || "(unknown state)"} for ${Math.round(stuckMs / 1000)}s.`,
+          `How to advance: ${guidance}`,
+          errors.length > 0 ? `Recent errors:\n${errors.join("\n")}` : "No recent VScript/error output.",
+          `Full phase guide: call dota2_skill with name "dota2-game-phases".`,
+        ].join("\n");
+      };
+
+      // 已进入 GAME_IN_PROGRESS 直接返回；已在加载/已加载则不发命令只观察
+      const initial = parseGameState(await queryStatusJson(5000));
+      if (initial.game_state.includes("GAME_IN_PROGRESS")) {
+        return { content: [{ type: "text", text: `Already in game: ${initial.map} (${initial.game_state})` }] };
       }
-      if (initialStatus.loading) {
-        return { content: [{ type: "text", text: "Map is currently loading. Wait for it to finish, or check console_output." }] };
+      if (!initial.loaded && !initial.loading) {
+        relay.sendCommand(`dota_launch_custom_game ${a} ${m}`);
       }
 
-      // 发送启动命令，并按 status_json 轮询加载进度（不再重复发送启动命令）
-      relay.sendCommand(cmd);
       const startTime = Date.now();
+      let lastState = initial.game_state;
+      let lastChangeAt = Date.now();
 
       while (Date.now() - startTime < timeoutMs) {
-        await new Promise(r => setTimeout(r, 5000));
-        const current = parseGameState(await queryStatusJson(5000));
-        if (current.loaded) {
-          return { content: [{ type: "text", text: `Launched and loaded: ${a}/${m} (map: ${current.map})` }] };
+        if (!relay.dotaConnected) {
+          return { content: [{ type: "text", text: `Dota 2 disconnected while launching (crash?). ${notConnectedText()}` }] };
         }
-        if (current.loading) {
-          // 已经开始加载，继续等待
-          continue;
+        await new Promise(r => setTimeout(r, 2000));
+        const cur = parseGameState(await queryStatusJson(5000));
+        if (cur.game_state !== lastState) {
+          lastState = cur.game_state;
+          lastChangeAt = Date.now();
+        }
+        if (cur.game_state.includes("GAME_IN_PROGRESS")) {
+          return { content: [{ type: "text", text: `Launched and in game: ${a}/${m} (map: ${cur.map}, state: ${cur.game_state})` }] };
+        }
+        if (lastState && Date.now() - lastChangeAt > 15000) {
+          return { content: [{ type: "text", text: buildStuckReport(lastState, Date.now() - lastChangeAt) }] };
         }
       }
 
-      return { content: [{ type: "text", text: `Sent launch command for ${a}/${m}, but map did not load within ${Math.round(timeoutMs / 1000)}s. Check Dota 2 console for errors.` }] };
+      return { content: [{ type: "text", text: buildStuckReport(lastState, timeoutMs) }] };
     }
   );
 
