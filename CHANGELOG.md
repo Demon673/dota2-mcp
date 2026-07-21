@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.4.0 (2026-07-22)
+
+### 行为变更（Breaking）
+
+- **vconsole 显式契约**：控制台类工具（17 个）现在要求 vconsole2 已打开并连接 `127.0.0.1:29001`，否则报明确错误并给出打开路径（调用 `dota_open_vconsole`，或手动运行 exe）。设计意图：保证使用者始终能旁观 agent 的控制台活动，失败显式可见而非隐式兜底。注意：AssetBrowser 的 vconsole 按钮在 relay 持有 29000 时被引擎禁用（实测：引擎把 relay 当作已连接的 vconsole），打开 vconsole 请直接运行 `game/bin/win64/vconsole2.exe`。
+- **`project_info` 删除，并入 `dota_status`**：`dota_status` 吸收其全部字段（allMaps/clients/cpu_usage 等），作为入口/导航工具永不抛异常——Dota 未连接或 vconsole 未打开时返回状态与下一步指引。工具总数 22 不变。
+- `dota_status` 输出结构随之变化（新增 `vconsole`/`maps`/`allMaps`/`running{}` 字段）；各控制台工具描述统一追加「需要 vconsole 已打开」前提。
+
+### 新增
+
+- **`dota_open_vconsole`**：显式拉起 vconsole2.exe 并等待其接入 relay（30s）。检测到已有未接入的陈旧实例时给显式提示（vconsole2 单实例，重复 spawn 只聚焦旧窗口）。
+- **`dota_launch_game` 相位推进指引**：成功终点从「地图已加载」改为进入 GAME_IN_PROGRESS（timeout 默认 45s→90s）；同一相位 15s 未推进即返回 stuck 报告：相位原文、内置 `PHASE_GUIDANCE` 推进指引（精确到 dota_run_lua 调用）、近期 VScript/错误行、skill 文档指路。典型场景：卡 CUSTOM_GAME_SETUP 时按指引一句 `GameRules:FinishCustomGameSetup()` 推进（已活体端到端验证）。
+- **`dota2-game-phases` skill 文档**：各 game_state 的正常时长与推进方法、卡相位处置 SOP（先 console_output 查 addon 报错，再按表推进）。
+
+### 修复
+
+- **vconsole 晚开是空壳**：relay 不给晚接入的 GUI 重放初始化帧（AINF/CHAN/CVRB/CFGV/ADON），窗口拿不到通道表/cvar/addon 信息。现按到达顺序缓存并在 GUI 接入时重放，随开随用。
+- **对端装死永不重连**：真实崩溃/挂起时 socket 不发 FIN，relay 永远以为连着，MCP 命令发进黑洞。新增活性探测：静默 15s 发 echo 探针，20s 无响应判死重连；探针行对 MCP/GUI 双向过滤。
+- **守护进程空闲退出切断 vconsole 生命线**：无客户端 5 分钟退出后 29001 消失，vconsole 无处可连。Dota 进程在跑时不再空闲退出。
+- **daemon 模式下契约/开窗全失效**：GUI 接入/断开从不广播 status，瘦客户端的 guiConnected 只在握手时同步一次，vconsole 开了 MCP 也不知道。现 GUI 状态变化即广播。
+- **重连调度重复**：error/close/catch 三路各排 timer（日志每轮重试打两行），合并为单一定时器。
+- **Dota 启动早期误杀正常引擎**：初版 AINF 超时（10s 无 AINF 判死）在开机阶段反复误杀——监听器先于 AINF 子系统就绪（实测 >20s）。移除 AINF 计时器，僵尸检测统一走探针（~35s，无误报）。
+- **地图加载期误报 stuck**：加载期间 game_state 恒为 INIT，被 15s 阈值误判卡住。加载期跳过判定；加载真卡死由 timeout 兜底（报告含 ResourceSystem 错误）。
+
+### 改进
+
+- **开发-验证工作流落入文档**（AGENTS.md）：9 个冒烟脚本清单（离线/活体分类）+ 离线先行 / 活体三层验证（29002 协议、MCP stdio、系统状态）/ 连接生命周期场景矩阵方法论。新增离线 `test-relay.mjs`、`test-mcp-offline.mjs` 与活体 `test-mcp-live` / `test-launch-phases` / `test-crash-recovery` / `test-multi-session` 系列脚本。
+- **可移植性规则**（Conventions）：文档/脚本禁盘符绝对路径（`{dota2Path}` 占位 / `detectDotaPath()` 检测）、禁具体项目名（daemon hello-ok 推断 + `DOTA2_TEST_*` 覆盖）、启动参数默认最小集、测试项目不确定主动问开发者。
+
 ## 1.3.2 (2026-07-20)
 
 ### 改进

@@ -219,6 +219,6 @@ chmod +x dota2-mcp-linux
 
 ## 版本
 
-当前版本：`v1.3.2`
+当前版本：`v1.4.0`
 
 详情见 [CHANGELOG.md](./CHANGELOG.md) 与 [GitHub Releases](https://github.com/Demon673/dota2-mcp/releases)。
