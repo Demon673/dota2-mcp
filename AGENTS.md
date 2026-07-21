@@ -25,7 +25,48 @@ node dist/index.js    # 启动 MCP server（通过 stdio）
 
 **版本号**：只改 `package.json` 的 `version`，其余位置（`src/index.ts` 的 `getVersion()` fallback、`README.md`）由 `npm run sync-version` 同步；`build`/`prepack` 会自动执行。
 
-**测试**：目前没有 lint/format/test 脚本。有两个冒烟脚本：`scripts/test-daemon.mjs`（`node scripts/test-daemon.mjs`，**离线**验证守护进程链路：spawn/握手/多客户端/广播/空闲退出，随机端口，不需要 Dota 2）和 `scripts/test-mcp-tools.mjs`（`node scripts/test-mcp-tools.mjs`，spawn 服务器并冒烟测试所有工具，**需要 Dota 2 正在运行且已连接 VCon**）。没有离线单元测试。
+**测试**：没有 lint/format/test 框架，全部是 plain node 冒烟脚本（assert 风格）：
+
+| 脚本 | 类型 | 覆盖 |
+|------|------|------|
+| `scripts/test-relay.mjs` | 离线 | relay 传输层：初始化帧重放、活性探针（pong 保活/无 pong 判死/僵尸判死）、探针行过滤、GUI 状态广播。fake VCon server + 随机端口 + 注入小超时 |
+| `scripts/test-daemon.mjs` | 离线 | 守护进程链路：spawn/握手/token/多客户端/广播/空闲退出/会话内重拉 |
+| `scripts/test-mcp-offline.mjs` | 离线 | MCP stdio：工具清单、契约门控报错、dota_status 不抛异常、skill 加载 |
+| `scripts/test-mcp-live.mjs` | 活体 | vconsole 契约全链路：门控 → dota_open_vconsole → 解门控（自带环境重置杀 vconsole2） |
+| `scripts/test-launch-phases.mjs` | 活体 | 真实地图 launch：卡相位 stuck 报告 + 按指引 dota_run_lua 推进到 GAME_IN_PROGRESS |
+| `scripts/test-crash-recovery.mjs` | 活体 | 崩溃恢复：同一 MCP 会话杀 Dota → 检测 → 重启 → 自恢复（脚本自起自杀 Dota） |
+| `scripts/test-multi-session.mjs` | 活体 | 多会话共享 daemon：A 开 vconsole，B 同时解门控 |
+| `scripts/test-mcp-tools.mjs` | 活体 | 全工具冒烟（老脚本；需 Dota + **vconsole 已接入**，先跑 test-mcp-live.mjs 开门） |
+| `scripts/verify-phase-apis.mjs` | 活体 | 走 29002 协议验证控制台 API 名字（按需修改的一次性脚本） |
+
+离线一键：`npm run check && node scripts/test-relay.mjs && node scripts/test-daemon.mjs && node scripts/test-mcp-offline.mjs`
+活体前置：Dota 2 运行中 + `node dist/relay-main.js` 拉起 daemon（MCP 会话会接入已有 daemon）。
+
+## 开发-验证工作流
+
+新功能/修 BUG 的标准验证路径（2026-07 vconsole 生命周期一役沉淀）：
+
+**0. 原则**
+- **能离线不活体**：传输层/协议层逻辑用 fake TCP server 离线钉死（test-relay.mjs 模式：env 覆盖端口 + 随机端口 + 构造函数注入小超时）。
+- **机械观测代替肉眼**：进程（tasklist）、端口（netstat）、daemon 日志即可验证一切；MCP 功能没有视觉成分，唯一需要人眼的是 vconsole 窗口内容本身。
+- **活体验证必须跑**：离线绿灯 ≠ 设计正确。本次活体抓出 4 个离线抓不到的错误（AINF 计时器开机误杀、GUI 状态不广播致契约全失效、open 超时过短、加载期 INIT 误报 stuck）。
+
+**1. 离线先行**
+`npm run check` + 相关离线脚本。新增 relay 行为先扩展 `scripts/test-relay.mjs`（fake server 形态：accept 装死、发初始化帧后沉默、选择性应答探针）。
+
+**2. 活体环境**
+- Dota：直接命令行 `E:\SteamLibrary\steamapps\common\dota 2 beta\game\bin\win64\dota2.exe -addon <addon> -tools`（`steam://rungameid/570` 不带启动参数，不可用）。
+- daemon：手动 `node dist/relay-main.js`（后台），日志直接可见、随时可杀。
+- 环境重置：`taskkill /F /IM vconsole2.exe` 清窗口；`taskkill /F /IM dota2.exe` 即模拟闪退。
+
+**3. 活体三层验证（按层定位问题）**
+- **控制台协议层**：29002 NDJSON 直连（`HELLO <token>` → `CMD:<cmd>` → `STREAM`/`TAIL`；token 在 `os.tmpdir()/dota2-mcp/relay.token`），绕过 MCP 工具层验证控制台命令本身，参照 `scripts/verify-phase-apis.mjs`。
+- **MCP 工具层**：stdio JSON-RPC 冒烟（initialize → tools/call），参照 `scripts/test-mcp-live.mjs` 的 call() 模式。
+- **系统状态层**：netstat 看 29000/29001/29002 谁连谁，tasklist 看进程生死，daemon 日志看 relay 视角。
+- **验证控制台 API 名字**（约定「验证过才写死」）：`script_help2 <名字>` 经 29002 **STREAM 实时全量收集**——relay prntBuffer 只存 500 行，全量 dump 会冲掉 TAIL 窗口；`GameRules` 等需地图已加载才注册，且 script_help2 的参数不过滤输出（总是全量 dump），收集后自行 grep。
+
+**4. 场景矩阵（连接生命周期类改动必跑）**
+契约门控 → 开 vconsole（重放生效）→ 关 vconsole → 杀 Dota（检测）→ 重启（自恢复，vconsole 不动）→ 多会话共享。对应脚本：test-mcp-live / test-crash-recovery / test-multi-session。
 
 ## 环境变量
 
