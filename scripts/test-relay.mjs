@@ -84,6 +84,30 @@ while (buf.length >= 12) {
 }
 assert(JSON.stringify(got) === JSON.stringify(INIT), `late GUI received init replay in order: ${got.join(",")}`);
 
+// 场景 2b：GUI 断开/接入向 ctrl 瘦客户端广播 status（daemon 模式 guiConnected 的同步链路）
+const ctrl = net.connect(BASE + 2, "127.0.0.1");
+let cbuf = "";
+const statusMsgs = [];
+ctrl.on("data", (d) => {
+  cbuf += d;
+  let i;
+  while ((i = cbuf.indexOf("\n")) !== -1) {
+    const line = cbuf.slice(0, i); cbuf = cbuf.slice(i + 1);
+    try { const m = JSON.parse(line); if (m.type === "status") statusMsgs.push(m); } catch { /* hello-ok 等 */ }
+  }
+});
+ctrl.write("HELLO\n");
+await sleep(200);
+ctrl.write("STREAM\n");
+gui.destroy();
+await waitFor(() => statusMsgs.some((m) => m.gui === false), 5000, "status broadcast gui:false on GUI detach");
+assert(true, "status broadcast gui:false on GUI detach");
+const gui2 = net.connect(BASE + 1, "127.0.0.1");
+gui2.on("data", () => {});
+await waitFor(() => statusMsgs.some((m) => m.gui === true), 5000, "status broadcast gui:true on GUI attach");
+assert(true, "status broadcast gui:true on GUI attach");
+ctrl.destroy();
+
 // 场景 3：场景 2 静默期发出的探针（replyToProbe=false）必然把 #3 杀死重连；
 // 在全新连接 #4 上开启 pong 回复，干净地验证 pong 保活 + ping 行不转发 GUI
 await waitFor(() => connections >= 4, 8000, "stale probe kills #3");

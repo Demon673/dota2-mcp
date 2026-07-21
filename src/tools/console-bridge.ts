@@ -211,17 +211,17 @@ function detectDotaPathManual(): string | null {
   return null;
 }
 
-/** Dota 2 进程是否在跑（守护进程空闲退出守卫：Dota 在跑 = 用户在开发，不退）。
+/** 指定镜像名的进程是否在跑。
  *  win32 用 tasklist（恒退出码 0，解析输出）；其他平台 pgrep（无匹配时非零退出）。
  *  无法执行检查时保守返回 true（不退出）。 */
-export function isDotaProcessRunning(): boolean {
+export function isProcessRunning(imageName: string): boolean {
   try {
     if (process.platform === "win32") {
-      const out = execSync('tasklist /FI "IMAGENAME eq dota2.exe" /NH', { encoding: "utf-8" });
-      return out.includes("dota2.exe");
+      const out = execSync(`tasklist /FI "IMAGENAME eq ${imageName}" /NH`, { encoding: "utf-8" });
+      return out.includes(imageName);
     }
     try {
-      execSync("pgrep -x dota2", { stdio: ["pipe", "pipe", "pipe"] });
+      execSync(`pgrep -x ${imageName}`, { stdio: ["pipe", "pipe", "pipe"] });
       return true;
     } catch {
       return false; // pgrep 无匹配
@@ -229,4 +229,9 @@ export function isDotaProcessRunning(): boolean {
   } catch {
     return true; // 检查本身失败：保守视为在跑
   }
+}
+
+/** Dota 2 进程是否在跑（守护进程空闲退出守卫：Dota 在跑 = 用户在开发，不退）。 */
+export function isDotaProcessRunning(): boolean {
+  return isProcessRunning(process.platform === "win32" ? "dota2.exe" : "dota2");
 }

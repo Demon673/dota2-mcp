@@ -660,6 +660,10 @@ Then call dota_status again.` }] };
       if (relay.guiConnected) {
         return { content: [{ type: "text", text: "vconsole is already open and attached." }] };
       }
+      // 已有实例但未接入：vconsole2 单实例，再 spawn 只会聚焦旧窗口（实测）
+      if (consoleBridge.isProcessRunning(process.platform === "win32" ? "vconsole2.exe" : "vconsole2")) {
+        return { content: [{ type: "text", text: "A vconsole2.exe instance is already running but not attached to 127.0.0.1:29001 (stale window — vconsole2 is single-instance, launching another just focuses it). Close it and call dota_open_vconsole again, or in that window use Devices → Connect to 127.0.0.1:29001." }] };
+      }
       const exe = path.join(getDotaBinDir(dotaPath), getDotaExeName("vconsole2"));
       if (!fs.existsSync(exe)) {
         throw new McpError(ErrorCode.InvalidRequest, `vconsole2.exe not found at ${exe}`);
@@ -668,12 +672,13 @@ Then call dota_status again.` }] };
       if (!result.ok) {
         throw new McpError(ErrorCode.InvalidRequest, `Failed to launch vconsole2: ${result.stderr}`);
       }
-      for (let i = 0; i < 20 && !relay.guiConnected; i++) {
+      // Qt 启动 + auto-connect 实测可达 ~20s，等 30s
+      for (let i = 0; i < 60 && !relay.guiConnected; i++) {
         await new Promise(r => setTimeout(r, 500));
       }
       return { content: [{ type: "text", text: relay.guiConnected
         ? "vconsole opened and attached to relay (127.0.0.1:29001)."
-        : "vconsole2.exe launched but did not attach to 127.0.0.1:29001 within 10s. Check the vconsole2 connection target is 127.0.0.1:29001 (saved in its settings)."
+        : "vconsole2.exe launched but did not attach to 127.0.0.1:29001 within 30s. Check the vconsole2 connection target is 127.0.0.1:29001 (saved in its settings)."
       }] };
     }
   );

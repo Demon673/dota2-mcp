@@ -412,6 +412,8 @@ export class VConRelay extends EventEmitter {
     if (this._initFrames.length > 0) {
       console.error(`[relay] replayed ${this._initFrames.length} init frames to vconsole2`);
     }
+    // GUI 状态必须广播：瘦客户端的 guiConnected 只靠 hello-ok + status 同步
+    this._broadcast({ type: "status", dota: this._dotaConnected, gui: true });
 
     // vconsole2 → Dota 2：按 VCon 帧边界重组后再转发。
     // TCP 不保证一个 data 事件就是一帧，半帧直接 rawWrite 会让 Dota 2 协议错乱。
@@ -439,6 +441,7 @@ export class VConRelay extends EventEmitter {
       this.guiSocket = null;
       // 不再随 GUI 断开释放 :29000：relay 常驻持有 Dota 连接，MCP 工具不依赖 GUI
       console.error("[relay] vconsole2 disconnected");
+      this._broadcast({ type: "status", dota: this._dotaConnected, gui: false });
       this._resetIdleTimer();
     });
 
