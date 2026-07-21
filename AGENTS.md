@@ -237,6 +237,12 @@ Relay/Client 实现了已针对 Dota 2 验证的 VConsole2 二进制帧格式：
 - **API 数据源**：只走控制台实时查询，不使用本地 JSON 数据库（引擎版本决定 API 内容）
 - **信任边界**：Server Lua 权威，Panorama JS 客户端 UI 逻辑
 - **零硬编码**：addon/map 全部动态检测，不写死任何项目名。地图扫描路径 `{dota2Path}/content/dota_addons/{addon}/maps/*.vmap`
+- **可移植性（文档/脚本去硬编码）**：本仓是通用工具，文档、脚本、注释里禁止出现：
+  - 机器绝对路径（盘符 `X:\`/`X:/`）：文档用 `{dota2Path}` 占位，代码与脚本用 `detectDotaPath()` 自动检测；
+  - 具体 addon 项目名/地图名：测试项目从运行中 daemon 的 hello-ok（addon/maps）自动推断，`DOTA2_TEST_ADDON` / `DOTA2_TEST_MAP` / `DOTA2_TEST_ARGS` 环境变量覆盖，推断失败时报错要求指定，不默默用默认值；代码注释示例一律用 `my_addon` 类中性名；
+  - 写死的 Dota 启动参数：因人/项目/地区而异（如 `-perfectworld`），默认最小集 `-addon <addon> -tools`；
+  - 测试项目不确定时**主动问开发者**要测哪个 addon/地图，不默默假设。
+  自查：`Grep "[A-Za-z]:[\\/]"` 仅允许 URL/占位符命中；`Grep -i "<当期项目名>"` 应零残留（历史 spec/plan/CHANGELOG 除外）
 - **工具描述**：每个工具清晰标注对应的控制台命令，AI 可通过 `console_find` 自行发现
 - **TSTL/SolidJS 优先**：编辑 `.ts`/`.tsx` 源文件，不动生成的 `.lua`/`.js`
 - **文档分工**：`README.md` 是对外介绍文档（面向终端用户 / AI 客户端配置者），不写实现细节、代码层级或内部协议细节；这些写在 `AGENTS.md` 或代码注释里。公共信息的改动优先更新 `AGENTS.md`，不要在 `CLAUDE.md` 复制一份
