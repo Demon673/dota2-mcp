@@ -123,6 +123,21 @@ VConRelay 内实现（daemon 与内嵌模式同生效）：
 - 契约检查、重放缓存、活性探测、空闲守卫全部在 daemon/relay 单点：N 个瘦客户端看到同一份 `guiConnected`/`dotaConnected`（经 hello-ok + status 广播，现有链路）。
 - 任一 agent（或用户手动）打开 vconsole → `guiConnected` 广播 → 所有 agent 同时解除契约限制。
 
+### K. 工具说明与全仓内容同步（验收项）
+
+实现完毕后统一跟进，不允许留下与新行为矛盾的表述：
+
+- **工具描述**（index.ts 每个 `server.tool()` 的 description）：
+  - 17 个契约门控工具的描述统一加「需要 vconsole 已打开（29001 接入）」前提说明，agent 在调用前即可知；
+  - `dota_status`：合并后的描述覆盖原 project_info 关键词（addon/maps/实时状态查询）+ 入口导航 + 永不抛异常；
+  - `dota_launch_game`：描述改为「等待进入 GAME_IN_PROGRESS；卡住时返回相位与推进指引」；
+  - `dota_open_vconsole`：新工具描述写明「AssetBrowser 按钮在 relay 持有 29000 时被引擎禁用，用本工具直接拉起」；
+  - 删除 `project_info`。
+- **AGENTS.md**：工具表（-project_info +dota_open_vconsole）；「关键发现」的「只允许 1 个 VCon 客户端」条目改写为实测事实（引擎门控=按钮失效）；「已知问题 / 注意事项」前两 bullet 按实测重写（按钮无效及替代路径、vconsole 契约）；架构/数据流一节补一句契约。
+- **README.md**：只同步用户可见信息（vconsole 用法：直接运行 vconsole2.exe 连 29001；控制台工具需要 vconsole 打开；工具清单若有）。
+- **skills/dota2-runtime-dev/SKILL.md**：工具清单段更新（dota_status 合并、契约前提、dota_open_vconsole）。
+- **代码注释**：`src/index.ts` 头部注释（tool layers 列表已过时）；`src/tools/vcon-relay.ts` 头部注释（补初始化帧重放与活性探测）；全仓 grep 清扫 `project_info` 及旧表述，零残留。
+
 ## 文件改动清单
 
 | 文件 | 改动 |
@@ -154,6 +169,7 @@ VConRelay 内实现（daemon 与内嵌模式同生效）：
 5. 多 agent：两个 MCP 会话，一个调 dota_open_vconsole → 另一个的工具同时解除限制。
 6. `dota_launch_game` 在 setup 卡住场景 → 返回 stuck 报告含相位名、`FinishCustomGameSetup` 指引、近期错误行。
 7. `console_find`/`script_help2` 验证 PHASE_GUIDANCE 中所有命令名存在后写死。
+8. 文档同步验收：grep `project_info` 零残留；逐一过 K 节清单确认工具描述/AGENTS.md/README/skill/代码注释与新行为一致。
 
 ## 明确不做
 
