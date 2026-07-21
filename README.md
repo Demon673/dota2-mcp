@@ -18,11 +18,13 @@
 - Dota 2 已安装，且以 `-vconsole` 启动
 
 > 启动后 dota2-mcp 会**自动连接** Dota 2 的 VConsole2（端口 `29000`）并保持在线（断线自动重连），无需任何手动操作。
-> 如果也想自己打开 vconsole2 GUI 看控制台，把它连到 `127.0.0.1:29001` 即可（见下节）；不开 GUI 不影响 MCP 使用。
+> 注意：控制台类工具要求 vconsole2 已打开并连接 `127.0.0.1:29001`（见下节）——这样你能随时看到 AI 在控制台里做了什么。
 
 ## 配置 vconsole2 GUI 端口
 
 Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota2-mcp` 已经占用了这个端口，并把 GUI 转发到 `127.0.0.1:29001`，所以需要手动把 vconsole2 切过去。
+
+**怎么打开 vconsole2**：Dota 2 工具模式（AssetBrowser）里的 vconsole 按钮/快捷键在 dota2-mcp 占用 `29000` 期间会被引擎禁用（点了没反应）。请直接运行 `{dota 2 beta}\game\bin\win64\vconsole2.exe`，或让 AI 调用 `dota_open_vconsole` 帮你打开。晚打开的窗口会自动补齐初始化数据，随开随用。
 
 ### 首次设置
 
@@ -41,7 +43,7 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 
 这样下次启动 vconsole2 时会自动连接 `29001`，不会再尝试占用 `29000`。
 
-如果想脱离 MCP 单独使用 vconsole2（直连 `29000`）：先退出所有 MCP 会话，守护进程空闲约 5 分钟自动退出并释放 `29000` 后再连接。平时把 GUI 连在 `29001` 上即可与 MCP 同时使用，无需断开。
+如果想脱离 MCP 单独使用 vconsole2（直连 `29000`）：关闭 Dota 2 并退出所有 MCP 会话，守护进程空闲约 5 分钟自动退出并释放 `29000`（Dota 2 在运行时守护进程不会退出，也可手动结束它）。平时把 GUI 连在 `29001` 上即可与 MCP 同时使用，无需断开。
 
 ## 安装
 
@@ -175,8 +177,9 @@ chmod +x dota2-mcp-linux
 
 | 工具 | 用途 |
 |------|------|
-| `project_info` | 获取当前 addon、地图、游戏状态。建议先调用。 |
-| `dota_launch_game` | 启动自定义游戏地图。 |
+| `dota_status` | 获取连接、vconsole、addon、地图、游戏状态与下一步建议。建议先调用。 |
+| `dota_open_vconsole` | 打开 vconsole2 窗口（控制台类工具需要它已打开）。 |
+| `dota_launch_game` | 启动自定义游戏地图（等待进入对局；卡住时返回相位与推进方法）。 |
 | `dota_disconnect` | 断开当前游戏。 |
 | `dota_restart` | 重载当前地图。 |
 | `console_send` | 向 Dota 2 控制台发送命令。 |
@@ -209,6 +212,10 @@ chmod +x dota2-mcp-linux
 **我不想让 MCP 输出出现在 vconsole2 GUI 里**
 
 默认就是屏蔽的。如果想临时关闭，调用 `console_gui_filter` 并设置 `auto: false`。
+
+**AI 提示「vconsole 未打开」怎么办？**
+
+控制台类工具需要 vconsole2 已打开并连接 `127.0.0.1:29001`（这样你能看到 AI 的操作）。直接运行 `{dota 2 beta}\game\bin\win64\vconsole2.exe`，或让 AI 调用 `dota_open_vconsole`。AssetBrowser 里的 vconsole 按钮在 dota2-mcp 运行时无效，是引擎的限制，不是故障。
 
 ## 版本
 

@@ -9,6 +9,9 @@
  *                │
  *                └── MCP 可注入 CMND，可读取 PRNT
  * ```
+ *
+ * 晚接入的 GUI 会收到初始化帧重放（AINF/CHAN/CVRB/CFGV/ADON）。
+ * 对 Dota 连接有活性探测：静默时 echo 探针，超时判死重连；无 AINF 的僵尸连接判死重连。
  */
 
 import * as net from "net";

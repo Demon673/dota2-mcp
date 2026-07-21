@@ -2,13 +2,9 @@
 /**
  * dota2-mcp — MCP server for DOTA2 custom game development.
  *
- * Tool layers (to be implemented):
- *   1. FileOps       — CRUD KV/Lua/TS/JS/CSS/XML files
- *   2. APIReference  — query Lua/JS/CSS/Panel APIs from vscode-dota2-tools JSON
- *   3. ConsoleBridge — bidirectional Dota 2 console via con_logfile + cfg exec
- *   4. AssetInspector — VRF subprocess for .vmdl/.vmap/.vpcf/.vpk inspection
- *   5. EditorControl — Hammer/ModelDoc/Particle editor via console commands
- *   6. BuildTools    — npm/tstl/rollup integration + scaffolding
+ * 瘦客户端入口：注册全部 MCP 工具，经 createRelay() 接入 relay 守护进程
+ * （失败时退化为本地 VConRelay）。控制台类工具遵守 vconsole 契约：
+ * Dota 已连接且 vconsole 已接入 29001 才可用（见 requireConsole）。
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -389,7 +385,7 @@ async function main(): Promise<void> {
 
   // Tool: 读取 console 输出（VCon 实时流，含 verbosity 级别和 channel 来源）
   server.tool("console_output",
-    "Use when the user reports an in-game bug, error, crash, Lua/Panorama failure, or asks what went wrong while testing. Reads Dota 2 console output with severity filtering. level: 0=all, 1=warnings+, 2=asserts+, 3=errors only.",
+    "Use when the user reports an in-game bug, error, crash, Lua/Panorama failure, or asks what went wrong while testing. Reads Dota 2 console output with severity filtering. level: 0=all, 1=warnings+, 2=asserts+, 3=errors only. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
     {
       lines: z.number().optional().describe("Number of lines to return. Default 50."),
       level: z.number().optional().describe("0=all, 1=warnings+, 2=asserts+, 3=errors only. Default 0."),
@@ -421,7 +417,7 @@ async function main(): Promise<void> {
 
   // Tool: 列出当前可用的 VConsole2 通道
   server.tool("console_channels",
-    "List all available VConsole2 source channels with short descriptions. Use the channel names with console_output channel filter.",
+    "List all available VConsole2 source channels with short descriptions. Use the channel names with console_output channel filter. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
     {},
     async () => {
       requireConsole();
@@ -436,7 +432,7 @@ async function main(): Promise<void> {
 
   // Tool: send console command via VCon
   server.tool("console_send",
-    "Use to run any Dota 2 console command — change convars, trigger cheats, exec cfgs, or drive the engine directly while testing. Sends command(s) to the live Dota 2 console.",
+    "Use to run any Dota 2 console command — change convars, trigger cheats, exec cfgs, or drive the engine directly while testing. Sends command(s) to the live Dota 2 console. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
     { commands: z.string().describe("Command(s), newline-separated") },
     async ({ commands }) => {
       requireConsole();
@@ -497,7 +493,7 @@ async function main(): Promise<void> {
   );
 
 
-  // Tool: 任务入口 — 测试 / 验证 / 调试 Dota 2 自定义游戏（合并原 project_info，永不抛异常）
+  // Tool: 任务入口 — 测试 / 验证 / 调试 Dota 2 自定义游戏（导航型，永不抛异常）
   server.tool("dota_status",
     "Check the Dota 2 custom game project's connection, vconsole, addon, available maps, and live game state — and what to do next. Use this FIRST whenever the user asks to test a Dota 2 addon / custom game, check why something doesn't work in-game, run a map, or inspect live game state. Never throws: reports what's missing (Dota or vconsole) and how to fix it.",
     {},
@@ -646,7 +642,7 @@ Then call dota_status again.` }] };
 
   // Tool: 断开
   server.tool("dota_disconnect",
-    "Use to disconnect / quit the current Dota 2 custom game and return to the main menu, e.g. after finishing a test run.",
+    "Use to disconnect / quit the current Dota 2 custom game and return to the main menu, e.g. after finishing a test run. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
     {},
     async () => {
       requireConsole();
@@ -684,7 +680,7 @@ Then call dota_status again.` }] };
 
   // Tool: 重启当前游戏
   server.tool("dota_restart",
-    "Use to quickly reload / restart the current map after changing Lua, KV, or Panorama files, so the user can re-test without relaunching manually.",
+    "Use to quickly reload / restart the current map after changing Lua, KV, or Panorama files, so the user can re-test without relaunching manually. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
     {},
     async () => {
       requireConsole();
@@ -699,7 +695,7 @@ Then call dota_status again.` }] };
 
   // Tool: 列出所有实体
   server.tool("dota_dump_entities",
-    "Use to inspect live game state while debugging — lists all entities currently in the scene (heroes, units, thinkers) to verify spawns, positions, or whether an entity exists at all.",
+    "Use to inspect live game state while debugging — lists all entities currently in the scene (heroes, units, thinkers) to verify spawns, positions, or whether an entity exists at all. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
     {},
     async () => {
       requireConsole();
@@ -710,7 +706,7 @@ Then call dota_status again.` }] };
 
   // Tool: 列出所有 modifier
   server.tool("dota_dump_modifiers",
-    "Use to debug buffs/debuffs/modifiers while testing — dumps active modifiers on entities (server) or all registered modifier types (client) to verify an ability applied its modifier correctly.",
+    "Use to debug buffs/debuffs/modifiers while testing — dumps active modifiers on entities (server) or all registered modifier types (client) to verify an ability applied its modifier correctly. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
     { side: z.enum(["server","client"]).optional().describe("server or client. Default client.") },
     async ({ side }) => {
       requireConsole();
@@ -723,7 +719,7 @@ Then call dota_status again.` }] };
 
   // Tool: 查看实体脚本作用域
   server.tool("dota_entity_inspect",
-    "Use to inspect a specific entity's Lua script scope (its properties, functions, member values) while debugging ability or unit behavior. Pass entity name/class/entindex.",
+    "Use to inspect a specific entity's Lua script scope (its properties, functions, member values) while debugging ability or unit behavior. Pass entity name/class/entindex. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
     { entity: z.string().describe("Entity identifier"), side: z.enum(["server","client"]).optional().describe("server or client. Default client.") },
     async ({ entity, side }) => {
       requireConsole();
@@ -935,7 +931,7 @@ Then call dota_status again.` }] };
 
   // Tool: Lua API（服务端 + 客户端）
   server.tool("dota_api_lua",
-    "Use to look up a Dota 2 Lua API function or class signature while writing server-side script — e.g. 'what args does CreateUnitByName take' or 'what methods does CDOTA_BaseNPC have'.",
+    "Use to look up a Dota 2 Lua API function or class signature while writing server-side script — e.g. 'what args does CreateUnitByName take' or 'what methods does CDOTA_BaseNPC have'. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
     { func: z.string().optional().describe("Function/class name. Empty=full dump."), side: z.enum(["server","client"]).optional().describe("server or client. Default server.") },
     async ({ func, side }) => {
       requireConsole();
@@ -948,7 +944,7 @@ Then call dota_status again.` }] };
 
   // Tool: Panorama JS API
   server.tool("dota_api_panorama_js",
-    "Use to look up Panorama JS API enums/classes (GameUI, CustomUIElement, $) while writing custom HUD / UI for the custom game.",
+    "Use to look up Panorama JS API enums/classes (GameUI, CustomUIElement, $) while writing custom HUD / UI for the custom game. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
     { name: z.string().optional().describe("Enum/class name. Empty=full list.") },
     async ({ name }) => {
       requireConsole();
@@ -959,7 +955,7 @@ Then call dota_status again.` }] };
 
   // Tool: Panorama CSS 属性
   server.tool("dota_api_css",
-    "Use to look up a Panorama CSS property (e.g. wash-color, blur) with description and examples while styling the custom game's UI.",
+    "Use to look up a Panorama CSS property (e.g. wash-color, blur) with description and examples while styling the custom game's UI. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
     { prop: z.string().optional().describe("CSS property name, e.g. 'wash-color'. Empty=all 128.") },
     async ({ prop }) => {
       requireConsole();
@@ -970,7 +966,7 @@ Then call dota_status again.` }] };
 
   // Tool: Panorama Panel 事件
   server.tool("dota_api_events",
-    "Use to look up Panorama panel event handlers (e.g. SetPanelSelected, onactivate) and their signatures while wiring UI interactions.",
+    "Use to look up Panorama panel event handlers (e.g. SetPanelSelected, onactivate) and their signatures while wiring UI interactions. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
     { event: z.string().optional().describe("Event name, e.g. 'SetPanelSelected'. Empty=all events.") },
     async ({ event }) => {
       requireConsole();
@@ -983,7 +979,7 @@ Then call dota_status again.` }] };
 
   // Tool: 搜索所有 5248 个 console 指令/cvar
   server.tool("console_find",
-    "Use to discover a Dota 2 console command or convar when you don't know its exact name — e.g. find a cheat, a debug flag, or a launch option. Use prefixes like 'dota_', 'sv_', 'cl_' to narrow.",
+    "Use to discover a Dota 2 console command or convar when you don't know its exact name — e.g. find a cheat, a debug flag, or a launch option. Use prefixes like 'dota_', 'sv_', 'cl_' to narrow. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
     { query: z.string().describe("Search keyword") },
     async ({ query }) => {
       requireConsole();
@@ -1004,7 +1000,7 @@ Then call dota_status again.` }] };
 
   // Tool: 查看命令用途
   server.tool("console_help",
-    "Use to check what a specific Dota 2 console command or convar does and its current value before using it.",
+    "Use to check what a specific Dota 2 console command or convar does and its current value before using it. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
     { command: z.string().describe("Command name") },
     async ({ command }) => {
       requireConsole();
@@ -1054,7 +1050,7 @@ Then call dota_status again.` }] };
 
   // Tool: 查询官方 Lua API 文档
   server.tool("dota_api_help",
-    "Use to look up the official Dota 2 Lua API doc string for a function or class (script_help), e.g. 'CreateUnitByName' or 'CDOTA_BaseNPC'.",
+    "Use to look up the official Dota 2 Lua API doc string for a function or class (script_help), e.g. 'CreateUnitByName' or 'CDOTA_BaseNPC'. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
     { query: z.string().optional().describe("Function or class name. Empty = list all registered API functions.") },
     async ({ query }) => {
       requireConsole();
@@ -1065,7 +1061,7 @@ Then call dota_status again.` }] };
 
   // Tool: 在运行中的游戏里执行 Lua 代码
   server.tool("dota_run_lua",
-    "Use to run server-side Lua in the live game while testing — verify a function works, inspect a value, spawn a unit, or reproduce a bug without editing files and reloading. 'expression' auto-DeepPrintTables the result.",
+    "Use to run server-side Lua in the live game while testing — verify a function works, inspect a value, spawn a unit, or reproduce a bug without editing files and reloading. 'expression' auto-DeepPrintTables the result. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
     {
       code: z.string().optional().describe("Arbitrary Lua statements to run. Use single quotes inside to avoid shell escaping issues."),
       expression: z.string().optional().describe("Lua expression to evaluate; its result will be DeepPrintTable'd automatically (e.g. 'PlayerResource:GetAllTeamPlayerIDs()')."),

@@ -80,12 +80,22 @@ KV are the exception, not the rule; when unsure, ask before editing KV.
 
 ## The dota2-mcp tools in this model
 
-- dota_status — entry point: connection, addon, map state, next step.
-- dota_launch_game / dota_restart / dota_disconnect — map control (restart is
-  for load-only changes or clean runs, NOT for routine code edits).
+- dota_status — entry point: connection, vconsole, addon, map state, next step
+  (never throws; if it reports vconsole closed, open it first).
+- dota_open_vconsole / dota_launch_game / dota_restart / dota_disconnect —
+  window & map control (restart is for load-only changes or clean runs, NOT
+  for routine code edits). dota_launch_game waits until GAME_IN_PROGRESS and,
+  if the game gets stuck in a phase, tells you how to advance it.
 - console_send — send console commands (e.g. `reload_script`, cheats, cvars).
 - console_output — read console output; level 3 + channel VScript for Lua errors.
 - dota_run_lua — run server Lua live to verify behavior / reproduce a bug.
 - dota_dump_entities / dota_dump_modifiers / dota_entity_inspect — inspect live state.
 - dota_api_lua / dota_api_panorama_js / dota_api_css / dota_api_events / dota_api_help
   — query live engine APIs instead of guessing signatures.
+
+CONTRACT: all console-based tools (console_*, dota_api_*, dota_run_lua,
+dota_dump_*, dota_launch_game, dota_disconnect, dota_restart) require an open
+vconsole attached to 127.0.0.1:29001 — it exists so the human can watch what
+you do. If a tool reports "vconsole 未打开": call dota_open_vconsole. Never
+tell the user to use the AssetBrowser vconsole button — it is engine-disabled
+while the relay holds port 29000.
