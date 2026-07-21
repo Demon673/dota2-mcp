@@ -27,6 +27,16 @@ const PROTOCOL_VERSION = 1;
 /** 连接建立时 Dota 推送的初始化帧类型，按到达顺序缓存，重放给晚接入的 GUI */
 const INIT_FRAME_TYPES = new Set(["AINF", "CHAN", "CVRB", "CFGV", "ADON"]);
 
+/** 活性探针文本：静默超时后 relay 发 `echo __mcp_ping__`，回显行对 MCP/GUI 双向过滤 */
+const PROBE_TEXT = "__mcp_ping__";
+
+export interface LivenessOpts {
+  probeIntervalMs: number;
+  silenceMs: number;
+  pongTimeoutMs: number;
+  ainfTimeoutMs: number;
+}
+
 function parsePort(name: string, fallback: number): number {
   const v = process.env[name];
   if (!v) return fallback;
@@ -47,6 +57,23 @@ interface ClientConn {
 
 export class VConRelay extends EventEmitter {
   private dotaClient: VConClient | null = null;
+  private _lastDataAt = 0;
+  private _probeOutstandingAt: number | null = null;
+  private _ainfTimer: NodeJS.Timeout | null = null;
+  private _livenessInterval: NodeJS.Timeout | null = null;
+  private liveness: LivenessOpts;
+
+  constructor(liveness: Partial<LivenessOpts> = {}) {
+    super();
+    this.liveness = {
+      probeIntervalMs: 10_000,
+      silenceMs: 15_000,
+      pongTimeoutMs: 20_000,
+      ainfTimeoutMs: 10_000,
+      ...liveness,
+    };
+  }
+
   private guiServer!: net.Server;
   private guiSocket: net.Socket | null = null;
   private prntBuffer: string[] = [];
@@ -146,6 +173,7 @@ export class VConRelay extends EventEmitter {
 
     // 启动即主动连接 Dota 2（不等 vconsole2 GUI 触发），断线自动重连
     this._connectDota();
+    this._livenessInterval = setInterval(() => this._livenessTick(), this.liveness.probeIntervalMs);
   }
 
   sendCommand(cmd: string): void {
@@ -168,6 +196,8 @@ export class VConRelay extends EventEmitter {
   close(): void {
     this._closed = true;
     if (this.idleTimer) clearTimeout(this.idleTimer);
+    if (this._livenessInterval) clearInterval(this._livenessInterval);
+    if (this._ainfTimer) clearTimeout(this._ainfTimer);
     this.dotaClient?.close();
     this.guiSocket?.destroy();
     this.guiServer?.close();
@@ -419,6 +449,7 @@ export class VConRelay extends EventEmitter {
       port: DOTA_PORT,
       rawPrntEditor: (msg) => {
         const text = msg.text.trim();
+        if (text === PROBE_TEXT) return false; // 探针回显不转发 GUI
         // MCP 标记之间的输出：静默丢弃，不转发 GUI
         if (this._mcpMarkerSuppress) return false;
         // MCP 标记行本身也不转发（ai_disabled = false / ai_disabled = true）
@@ -438,11 +469,19 @@ export class VConRelay extends EventEmitter {
       this._dotaConnected = true;
       this._mcpMarkerSuppress = false;
       this._initFrames = [];
+      this._lastDataAt = Date.now();
+      this._probeOutstandingAt = null;
+      // 僵尸识别：正常 Dota 一连上就发 AINF；只 accept 不说话的是残留进程
+      this._ainfTimer = setTimeout(() => {
+        console.error("[relay] no AINF after connect (zombie engine?), reconnecting...");
+        this.dotaClient?.close();
+      }, this.liveness.ainfTimeoutMs);
       console.error("[relay] Dota 2 connected");
       this._broadcast({ type: "status", dota: true, gui: this._guiConnected });
     });
 
     this.dotaClient.on("rawFrame", (type: string, rawData: Buffer) => {
+      this._lastDataAt = Date.now();
       if (INIT_FRAME_TYPES.has(type)) this._initFrames.push(rawData);
       if (this.guiSocket && !this.guiSocket.destroyed) {
         this.guiSocket.write(rawData);
@@ -450,7 +489,10 @@ export class VConRelay extends EventEmitter {
     });
 
     this.dotaClient.on("prnt", (msg: PrntMessage) => {
+      this._lastDataAt = Date.now();
       const text = msg.text.trim();
+      // 活性探针回显：不进缓冲、不广播（rawPrntEditor 侧同时拦 GUI）
+      if (text === PROBE_TEXT) return;
       // MCP 标记行：切换屏蔽状态，标记本身不进入缓冲区，也不转发给 MCP/GUI
       if (this._mcpSuppressEnabled && text.startsWith(this._mcpMarker)) {
         this._mcpMarkerSuppress = !this._mcpMarkerSuppress;
@@ -486,6 +528,7 @@ export class VConRelay extends EventEmitter {
     });
 
     this.dotaClient.on("ainf", (a) => {
+      if (this._ainfTimer) { clearTimeout(this._ainfTimer); this._ainfTimer = null; }
       this._ainf = a;
       console.error("[relay] Game:", a.productName, "CmdLine:", a.commandLine);
       this.emit("ainf", a);
@@ -494,6 +537,8 @@ export class VConRelay extends EventEmitter {
     this.dotaClient.on("close", () => {
       this._dotaConnected = false;
       this._mcpMarkerSuppress = false;
+      this._probeOutstandingAt = null;
+      if (this._ainfTimer) { clearTimeout(this._ainfTimer); this._ainfTimer = null; }
       this.dotaClient = null;
       this._broadcast({ type: "status", dota: false, gui: this._guiConnected });
       if (!this._closed) {
@@ -517,5 +562,30 @@ export class VConRelay extends EventEmitter {
         setTimeout(() => this._connectDota(), 2000);
       }
     });
+  }
+
+  /** 活性探测：静默超时发 echo 探针；探针后仍无数据 → 判死掐断走重连 */
+  private _livenessTick(): void {
+    if (!this._dotaConnected || !this.dotaClient) {
+      this._probeOutstandingAt = null;
+      return;
+    }
+    const now = Date.now();
+    if (this._probeOutstandingAt !== null) {
+      if (this._lastDataAt > this._probeOutstandingAt) {
+        this._probeOutstandingAt = null; // pong 到了
+        return;
+      }
+      if (now - this._probeOutstandingAt > this.liveness.pongTimeoutMs) {
+        console.error("[relay] Dota 2 unresponsive (probe timeout), reconnecting...");
+        this._probeOutstandingAt = null;
+        this.dotaClient.close(); // destroy → close 事件 → 现有重连路径
+      }
+      return;
+    }
+    if (now - this._lastDataAt > this.liveness.silenceMs) {
+      try { this.dotaClient.sendCommand(`echo ${PROBE_TEXT}`); } catch { /* 断开竞态，下个 tick 处理 */ }
+      this._probeOutstandingAt = now;
+    }
   }
 }
