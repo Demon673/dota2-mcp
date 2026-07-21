@@ -237,9 +237,24 @@ async function main(): Promise<void> {
   function notConnectedText(extra = ""): string {
     // 守护进程模式下端口被别的实例占用：报错指向真实原因
     if ((relay as VConRelay).portInUse) {
-      return `另一个 dota2-mcp 实例已占用端口 29001/29002（多实例冲突）。请关闭其他实例，或等待守护进程方案落地后自动接入。`;
+      return `另一个 dota2-mcp 实例已占用端口 29001/29002（多实例冲突）。请关闭其他实例。`;
     }
-    return `未连接到 Dota 2 VConsole2（端口 29000）。请确保 Dota 2 以 -vconsole 启动且正在运行（relay 启动后会自动连接并重连）。${extra}`;
+    return `未连接到 Dota 2（VConsole2 端口 29000）。Dota 2 可能未启动、已崩溃或正在重启；relay 会持续自动重连，稍后重试即可。若刚重启 Dota 2 仍持续出现：旧 dota2.exe 可能没退干净并仍占用 29000——在任务管理器彻底结束所有 dota2.exe 后再启动。${extra}`;
+  }
+
+  /** vconsole 未打开的契约提示（控制台类工具需要 vconsole 旁观 agent 活动） */
+  function vconsoleNotOpenText(): string {
+    const exe = dotaPath ? path.join(getDotaBinDir(dotaPath), getDotaExeName("vconsole2")) : "vconsole2.exe";
+    return `vconsole 未打开。控制台类工具要求 vconsole 已打开并连接 127.0.0.1:29001（显式契约：保证你能旁观 agent 的控制台活动）。
+请二选一：
+1. 直接运行 ${exe}（AssetBrowser 的 vconsole 按钮在 relay 持有 29000 时被引擎禁用，勿用）；
+2. 调用 dota_open_vconsole 让我帮你打开。`;
+  }
+
+  /** 控制台类工具入口两段检查：Dota 连接 → vconsole 接入 */
+  function requireConsole(): void {
+    if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+    if (!relay.guiConnected) throw new McpError(ErrorCode.InvalidRequest, vconsoleNotOpenText());
   }
 
   /** 依赖 dotaPath 的工具在路径未检测到时返回的可操作错误 */
@@ -368,7 +383,7 @@ async function main(): Promise<void> {
       channel: z.string().optional().describe("Filter by source channel(s), e.g. VScript, PanoramaScript, ResourceSystem. Use comma to filter multiple channels like 'VScript, PanoramaScript'. Use console_channels to list available channels."),
     },
     async ({ lines, level, filter, channel }) => {
-      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      requireConsole();
       const n = lines ?? 50;
       const lvl = level ?? 0;
       let output = prntLog;
@@ -395,7 +410,7 @@ async function main(): Promise<void> {
     "List all available VConsole2 source channels with short descriptions. Use the channel names with console_output channel filter.",
     {},
     async () => {
-      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      requireConsole();
       const channels = relay.getChannels();
       const lines = channels.map(name => {
         const desc = channelDescriptions[name];
@@ -410,7 +425,7 @@ async function main(): Promise<void> {
     "Use to run any Dota 2 console command — change convars, trigger cheats, exec cfgs, or drive the engine directly while testing. Sends command(s) to the live Dota 2 console.",
     { commands: z.string().describe("Command(s), newline-separated") },
     async ({ commands }) => {
-      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      requireConsole();
       const cmds = commands.split("\n").map(c => c.trim()).filter(Boolean);
       cmds.forEach(c => relay.sendCommand(c));
       return { content: [{ type: "text", text: `Sent ${cmds.length} command(s)` }] };
@@ -468,19 +483,24 @@ async function main(): Promise<void> {
   );
 
 
-  // Tool: 任务入口 — 测试 / 验证 / 调试 Dota 2 自定义游戏
+  // Tool: 任务入口 — 测试 / 验证 / 调试 Dota 2 自定义游戏（合并原 project_info，永不抛异常）
   server.tool("dota_status",
-    "Test, verify, or debug a Dota 2 custom game project. Use this FIRST whenever the user asks to test a Dota 2 addon / custom game, check why something doesn't work in-game, run a map, or inspect live game state. Reports connection + addon + map status and tells you the next step (launch a map, read console_output for errors, run Lua to verify).",
+    "Check the Dota 2 custom game project's connection, vconsole, addon, available maps, and live game state — and what to do next. Use this FIRST whenever the user asks to test a Dota 2 addon / custom game, check why something doesn't work in-game, run a map, or inspect live game state. Never throws: reports what's missing (Dota or vconsole) and how to fix it.",
     {},
     async () => {
       if (!relay.dotaConnected) {
         return { content: [{ type: "text", text:
-`Dota 2 is not connected. Before testing a custom game, ensure Dota 2 is running and launched with -vconsole. The relay connects automatically and keeps retrying; no vconsole2 GUI is required.
+`Dota 2 is not connected. Ensure Dota 2 is running (with -vconsole or -tools). The relay reconnects automatically; if you just restarted Dota 2 and this persists, an old dota2.exe may not have fully exited — kill it completely and start again.
 
-Once connected, call dota_status again to see the project state, then:
-- No map loaded → dota_launch_game
-- Map running, checking for errors → console_output (level 3)
-- Verify specific behavior → dota_run_lua` }] };
+Once connected, call dota_status again.` }] };
+      }
+      if (!relay.guiConnected) {
+        return { content: [{ type: "text", text:
+`Dota 2 is connected, but vconsole is not open. Console tools require an open vconsole attached to 127.0.0.1:29001 (explicit contract: you can watch the agent's console activity there).
+
+Open it: run vconsole2.exe and connect to 127.0.0.1:29001 — the AssetBrowser vconsole button is disabled by the engine while this MCP holds port 29000 — or call dota_open_vconsole.
+
+Then call dota_status again.` }] };
       }
 
       // ADON 帧是 Dota 2 主动推送的，连接刚建立时可能还没到。
@@ -493,6 +513,7 @@ Once connected, call dota_status again to see the project state, then:
 
       const addon = resolveAddon();
       const maps = currentMaps.length > 0 ? currentMaps : scanMapsFs(addon);
+      const allMaps = currentAllMaps.length > 0 ? currentAllMaps : scanMapsFs(addon);
       const status = await queryStatusJson(5000);
       const state = parseGameState(status);
 
@@ -507,54 +528,26 @@ Once connected, call dota_status again to see the project state, then:
 - Check for errors → console_output (level 3, or channel filter 'VScript' for Lua errors)
 - Verify specific behavior / reproduce a bug → dota_run_lua
 - Inspect entities → dota_dump_entities; modifiers → dota_dump_modifiers
-- Reload after editing Lua/KV/Panorama → dota_restart`;
+- Reload after editing Lua/KV/Panorama → dota_restart${state.phase !== "playing" ? `
+- Stuck in phase "${state.game_state}"? See dota2_skill 'dota2-game-phases' for how to advance.` : ""}`;
       }
 
       return { content: [{ type: "text", text: JSON.stringify({
         connected: true,
+        vconsole: true,
         addon: currentAddon || addon || "(detecting...)",
-        availableMaps: maps,
-        map: state.map,
-        running: state.loaded,
-        phase: state.phase,
-        players: state.players,
-        nextStep,
-      }, null, 2) }] };
-    }
-  );
-
-
-  // Tool: 查询当前项目与游戏状态
-  server.tool("project_info",
-    "Check the current Dota 2 custom game project's addon, available maps, and live game state. Use to see which addon is loaded, whether a map is running, and connection health before launching or debugging.",
-    {},
-    async () => {
-      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
-      const addon = resolveAddon();
-      const maps = currentMaps.length > 0 ? currentMaps : scanMapsFs(addon);
-      const allMaps = currentAllMaps.length > 0 ? currentAllMaps : scanMapsFs(addon);
-
-      // 发送 status_json 命令获取运行时状态
-      const status = await queryStatusJson(5000);
-      const state = parseGameState(status);
-
-      return { content: [{ type: "text", text: JSON.stringify({
-        addon: currentAddon || "(detecting...)",
         maps,
         allMaps,
         running: {
           map: state.map,
           loaded: state.loaded,
           loading: state.loading,
-          state: state.state,
           game_state: state.game_state,
           phase: state.phase,
           players: state.players,
           clients_bot: state.clients_bot,
           clients_proxies: state.clients_proxies,
           first_player: state.first_player,
-          host: "",
-          serverAddon: state.addon,
           hibernating: state.hibernating,
           cpu_usage: state.cpu_usage,
           udp_port: state.udp_port,
@@ -562,15 +555,11 @@ Once connected, call dota_status again to see the project state, then:
           build_version: state.build_version,
           process_uptime: state.process_uptime,
         },
-        connection: { dota: relay.dotaConnected, gui: relay.guiConnected },
-        hint: state.loading
-          ? "Map is loading. Wait for it to finish."
-          : !state.loaded
-            ? "No map loaded. Use dota_launch_game."
-            : `Game ${state.phase}. Use dota_restart to reload.`,
+        nextStep,
       }, null, 2) }] };
     }
   );
+
 
   // Tool: 启动游戏
   server.tool("dota_launch_game",
@@ -581,7 +570,7 @@ Once connected, call dota_status again to see the project state, then:
       timeout: z.number().optional().describe("Max seconds to wait for the map to finish loading. Default 45."),
     },
     async ({ addon, map, timeout }) => {
-      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      requireConsole();
       const a = resolveAddon(addon);
       const maps = currentMaps.length > 0 ? currentMaps : scanMapsFs(a);
       const m = map || maps[0];
@@ -625,9 +614,36 @@ Once connected, call dota_status again to see the project state, then:
     "Use to disconnect / quit the current Dota 2 custom game and return to the main menu, e.g. after finishing a test run.",
     {},
     async () => {
-      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      requireConsole();
       relay.sendCommand("disconnect");
       return { content: [{ type: "text", text: "Disconnected." }] };
+    }
+  );
+
+  // Tool: 打开 vconsole 窗口（AssetBrowser 按钮被引擎禁用时的显式路径）
+  server.tool("dota_open_vconsole",
+    "Use to open the VConsole2 window for the user when console tools report 'vconsole 未打开'. Launches vconsole2.exe directly (the AssetBrowser vconsole button is disabled by the engine while this MCP holds port 29000) and waits for it to attach to the relay. Console tools require an attached vconsole (explicit contract).",
+    {},
+    async () => {
+      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
+      if (relay.guiConnected) {
+        return { content: [{ type: "text", text: "vconsole is already open and attached." }] };
+      }
+      const exe = path.join(getDotaBinDir(dotaPath), getDotaExeName("vconsole2"));
+      if (!fs.existsSync(exe)) {
+        throw new McpError(ErrorCode.InvalidRequest, `vconsole2.exe not found at ${exe}`);
+      }
+      const result = await runDotaTool("vconsole2", [], false);
+      if (!result.ok) {
+        throw new McpError(ErrorCode.InvalidRequest, `Failed to launch vconsole2: ${result.stderr}`);
+      }
+      for (let i = 0; i < 20 && !relay.guiConnected; i++) {
+        await new Promise(r => setTimeout(r, 500));
+      }
+      return { content: [{ type: "text", text: relay.guiConnected
+        ? "vconsole opened and attached to relay (127.0.0.1:29001)."
+        : "vconsole2.exe launched but did not attach to 127.0.0.1:29001 within 10s. Check the vconsole2 connection target is 127.0.0.1:29001 (saved in its settings)."
+      }] };
     }
   );
 
@@ -636,7 +652,7 @@ Once connected, call dota_status again to see the project state, then:
     "Use to quickly reload / restart the current map after changing Lua, KV, or Panorama files, so the user can re-test without relaunching manually.",
     {},
     async () => {
-      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      requireConsole();
       relay.sendCommand("restart");
       return { content: [{ type: "text", text: "Sent: restart (reloads current map)" }] };
     }
@@ -651,7 +667,7 @@ Once connected, call dota_status again to see the project state, then:
     "Use to inspect live game state while debugging — lists all entities currently in the scene (heroes, units, thinkers) to verify spawns, positions, or whether an entity exists at all.",
     {},
     async () => {
-      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      requireConsole();
       const out = await collectOutput("dump_entity_report", { waitMs: 5000, settleMs: 300 });
       return { content: [{ type: "text", text: out.join("\n") || "Sent. Use console_output." }] };
     }
@@ -662,7 +678,7 @@ Once connected, call dota_status again to see the project state, then:
     "Use to debug buffs/debuffs/modifiers while testing — dumps active modifiers on entities (server) or all registered modifier types (client) to verify an ability applied its modifier correctly.",
     { side: z.enum(["server","client"]).optional().describe("server or client. Default client.") },
     async ({ side }) => {
-      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      requireConsole();
       const s = side ?? "client";
       const cmd = s === "server" ? "dota_modifier_dump" : "cl_dump_modifier_list";
       const out = await queryConsole(cmd, 3000);
@@ -675,7 +691,7 @@ Once connected, call dota_status again to see the project state, then:
     "Use to inspect a specific entity's Lua script scope (its properties, functions, member values) while debugging ability or unit behavior. Pass entity name/class/entindex.",
     { entity: z.string().describe("Entity identifier"), side: z.enum(["server","client"]).optional().describe("server or client. Default client.") },
     async ({ entity, side }) => {
-      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      requireConsole();
       const s = side ?? "client";
       const cmd = s === "server" ? "ent_script_dump" : "cl_ent_script_dump";
       const out = await queryConsole(`${cmd} ${entity}`, 3000);
@@ -887,7 +903,7 @@ Once connected, call dota_status again to see the project state, then:
     "Use to look up a Dota 2 Lua API function or class signature while writing server-side script — e.g. 'what args does CreateUnitByName take' or 'what methods does CDOTA_BaseNPC have'.",
     { func: z.string().optional().describe("Function/class name. Empty=full dump."), side: z.enum(["server","client"]).optional().describe("server or client. Default server.") },
     async ({ func, side }) => {
-      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      requireConsole();
       const s = side ?? "server";
       const cmd = s === "client" ? "cl_script_help2" : "script_help2";
       const out = await queryConsole(func ? `${cmd} ${func}` : cmd, 3000);
@@ -900,7 +916,7 @@ Once connected, call dota_status again to see the project state, then:
     "Use to look up Panorama JS API enums/classes (GameUI, CustomUIElement, $) while writing custom HUD / UI for the custom game.",
     { name: z.string().optional().describe("Enum/class name. Empty=full list.") },
     async ({ name }) => {
-      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      requireConsole();
       const out = await queryConsole(name ? `cl_panorama_script_help_2 ${name}` : "cl_panorama_script_help_2", 3000);
       return { content: [{ type: "text", text: out.join("\n") || "(no results)" }] };
     }
@@ -911,7 +927,7 @@ Once connected, call dota_status again to see the project state, then:
     "Use to look up a Panorama CSS property (e.g. wash-color, blur) with description and examples while styling the custom game's UI.",
     { prop: z.string().optional().describe("CSS property name, e.g. 'wash-color'. Empty=all 128.") },
     async ({ prop }) => {
-      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      requireConsole();
       const out = await queryConsole(prop ? `dump_panorama_css_properties ${prop}` : "dump_panorama_css_properties", 3000);
       return { content: [{ type: "text", text: out.join("\n") || "(no results)" }] };
     }
@@ -922,7 +938,7 @@ Once connected, call dota_status again to see the project state, then:
     "Use to look up Panorama panel event handlers (e.g. SetPanelSelected, onactivate) and their signatures while wiring UI interactions.",
     { event: z.string().optional().describe("Event name, e.g. 'SetPanelSelected'. Empty=all events.") },
     async ({ event }) => {
-      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      requireConsole();
       const out = await queryConsole(event ? `dump_panorama_events ${event}` : "dump_panorama_events", 3000);
       return { content: [{ type: "text", text: out.join("\n") || "(no results)" }] };
     }
@@ -935,7 +951,7 @@ Once connected, call dota_status again to see the project state, then:
     "Use to discover a Dota 2 console command or convar when you don't know its exact name — e.g. find a cheat, a debug flag, or a launch option. Use prefixes like 'dota_', 'sv_', 'cl_' to narrow.",
     { query: z.string().describe("Search keyword") },
     async ({ query }) => {
-      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      requireConsole();
       const out = await queryConsole(`find ${query}`, 3000, 250);
       // Dota `find` output: header + separator + rows. Drop header/separator, keep rows that mention the query.
       const results = out.filter(l =>
@@ -956,7 +972,7 @@ Once connected, call dota_status again to see the project state, then:
     "Use to check what a specific Dota 2 console command or convar does and its current value before using it.",
     { command: z.string().describe("Command name") },
     async ({ command }) => {
-      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      requireConsole();
       const out = await queryConsole(`help ${command}`, 3000, 250);
       // help 命令常先 dump 一批枚举，再给出目标命令行；过滤出真正相关的行
       const relevant = out.filter(l => l.toLowerCase().includes(command.toLowerCase()));
@@ -1006,7 +1022,7 @@ Once connected, call dota_status again to see the project state, then:
     "Use to look up the official Dota 2 Lua API doc string for a function or class (script_help), e.g. 'CreateUnitByName' or 'CDOTA_BaseNPC'.",
     { query: z.string().optional().describe("Function or class name. Empty = list all registered API functions.") },
     async ({ query }) => {
-      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      requireConsole();
       const out = await queryConsole(query ? `script_help ${query}` : "script_help", 4000, 300);
       return { content: [{ type: "text", text: out.join("\n") || "Sent. Use console_output to see results." }] };
     }
@@ -1020,7 +1036,7 @@ Once connected, call dota_status again to see the project state, then:
       expression: z.string().optional().describe("Lua expression to evaluate; its result will be DeepPrintTable'd automatically (e.g. 'PlayerResource:GetAllTeamPlayerIDs()')."),
     },
     async ({ code, expression }) => {
-      if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+      requireConsole();
 
       let luaBody: string;
       if (expression) {
