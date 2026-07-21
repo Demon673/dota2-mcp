@@ -11,7 +11,7 @@
  * ```
  *
  * 晚接入的 GUI 会收到初始化帧重放（AINF/CHAN/CVRB/CFGV/ADON）。
- * 对 Dota 连接有活性探测：静默时 echo 探针，超时判死重连；无 AINF 的僵尸连接判死重连。
+ * 对 Dota 连接有活性探测：静默时 echo 探针，pong 超时判死重连（僵尸/装死引擎统一覆盖）。
  */
 
 import * as net from "net";
@@ -38,7 +38,6 @@ export interface LivenessOpts {
   probeIntervalMs: number;
   silenceMs: number;
   pongTimeoutMs: number;
-  ainfTimeoutMs: number;
 }
 
 function parsePort(name: string, fallback: number): number {
@@ -63,7 +62,6 @@ export class VConRelay extends EventEmitter {
   private dotaClient: VConClient | null = null;
   private _lastDataAt = 0;
   private _probeOutstandingAt: number | null = null;
-  private _ainfTimer: NodeJS.Timeout | null = null;
   private _livenessInterval: NodeJS.Timeout | null = null;
   private _reconnectTimer: NodeJS.Timeout | null = null;
   private liveness: LivenessOpts;
@@ -74,7 +72,6 @@ export class VConRelay extends EventEmitter {
       probeIntervalMs: 10_000,
       silenceMs: 15_000,
       pongTimeoutMs: 20_000,
-      ainfTimeoutMs: 10_000,
       ...liveness,
     };
   }
@@ -202,7 +199,6 @@ export class VConRelay extends EventEmitter {
     this._closed = true;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this._livenessInterval) clearInterval(this._livenessInterval);
-    if (this._ainfTimer) clearTimeout(this._ainfTimer);
     if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
     this.dotaClient?.close();
     this.guiSocket?.destroy();
@@ -478,11 +474,6 @@ export class VConRelay extends EventEmitter {
       this._initFrames = [];
       this._lastDataAt = Date.now();
       this._probeOutstandingAt = null;
-      // 僵尸识别：正常 Dota 一连上就发 AINF；只 accept 不说话的是残留进程
-      this._ainfTimer = setTimeout(() => {
-        console.error("[relay] no AINF after connect (zombie engine?), reconnecting...");
-        this.dotaClient?.close();
-      }, this.liveness.ainfTimeoutMs);
       console.error("[relay] Dota 2 connected");
       this._broadcast({ type: "status", dota: true, gui: this._guiConnected });
     });
@@ -535,7 +526,6 @@ export class VConRelay extends EventEmitter {
     });
 
     this.dotaClient.on("ainf", (a) => {
-      if (this._ainfTimer) { clearTimeout(this._ainfTimer); this._ainfTimer = null; }
       this._ainf = a;
       console.error("[relay] Game:", a.productName, "CmdLine:", a.commandLine);
       this.emit("ainf", a);
@@ -545,7 +535,6 @@ export class VConRelay extends EventEmitter {
       this._dotaConnected = false;
       this._mcpMarkerSuppress = false;
       this._probeOutstandingAt = null;
-      if (this._ainfTimer) { clearTimeout(this._ainfTimer); this._ainfTimer = null; }
       this.dotaClient = null;
       this._broadcast({ type: "status", dota: false, gui: this._guiConnected });
       if (!this._closed) {

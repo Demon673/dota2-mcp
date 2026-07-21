@@ -1,5 +1,5 @@
 // scripts/test-relay.mjs — VConRelay 离线冒烟（不需要 Dota 2）
-// 场景: 1) 僵尸(收不到AINF)判死重连 2) 初始化帧重放 3) echo 探针 pong 存活+过滤 4) 无 pong 判死
+// 场景: 1) 僵尸(一言不发)探针判死重连 2) 初始化帧重放 3) echo 探针 pong 存活+过滤 4) 无 pong 判死
 import net from "node:net";
 
 const BASE = 20000 + Math.floor(Math.random() * 20000);
@@ -60,10 +60,10 @@ const server = net.createServer((sock) => {
 });
 await new Promise((r) => server.listen(BASE, "127.0.0.1", r));
 
-const relay = new VConRelay({ probeIntervalMs: 200, silenceMs: 300, pongTimeoutMs: 600, ainfTimeoutMs: 400 });
+const relay = new VConRelay({ probeIntervalMs: 200, silenceMs: 300, pongTimeoutMs: 600 });
 await relay.start();
 
-// 场景 1：僵尸连接（accept 但无 AINF）→ 判死并重连
+// 场景 1：僵尸连接（accept 但一言不发）→ 探针无 pong 判死并重连
 await waitFor(() => connections >= 2, 8000, "zombie kill + reconnect");
 assert(true, "zombie connection killed and reconnected");
 
