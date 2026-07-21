@@ -1,9 +1,11 @@
 // 一次性活体 MCP 验证：契约门控 → dota_open_vconsole → 解门控（需要 Dota 2 运行 + daemon 已拉起）
-// 自带环境重置：先杀掉已有 vconsole2，保证门控前置条件确定性
+// 自带环境重置：先杀掉已有 vconsole2，保证门控前置条件确定性；addon 从 daemon 握手信息取
 import { spawn, execSync } from "node:child_process";
+import { helloOk } from "./lib-ctrl.mjs";
 
 try { execSync("taskkill /F /IM vconsole2.exe", { stdio: "pipe" }); } catch { /* 没有在跑，正常 */ }
 await new Promise((r) => setTimeout(r, 1500));
+const hello = await helloOk();
 
 const server = spawn("node", ["dist/index.js"], { stdio: ["pipe", "pipe", "pipe"] });
 let buf = "";
@@ -61,7 +63,7 @@ const c2 = await call("tools/call", { name: "console_send", arguments: { command
 assert(!c2.result.isError, "console_send passes after vconsole attached");
 const s2 = await call("tools/call", { name: "dota_status", arguments: {} });
 const txt = s2.result.content[0].text;
-assert(!s2.result.isError && txt.includes('"vconsole": true') && txt.includes('"addon": "tui12"'), "dota_status full JSON (vconsole:true, addon detected)");
+assert(!s2.result.isError && txt.includes('"vconsole": true') && txt.includes(`"addon": "${hello.addon}"`), "dota_status full JSON (vconsole:true, addon detected)");
 
 server.kill();
 console.log("PASS");

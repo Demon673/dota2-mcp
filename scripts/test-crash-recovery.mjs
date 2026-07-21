@@ -1,9 +1,21 @@
 // test-crash-recovery.mjs — 崩溃恢复全链路：同一 MCP 会话经历 杀 Dota → 检测 → 重启 → 自恢复
 // 需要：Dota 2 运行 + daemon 已拉起 + vconsole 已接入
+// 不写死机器路径/项目名：Dota 路径自动检测；addon 从 daemon 握手信息推断
+// （可用 DOTA2_TEST_ADDON 覆盖；推断不出来时报错提示指定，不默默用默认）
 import { spawn, execSync } from "node:child_process";
+import path from "node:path";
+import { helloOk } from "./lib-ctrl.mjs";
 
-const DOTA_EXE = "E:\\SteamLibrary\\steamapps\\common\\dota 2 beta\\game\\bin\\win64\\dota2.exe";
-const DOTA_ARGS = ["-addon", "tui12", "-tools", "-fps_max", "1000", "-perfectworld"];
+const { detectDotaPath } = await import("../dist/tools/console-bridge.js");
+const dotaPath = await detectDotaPath();
+if (!dotaPath) { console.error("FAIL: cannot detect Dota 2 path"); process.exit(1); }
+const hello = await helloOk();
+const ADDON = process.env.DOTA2_TEST_ADDON || hello.addon;
+if (!ADDON) { console.error("FAIL: 无法推断测试 addon。请设 DOTA2_TEST_ADDON，或先用目标 addon 启动 Dota 2"); process.exit(1); }
+const DOTA_EXE = path.join(dotaPath, "game", "bin", process.platform === "win32" ? "win64" : "linuxsteamrt64", process.platform === "win32" ? "dota2.exe" : "dota2");
+// 启动参数因人/项目/地区而异（如 -perfectworld）：默认最小集，DOTA2_TEST_ARGS 传完整参数覆盖
+const DOTA_ARGS = process.env.DOTA2_TEST_ARGS ? process.env.DOTA2_TEST_ARGS.split(/\s+/) : ["-addon", ADDON, "-tools"];
+console.log("addon:", ADDON, "| dota:", DOTA_EXE);
 
 const server = spawn("node", ["dist/index.js"], { stdio: ["pipe", "pipe", "pipe"] });
 let buf = "";
@@ -82,7 +94,7 @@ assert(recovered, "auto-recovered after Dota relaunch (same MCP session, vconsol
 // 6. dota_status 全量恢复（addon 重新检测）
 const st = await tool("dota_status", {}, 45000);
 const txt = st.result.content[0].text;
-assert(txt.includes('"vconsole": true') && txt.includes('"addon": "tui12"'), "dota_status fully recovered (vconsole:true, addon re-detected)");
+assert(txt.includes('"vconsole": true') && txt.includes(`"addon": "${ADDON}"`), "dota_status fully recovered (vconsole:true, addon re-detected)");
 
 server.kill();
 console.log("PASS");

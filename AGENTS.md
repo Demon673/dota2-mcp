@@ -39,6 +39,8 @@ node dist/index.js    # 启动 MCP server（通过 stdio）
 | `scripts/test-mcp-tools.mjs` | 活体 | 全工具冒烟（老脚本；需 Dota + **vconsole 已接入**，先跑 test-mcp-live.mjs 开门） |
 | `scripts/verify-phase-apis.mjs` | 活体 | 走 29002 协议验证控制台 API 名字（按需修改的一次性脚本） |
 
+活体脚本不写死机器路径/项目名：Dota 路径走 `detectDotaPath()` 自动检测；addon/地图从运行中 daemon 的握手信息（hello-ok 的 addon/maps）自动推断，`DOTA2_TEST_ADDON` / `DOTA2_TEST_MAP` 可覆盖；推断不出来时报错并要求指定，不默默用默认值。启动参数因人/项目/地区而异（如 `-perfectworld`），test-crash-recovery 重拉 Dota 可用 `DOTA2_TEST_ARGS` 传完整参数。共享握手小助手：`scripts/lib-ctrl.mjs`。
+
 离线一键：`npm run check && node scripts/test-relay.mjs && node scripts/test-daemon.mjs && node scripts/test-mcp-offline.mjs`
 活体前置：Dota 2 运行中 + `node dist/relay-main.js` 拉起 daemon（MCP 会话会接入已有 daemon）。
 
@@ -55,9 +57,10 @@ node dist/index.js    # 启动 MCP server（通过 stdio）
 `npm run check` + 相关离线脚本。新增 relay 行为先扩展 `scripts/test-relay.mjs`（fake server 形态：accept 装死、发初始化帧后沉默、选择性应答探针）。
 
 **2. 活体环境**
-- Dota：直接命令行 `E:\SteamLibrary\steamapps\common\dota 2 beta\game\bin\win64\dota2.exe -addon <addon> -tools`（`steam://rungameid/570` 不带启动参数，不可用）。
+- Dota：直接命令行 `{dota2Path}/game/bin/win64/dota2.exe -addon <addon> -tools`（`{dota2Path}` 由 Steam appid 570 自动检测，因机器而异；`steam://rungameid/570` 不带启动参数，不可用）。
 - daemon：手动 `node dist/relay-main.js`（后台），日志直接可见、随时可杀。
 - 环境重置：`taskkill /F /IM vconsole2.exe` 清窗口；`taskkill /F /IM dota2.exe` 即模拟闪退。
+- **测试项目不确定时主动问开发者**要测哪个 addon/地图，再用 `DOTA2_TEST_ADDON`/`DOTA2_TEST_MAP` 传入——不要默默假设任何特定项目。
 
 **3. 活体三层验证（按层定位问题）**
 - **控制台协议层**：29002 NDJSON 直连（`HELLO <token>` → `CMD:<cmd>` → `STREAM`/`TAIL`；token 在 `os.tmpdir()/dota2-mcp/relay.token`），绕过 MCP 工具层验证控制台命令本身，参照 `scripts/verify-phase-apis.mjs`。
@@ -249,14 +252,13 @@ Relay/Client 实现了已针对 Dota 2 验证的 VConsole2 二进制帧格式：
 
 | 项目 | 路径/URL |
 |------|----------|
-| tui12（守卫雅典娜2） | `C:\Repositories\tui12` |
-| vscode-dota2-tools | `C:\Repositories\dota2-tools` |
+| vscode-dota2-tools | https://github.com/BigCiba/vscode-dota2-tools（本地克隆路径因机器而异） |
 | VRF / Source 2 Viewer | https://github.com/ValveResourceFormat/ValveResourceFormat |
 | VConsole2.Client (C#) | https://github.com/yuijzeon/VConsole2.Client |
 | VConsoleLib.python | https://github.com/uilton-oliveira/VConsoleLib.python |
 | luaconsole2 (Lua) | https://github.com/eepycats/luaconsole2 |
-| Dota 2 路径 | `D:\SteamLibrary\steamapps\common\dota 2 beta` |
-| console.log 路径 | `{dota 2 beta}\game\dota\console.log` |
+| Dota 2 路径 | 通过 Steam appid `570` 自动检测（文档内以 `{dota2Path}` 代称，不写绝对路径） |
+| console.log 路径 | `{dota2Path}/game/dota/console.log` |
 | VCon 端口 | 引擎监听 29000，relay 监听 29001（GUI）、29002（MCP 控制） |
 
 ## Agent skills

@@ -23,7 +23,7 @@ import { findSteamAppById } from "find-steam-app";
 export interface ConsoleBridgeConfig {
   /** Dota 2 beta 根目录，如 "D:/SteamLibrary/steamapps/common/dota 2 beta" */
   dotaPath: string;
-  /** addon 名称，如 "tui12" */
+  /** addon 名称，如 "my_addon" */
   addonName: string;
 }
 
