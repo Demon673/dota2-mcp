@@ -24,6 +24,9 @@ const DEFAULT_CTRL_PORT = 29002;  // MCP 控制端口
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 无客户端连接 5 分钟后自动退出
 const PROTOCOL_VERSION = 1;
 
+/** 连接建立时 Dota 推送的初始化帧类型，按到达顺序缓存，重放给晚接入的 GUI */
+const INIT_FRAME_TYPES = new Set(["AINF", "CHAN", "CVRB", "CFGV", "ADON"]);
+
 function parsePort(name: string, fallback: number): number {
   const v = process.env[name];
   if (!v) return fallback;
@@ -56,6 +59,8 @@ export class VConRelay extends EventEmitter {
   private _ainf: any = null;
   private _dotaPath: string | null = null;
   private _channels = new Map<number, string>(); // channelId (from CHAN.id / PRNT.channelCRC) -> name
+  /** 当前 Dota 连接的初始化帧缓存（每次新连接重建），重放给晚接入的 GUI */
+  private _initFrames: Buffer[] = [];
   private _guiSuppressPatterns: string[] = [];
   /** MCP 命令包装标记：把命令包在 `ai_disabled; ...; ai_disabled` 中一次性发给 Dota，
    * 标记之间的输出不转发到 GUI。使用官方 cvar `ai_disabled` 的响应行
@@ -368,6 +373,12 @@ export class VConRelay extends EventEmitter {
     this.guiSocket = sock;
     this._guiConnected = true;
     console.error("[relay] vconsole2 connected");
+    // 晚接入的 GUI：先重放初始化帧（AINF/CHAN/CVRB/CFGV/ADON），否则拿不到
+    // 通道表/cvar/addon 信息，窗口是空壳（已实测验证）
+    for (const f of this._initFrames) sock.write(f);
+    if (this._initFrames.length > 0) {
+      console.error(`[relay] replayed ${this._initFrames.length} init frames to vconsole2`);
+    }
 
     // vconsole2 → Dota 2：按 VCon 帧边界重组后再转发。
     // TCP 不保证一个 data 事件就是一帧，半帧直接 rawWrite 会让 Dota 2 协议错乱。
@@ -426,11 +437,13 @@ export class VConRelay extends EventEmitter {
     this.dotaClient.on("connected", () => {
       this._dotaConnected = true;
       this._mcpMarkerSuppress = false;
+      this._initFrames = [];
       console.error("[relay] Dota 2 connected");
       this._broadcast({ type: "status", dota: true, gui: this._guiConnected });
     });
 
-    this.dotaClient.on("rawFrame", (_type: string, rawData: Buffer) => {
+    this.dotaClient.on("rawFrame", (type: string, rawData: Buffer) => {
+      if (INIT_FRAME_TYPES.has(type)) this._initFrames.push(rawData);
       if (this.guiSocket && !this.guiSocket.destroyed) {
         this.guiSocket.write(rawData);
       }
