@@ -17,6 +17,7 @@ import * as path from "path";
 import { EventEmitter } from "events";
 import { VConClient, PrntMessage, AinfMessage } from "./vcon-bridge.js";
 import { pidPath } from "../daemon-utils.js";
+import { isDotaProcessRunning } from "./console-bridge.js";
 
 const DEFAULT_DOTA_PORT = 29000;  // Dota 2 VCon 端口
 const DEFAULT_GUI_PORT = 29001;   // VConsole2 GUI 连接端口
@@ -61,6 +62,7 @@ export class VConRelay extends EventEmitter {
   private _probeOutstandingAt: number | null = null;
   private _ainfTimer: NodeJS.Timeout | null = null;
   private _livenessInterval: NodeJS.Timeout | null = null;
+  private _reconnectTimer: NodeJS.Timeout | null = null;
   private liveness: LivenessOpts;
 
   constructor(liveness: Partial<LivenessOpts> = {}) {
@@ -198,6 +200,7 @@ export class VConRelay extends EventEmitter {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this._livenessInterval) clearInterval(this._livenessInterval);
     if (this._ainfTimer) clearTimeout(this._ainfTimer);
+    if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
     this.dotaClient?.close();
     this.guiSocket?.destroy();
     this.guiServer?.close();
@@ -210,7 +213,8 @@ export class VConRelay extends EventEmitter {
     if (!this.idleExitEnabled) return;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => {
-      if (this.clients.size === 0 && !this._guiConnected) {
+      // Dota 在跑 = 用户在开发：29001/29002 是 vconsole 的生命线，daemon 不退
+      if (this.clients.size === 0 && !this._guiConnected && !isDotaProcessRunning()) {
         console.error("[relay] idle timeout, exiting");
         this._cleanupStateFiles();
         process.exit(0);
@@ -543,7 +547,7 @@ export class VConRelay extends EventEmitter {
       this._broadcast({ type: "status", dota: false, gui: this._guiConnected });
       if (!this._closed) {
         console.error("[relay] Dota 2 disconnected, retrying in 2s...");
-        setTimeout(() => this._connectDota(), 2000);
+        this._scheduleReconnect();
       }
     });
 
@@ -552,16 +556,25 @@ export class VConRelay extends EventEmitter {
       this._mcpMarkerSuppress = false;
       this.dotaClient = null;
       if (!this._closed) {
-        setTimeout(() => this._connectDota(), 2000);
+        this._scheduleReconnect();
       }
     });
 
     this.dotaClient.connect().catch(() => {
       this.dotaClient = null;
       if (!this._closed) {
-        setTimeout(() => this._connectDota(), 2000);
+        this._scheduleReconnect();
       }
     });
+  }
+
+  /** 单一重连定时器：error/close/catch 多路触发只排一次（修双行日志/双 timer） */
+  private _scheduleReconnect(): void {
+    if (this._closed || this._reconnectTimer) return;
+    this._reconnectTimer = setTimeout(() => {
+      this._reconnectTimer = null;
+      this._connectDota();
+    }, 2000);
   }
 
   /** 活性探测：静默超时发 echo 探针；探针后仍无数据 → 判死掐断走重连 */
