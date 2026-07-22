@@ -14,11 +14,10 @@
 
 ## 前置条件
 
-- Node.js ≥ 18（推荐）
-- Dota 2 已安装，且以 `-vconsole` 启动
+- Node.js ≥ 18（自带 npx）
+- Dota 2 已安装，并以 `-vconsole` 或 `-tools` 启动
 
-> 启动后 dota2-mcp 会**自动连接** Dota 2 的 VConsole2（端口 `29000`）并保持在线（断线自动重连），无需任何手动操作。
-> 注意：控制台类工具要求 vconsole2 已打开并连接 `127.0.0.1:29001`（见下节）——这样你能随时看到 AI 在控制台里做了什么。
+> dota2-mcp 探测到 Dota 2 后会**自动打开 vconsole** 并建立连接，无需手动操作。注意：**vconsole 不开，relay 就不连 Dota**——控制台类工具也不可用，所以窗口请保持开着（这样你也能随时看到 AI 在控制台里做了什么）。
 
 ## 配置 vconsole2 GUI 端口
 
@@ -45,133 +44,91 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 
 如果想脱离 MCP 单独使用 vconsole2（直连 `29000`）：关闭 Dota 2 并退出所有 MCP 会话，守护进程空闲约 5 分钟自动退出并释放 `29000`（Dota 2 在运行时守护进程不会退出，也可手动结束它）。平时把 GUI 连在 `29001` 上即可与 MCP 同时使用，无需断开。
 
-## 安装
+## 安装与配置
 
-### 方式一：源码运行（开发推荐）
+**安装方式：npx（唯一推荐）**。零安装，每次客户端启动自动使用最新版本（首次会下载一次包，之后走本地缓存；网络不可用时自动回退到缓存版本）。
 
-```bash
-git clone git@github.com:Demon673/dota2-mcp.git
-cd dota2-mcp
-npm install
-npm run build
-```
+### 通用配置
 
-### 方式二：通过 npm 安装（推荐，无需手动路径）
-
-全局安装：
-
-```bash
-npm install -g dota2-mcp
-```
-
-MCP 配置：
+所有支持 MCP 的客户端都是同一份配置，把它放进对应客户端的 `mcpServers` 里：
 
 ```json
-{
-  "mcpServers": {
-    "dota2": {
-      "command": "dota2-mcp"
-    }
-  }
+"dota2": {
+  "command": "npx",
+  "args": ["-y", "dota2-mcp"]
 }
 ```
 
-或者使用 `npx`（无需全局安装）：
+### 各客户端配置方法
 
-```json
-{
-  "mcpServers": {
-    "dota2": {
-      "command": "npx",
-      "args": ["-y", "dota2-mcp"]
+**Claude Code**
+
+- 方式一（推荐）：命令行运行 `claude mcp add dota2 -- npx -y dota2-mcp`
+- 方式二：编辑 `~/.claude.json`，在 `mcpServers` 中加入通用配置
+- 验证：会话内输入 `/mcp`，dota2 显示 connected
+
+**Claude Desktop**
+
+- 编辑配置文件：Windows `%APPDATA%\Claude\claude_desktop_config.json`；macOS `~/Library/Application Support/Claude/claude_desktop_config.json`，写入：
+  ```json
+  {
+    "mcpServers": {
+      "dota2": { "command": "npx", "args": ["-y", "dota2-mcp"] }
     }
   }
-}
-```
+  ```
+- 重启 Claude Desktop
 
-> 这是 npm / Node.js 运行方式，不是独立 exe。独立 exe 请从 GitHub Releases 下载。
+**Cursor**
 
-### 方式三：下载独立可执行文件
+- Settings → MCP → Add new MCP server；或编辑 `~/.cursor/mcp.json`，加入通用配置
 
-从 [GitHub Releases](https://github.com/Demon673/dota2-mcp/releases) 下载对应平台的二进制文件，无需安装 Node.js：
+**VS Code（GitHub Copilot）**
 
-| 平台 | 文件名 |
-|------|--------|
-| Windows | `dota2-mcp-win.exe` |
-| Linux | `dota2-mcp-linux` |
-| macOS | `dota2-mcp-mac` |
-
-Linux / macOS 下载后需要赋予执行权限：
-
-```bash
-chmod +x dota2-mcp-linux
-```
-
-## 在 AI 客户端中使用
-
-所有支持 MCP 的客户端都使用同样的格式：指定一个 `command`，必要时加 `args`。推荐用 npm 方式：
-
-```json
-{
-  "mcpServers": {
-    "dota2": {
-      "command": "npx",
-      "args": ["-y", "dota2-mcp"]
+- 用户 `settings.json` 或工作区 `.vscode/mcp.json`，写入：
+  ```json
+  {
+    "mcp": {
+      "servers": {
+        "dota2": { "command": "npx", "args": ["-y", "dota2-mcp"] }
+      }
     }
   }
-}
-```
+  ```
 
-如果你是全局安装 `npm install -g dota2-mcp`，则把 `command` 改成 `"dota2-mcp"`，去掉 `args` 即可。
+**Cline（VS Code 扩展）**
 
-### 各客户端配置入口
+- Cline 面板 → MCP Servers → Configure MCP Servers，在打开的 `cline_mcp_settings.json` 的 `mcpServers` 中加入通用配置
 
-| 客户端 | 把上面的 JSON 放到哪里 |
-|--------|------------------------|
-| **Claude Code** | 运行 `/mcp add dota2 npx -y dota2-mcp`，或编辑 `~/.claude/config.json` 的 `mcpServers` |
-| **Claude Desktop** | Windows：`%APPDATA%/Claude/claude_desktop_config.json`<br>macOS：`~/Library/Application Support/Claude/claude_desktop_config.json` |
-| **Cursor** | Settings → MCP → Add new MCP server |
-| **VS Code** | `settings.json` 中的 `mcp.servers`（或工作区设置） |
-| **Cline** | Settings → MCP Servers |
-| **Codex (OpenAI Codex CLI)** | Windows：`%USERPROFILE%/.codex/config.json`<br>macOS / Linux：`~/.codex/config.json` |
-| **其他 MCP 客户端** | 找到 MCP / Tools 配置入口，粘贴同样的 `mcpServers` JSON |
+**Codex CLI**
 
-### 不使用 npm 时的配置
+- 编辑 `~/.codex/config.toml`（TOML 格式）：
+  ```toml
+  [mcp_servers.dota2]
+  command = "npx"
+  args = ["-y", "dota2-mcp"]
+  ```
 
-如果你选择源码或可执行文件，需要在配置里写**绝对路径**：
+**其他 MCP 客户端**
 
-```json
-{
-  "mcpServers": {
-    "dota2": {
-      "command": "node",
-      "args": ["C:/path/to/dota2-mcp/dist/index.js"]
-    }
-  }
-}
-```
+- 找到 MCP / mcpServers 配置入口，粘贴通用配置即可。
 
-```json
-{
-  "mcpServers": {
-    "dota2": {
-      "command": "C:/path/to/dota2-mcp-win.exe"
-    }
-  }
-}
-```
+### 启动后验证
 
-```json
-{
-  "mcpServers": {
-    "dota2": {
-      "command": "/path/to/dota2-mcp-linux"
-    }
-  }
-}
-```
+1. 客户端里 dota2 显示 connected；
+2. 启动 Dota 2（`-vconsole` 或 `-tools`）；
+3. 让 AI 调用 `dota_status`：vconsole 会被自动打开（或已打开），返回项目状态与下一步指引。
 
-> `/path/to/dota2-mcp` 是占位符，请替换为你本地的实际绝对路径。
+### 连接问题排查
+
+| 现象 | 处理 |
+|------|------|
+| 客户端启动超时 / 连接失败 | 首次拉包慢：args 改为 `["--prefer-offline", "-y", "dota2-mcp"]`（缓存优先，仍会自动更新，新版本可能晚一个缓存周期） |
+| Windows 报「找不到命令 / not recognized」 | 用 cmd 包装：`"command": "cmd", "args": ["/c", "npx", "-y", "dota2-mcp"]` |
+| 工具报「未连接到 Dota 2」 | 启动 Dota 2（`-vconsole` 或 `-tools`） |
+| 工具报「vconsole 未打开」 | 正常会被自动打开；没有则见下方「常见问题」 |
+
+> 独立可执行文件（win/linux/mac）仍随每个 Release 提供，仅面向不便使用 Node 的特殊场景；日常一律用 npx。
 
 ## 可用工具
 
@@ -215,7 +172,7 @@ chmod +x dota2-mcp-linux
 
 **AI 提示「vconsole 未打开」怎么办？**
 
-控制台类工具需要 vconsole2 已打开并连接 `127.0.0.1:29001`（这样你能看到 AI 的操作）。直接运行 `{dota 2 beta}\game\bin\win64\vconsole2.exe`，或让 AI 调用 `dota_open_vconsole`。AssetBrowser 里的 vconsole 按钮在 dota2-mcp 运行时无效，是引擎的限制，不是故障。
+正常情况下 relay 探测到 Dota 就绪会自动打开 vconsole2。没有打开时：直接运行 `{dota 2 beta}\game\bin\win64\vconsole2.exe`，或让 AI 调用 `dota_open_vconsole`。注意 vconsole 不开，控制台类工具就不可用（这样你能看到 AI 的操作）。AssetBrowser 里的 vconsole 按钮只在 vconsole 已连接时无效，是引擎的限制，不是故障。
 
 ## 版本
 
