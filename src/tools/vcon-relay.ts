@@ -1,8 +1,11 @@
 /**
- * VCon 透明代理 + Dota 2 连接持有者
+ * VCon 透明代理 — vconsole 门控的 Dota 2 连接
  *
- * 启动即主动连接 Dota 2 :29000 并常驻持有（断线每 2s 重连，不依赖 GUI）。
- * vconsole2 连 :29001 获得透明转发（可选，纯观察者）。
+ * 连接模型（严格门控）：vconsole 不开，relay 不连。
+ * - 无 GUI 时只做就绪探测（TCP 连一下即断，不持有 29000）；
+ * - vconsole2 连上 :29001 → relay 才连 :29000；GUI 断开 → 立即断开 29000；
+ * - 就绪上升沿（Dota 由不在变为在）且无 vconsole2 进程 → 自动拉起 vconsole2.exe。
+ * 「没窗口 = 没连接 = 没工具」，状态物理为真，使用者不会误判为 BUG。
  *
  * ```
  * vconsole2 ──→ :29001 (relay) ──→ :29000 (Dota 2)
@@ -11,7 +14,7 @@
  * ```
  *
  * 晚接入的 GUI 会收到初始化帧重放（AINF/CHAN/CVRB/CFGV/ADON）。
- * 对 Dota 连接有活性探测：静默时 echo 探针，pong 超时判死重连（僵尸/装死引擎统一覆盖）。
+ * 对 Dota 连接有活性探测：静默时 echo 探针，pong 超时判死（GUI 还在就重连）。
  */
 
 import * as net from "net";
@@ -38,6 +41,8 @@ export interface LivenessOpts {
   probeIntervalMs: number;
   silenceMs: number;
   pongTimeoutMs: number;
+  /** 无 GUI 时就绪探测间隔（TCP 连一下即断） */
+  readyProbeIntervalMs: number;
 }
 
 /** 自动打开 vconsole 的注入点（测试可替换 spawn/进程检查） */
@@ -83,6 +88,7 @@ export class VConRelay extends EventEmitter {
       probeIntervalMs: 10_000,
       silenceMs: 15_000,
       pongTimeoutMs: 20_000,
+      readyProbeIntervalMs: 1_000,
       ...liveness,
     };
     this._autoOpenEnabled = autoOpen.enabled ?? (process.env.DOTA2_VCON_AUTO_OPEN_VCONSOLE !== "0");
@@ -91,10 +97,14 @@ export class VConRelay extends EventEmitter {
   }
 
   private guiServer!: net.Server;
+  private ctrlServer!: net.Server;
   private guiSocket: net.Socket | null = null;
   private prntBuffer: string[] = [];
   _prntLog: { text: string; verbosity: number; channel: string }[] = [];
   private _dotaConnected = false;
+  /** 就绪探测结果（Dota 在但不一定连着；strict 模型下无 GUI 不持有连接） */
+  private _dotaReady = false;
+  private _readyProbeInterval: NodeJS.Timeout | null = null;
   private _guiConnected = false;
   private _addonName = "";
   private _maps: string[] = [];      // addoninfo.txt 中的官方地图
@@ -139,6 +149,7 @@ export class VConRelay extends EventEmitter {
   }
 
   get dotaConnected() { return this._dotaConnected; }
+  get dotaReady() { return this._dotaReady; }
   get guiConnected() { return this._guiConnected; }
   get guiSuppressPatterns(): string[] { return [...this._guiSuppressPatterns]; }
   get mcpSuppressEnabled(): boolean { return this._mcpSuppressEnabled; }
@@ -172,8 +183,8 @@ export class VConRelay extends EventEmitter {
     });
 
     // 控制端口 — MCP 通过这个端口发命令、读输出
-    const ctrlServer = net.createServer((sock) => this._onCtrlConnect(sock));
-    ctrlServer.on("error", (e: any) => {
+    this.ctrlServer = net.createServer((sock) => this._onCtrlConnect(sock));
+    this.ctrlServer.on("error", (e: any) => {
       if (e.code === "EADDRINUSE") {
         this.portConflict = true;
         console.error(`[relay] Control port ${CTRL_PORT} in use — another instance is running`);
@@ -181,14 +192,15 @@ export class VConRelay extends EventEmitter {
         console.error("[relay] ctrl server error:", e.message);
       }
     });
-    ctrlServer.listen(CTRL_PORT, "127.0.0.1", () => {
+    this.ctrlServer.listen(CTRL_PORT, "127.0.0.1", () => {
       console.error(`[relay] Control :${CTRL_PORT}`);
     });
 
     this._resetIdleTimer();
 
-    // 启动即主动连接 Dota 2（不等 vconsole2 GUI 触发），断线自动重连
-    this._connectDota();
+    // 严格门控：启动只探测不连接；GUI 接入 :29001 才连 :29000
+    this._readyProbeInterval = setInterval(() => this._probeTick(), this.liveness.readyProbeIntervalMs);
+    this._probeTick();
     this._livenessInterval = setInterval(() => this._livenessTick(), this.liveness.probeIntervalMs);
   }
 
@@ -214,9 +226,11 @@ export class VConRelay extends EventEmitter {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this._livenessInterval) clearInterval(this._livenessInterval);
     if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
+    if (this._readyProbeInterval) clearInterval(this._readyProbeInterval);
     this.dotaClient?.close();
     this.guiSocket?.destroy();
     this.guiServer?.close();
+    this.ctrlServer?.close();
     for (const c of this.clients) c.sock.destroy();
   }
 
@@ -279,6 +293,7 @@ export class VConRelay extends EventEmitter {
         type: "hello-ok",
         version: PROTOCOL_VERSION,
         dota: this._dotaConnected,
+        ready: this._dotaReady,
         gui: this._guiConnected,
         addon: this._addonName,
         maps: this._maps,
@@ -298,6 +313,7 @@ export class VConRelay extends EventEmitter {
     if (text === "STATUS") {
       conn.sock.write(JSON.stringify({
         dota: this._dotaConnected,
+        ready: this._dotaReady,
         gui: this._guiConnected,
         addon: this._addonName,
         maps: this._maps,
@@ -359,6 +375,38 @@ export class VConRelay extends EventEmitter {
         c.sock.write(line);
       }
     }
+  }
+
+  /** 状态广播的统一载荷（dota=持有连接，ready=探测就绪，gui=vconsole 接入） */
+  private _statusObj(): { type: string; dota: boolean; ready: boolean; gui: boolean } {
+    return { type: "status", dota: this._dotaConnected, ready: this._dotaReady, gui: this._guiConnected };
+  }
+
+  /** 就绪状态迁移（上升沿触发自动开 vconsole） */
+  private _setReady(ready: boolean): void {
+    if (ready === this._dotaReady) return;
+    this._dotaReady = ready;
+    console.error(`[relay] Dota 2 ${ready ? "ready (probe)" : "not ready"}`);
+    this._broadcast(this._statusObj());
+    if (ready) this._maybeAutoOpenVconsole();
+  }
+
+  /** 无 GUI 时的就绪探测：TCP 连一下即断，不持有 29000（每次连接最多一个探针在飞） */
+  private _probeTick(): void {
+    if (this._closed || this._guiConnected || this.dotaClient) return;
+    const probe = new net.Socket();
+    probe.setNoDelay(true);
+    let settled = false;
+    const done = (ready: boolean) => {
+      if (settled) return;
+      settled = true;
+      probe.destroy();
+      this._setReady(ready);
+    };
+    probe.once("connect", () => done(true));
+    probe.once("error", () => done(false));
+    probe.setTimeout(3000, () => done(false));
+    probe.connect(DOTA_PORT, "127.0.0.1");
   }
 
   private _scanMaps(): void {
@@ -427,7 +475,9 @@ export class VConRelay extends EventEmitter {
       console.error(`[relay] replayed ${this._initFrames.length} init frames to vconsole2`);
     }
     // GUI 状态必须广播：瘦客户端的 guiConnected 只靠 hello-ok + status 同步
-    this._broadcast({ type: "status", dota: this._dotaConnected, gui: true });
+    this._broadcast(this._statusObj());
+    // 严格门控：vconsole 接入才连 Dota（此时就绪探测已因 guiConnected 停止）
+    this._connectDota();
 
     // vconsole2 → Dota 2：按 VCon 帧边界重组后再转发。
     // TCP 不保证一个 data 事件就是一帧，半帧直接 rawWrite 会让 Dota 2 协议错乱。
@@ -453,9 +503,10 @@ export class VConRelay extends EventEmitter {
     sock.on("close", () => {
       this._guiConnected = false;
       this.guiSocket = null;
-      // 不再随 GUI 断开释放 :29000：relay 常驻持有 Dota 连接，MCP 工具不依赖 GUI
+      // 严格门控：vconsole 断开即断开 Dota 连接（29000 释放，按钮恢复可用），回到探测态
+      this.dotaClient?.close();
       console.error("[relay] vconsole2 disconnected");
-      this._broadcast({ type: "status", dota: this._dotaConnected, gui: false });
+      this._broadcast(this._statusObj());
       this._resetIdleTimer();
     });
 
@@ -463,7 +514,8 @@ export class VConRelay extends EventEmitter {
   }
 
   private _connectDota(): void {
-    if (this.dotaClient || this._closed) return; // already connected/connecting (or shut down)
+    // 严格门控：无 vconsole 不连（探测就绪 ≠ 持有连接）
+    if (this.dotaClient || this._closed || !this._guiConnected) return;
 
     this.dotaClient = new VConClient({
       port: DOTA_PORT,
@@ -491,9 +543,9 @@ export class VConRelay extends EventEmitter {
       this._initFrames = [];
       this._lastDataAt = Date.now();
       this._probeOutstandingAt = null;
-      this._maybeAutoOpenVconsole();
       console.error("[relay] Dota 2 connected");
-      this._broadcast({ type: "status", dota: true, gui: this._guiConnected });
+      this._setReady(true);
+      this._broadcast(this._statusObj());
     });
 
     this.dotaClient.on("rawFrame", (type: string, rawData: Buffer) => {
@@ -554,8 +606,9 @@ export class VConRelay extends EventEmitter {
       this._mcpMarkerSuppress = false;
       this._probeOutstandingAt = null;
       this.dotaClient = null;
-      this._broadcast({ type: "status", dota: false, gui: this._guiConnected });
-      if (!this._closed) {
+      this._broadcast(this._statusObj());
+      if (!this._closed && this._guiConnected) {
+        // 只在 vconsole 还在时重连；GUI 已走则回探测态（就绪由探针复评）
         console.error("[relay] Dota 2 disconnected, retrying in 2s...");
         this._scheduleReconnect();
       }
@@ -565,22 +618,24 @@ export class VConRelay extends EventEmitter {
       console.error("[relay] Dota error:", e.message);
       this._mcpMarkerSuppress = false;
       this.dotaClient = null;
-      if (!this._closed) {
+      if (this._guiConnected) this._setReady(false);
+      if (!this._closed && this._guiConnected) {
         this._scheduleReconnect();
       }
     });
 
     this.dotaClient.connect().catch(() => {
       this.dotaClient = null;
-      if (!this._closed) {
+      if (this._guiConnected) this._setReady(false);
+      if (!this._closed && this._guiConnected) {
         this._scheduleReconnect();
       }
     });
   }
 
-  /** 单一重连定时器：error/close/catch 多路触发只排一次（修双行日志/双 timer） */
+  /** 单一重连定时器：error/close/catch 多路触发只排一次；仅 vconsole 在场时重连 */
   private _scheduleReconnect(): void {
-    if (this._closed || this._reconnectTimer) return;
+    if (this._closed || this._reconnectTimer || !this._guiConnected) return;
     this._reconnectTimer = setTimeout(() => {
       this._reconnectTimer = null;
       this._connectDota();

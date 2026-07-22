@@ -245,15 +245,21 @@ async function main() {
   //    这里直接清理第一个 daemon 的残留（它在 5b 已被 kill，防御性再杀一次）。
   try { process.kill(child.pid); } catch {}
 
-  // 7. 主动连接：无 GUI 连接时 daemon 也应主动连 Dota 端口。
+  // 7. 严格门控：无 GUI 时 daemon 只做就绪探测（秒级短连接），不持有 29000。
   //    起一个假 Dota VCon TCP server（只 accept），spawn daemon 指向它，
-  //    断言：没有任何 GUI 连上 :29001，daemon 依然连上了 fake Dota。
+  //    断言：探测连接出现（≥2 次），但没有任何连接存活 ≥1s。
   {
     const DOTA_FAKE_PORT = CTRL_PORT + 3000;
     const CTRL2 = CTRL_PORT + 4000;
     const GUI2 = CTRL2 + 1000;
-    let fakeGotConn = false;
-    const fakeDota = net.createServer((s) => { fakeGotConn = true; s.on("error", () => {}); });
+    let probes = 0;
+    let held = 0;
+    const fakeDota = net.createServer((s) => {
+      s.on("error", () => {});
+      probes++;
+      const timer = setTimeout(() => { held++; }, 1000);
+      s.on("close", () => clearTimeout(timer));
+    });
     await new Promise((res) => fakeDota.listen(DOTA_FAKE_PORT, "127.0.0.1", res));
     const child3 = spawn(process.execPath, ["dist/relay-main.js"], {
       detached: true, stdio: "ignore", windowsHide: true,
@@ -263,12 +269,9 @@ async function main() {
         DOTA2_VCON_GUI_PORT: String(GUI2) },
     });
     child3.unref();
-    const t0 = Date.now();
-    while (!fakeGotConn && Date.now() - t0 < 8000) {
-      await new Promise(r => setTimeout(r, 200));
-    }
-    if (fakeGotConn) console.log("[test] PASS daemon proactively connects to Dota without GUI");
-    else { console.log("[test] FAIL daemon did not connect to Dota without GUI"); process.exitCode = 1; }
+    await new Promise(r => setTimeout(r, 4000));
+    if (probes >= 2 && held === 0) console.log("[test] PASS no GUI -> readiness probes only, never holds 29000");
+    else { console.log(`[test] FAIL gating violated: probes=${probes} held=${held}`); process.exitCode = 1; }
     try { process.kill(child3.pid); } catch {}
     fakeDota.close();
     await new Promise(r => setTimeout(r, 300));
@@ -277,7 +280,7 @@ async function main() {
   // 8. 用户场景：agent 在线但 Dota 未开，超过 5 分钟后 Dota 才启动。
   //    压缩时间模拟：daemon 指向无人监听的 Dota 端口，瘦客户端保持连接
   //    （模拟开着的 agent，同时阻止 daemon 空闲退出），数秒后才起 fake Dota。
-  //    断言：daemon 自动连上，且瘦客户端收到 dota:true 的状态广播。
+  //    严格门控断言：daemon 探测到就绪并广播 ready:true，但无 GUI 不连接（dota 仍 false）。
   {
     const DOTA3 = CTRL_PORT + 5000;
     const CTRL3 = CTRL_PORT + 6000;
@@ -309,7 +312,8 @@ async function main() {
     const token = fs.readFileSync(tokenPath, "utf-8").trim();
     const sock = new net.Socket();
     let helloDota = null;
-    let dotaStatusSeen = false;
+    let readyStatusSeen = false;
+    let dotaTrueSeen = false;
     let buf8 = "";
     sock.on("data", (d) => {
       buf8 += d.toString();
@@ -318,7 +322,10 @@ async function main() {
         const line = buf8.slice(0, i); buf8 = buf8.slice(i + 1);
         let msg; try { msg = JSON.parse(line); } catch { continue; }
         if (msg.type === "hello-ok") { helloDota = msg.dota; sock.write("STREAM\n"); }
-        else if (msg.type === "status" && msg.dota) { dotaStatusSeen = true; }
+        else if (msg.type === "status") {
+          if (msg.ready && !msg.dota) readyStatusSeen = true;
+          if (msg.dota) dotaTrueSeen = true;
+        }
       }
     });
     sock.on("error", () => {});
@@ -326,7 +333,7 @@ async function main() {
     await new Promise(r => setTimeout(r, 500));
     if (helloDota !== false) console.log(`[test] note: hello-ok dota=${helloDota} (expected false, Dota not up yet)`);
 
-    // 模拟"Dota 5 分钟后才开"：压缩成 6s（3 个重连周期），期间 daemon 不得退出或崩溃
+    // 模拟"Dota 5 分钟后才开"：压缩成 6s，期间 daemon 不得退出或崩溃
     await new Promise(r => setTimeout(r, 6000));
 
     let fakeGotConn = false;
@@ -334,13 +341,13 @@ async function main() {
     await new Promise((res) => fakeDota2.listen(DOTA3, "127.0.0.1", res));
 
     const t0 = Date.now();
-    while (!dotaStatusSeen && Date.now() - t0 < 6000) {
+    while (!readyStatusSeen && Date.now() - t0 < 6000) {
       await new Promise(r => setTimeout(r, 200));
     }
-    if (fakeGotConn && dotaStatusSeen) {
-      console.log("[test] PASS late-start Dota picked up automatically + status broadcast reached client");
+    if (fakeGotConn && readyStatusSeen && !dotaTrueSeen) {
+      console.log("[test] PASS late-start Dota detected via probe (ready broadcast), correctly not connected without GUI");
     } else {
-      console.log(`[test] FAIL late-start Dota: conn=${fakeGotConn} statusBroadcast=${dotaStatusSeen}`);
+      console.log(`[test] FAIL late-start: probed=${fakeGotConn} readyBroadcast=${readyStatusSeen} dotaTrue=${dotaTrueSeen}`);
       process.exitCode = 1;
     }
     sock.destroy();

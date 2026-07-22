@@ -1,5 +1,7 @@
 // scripts/test-relay.mjs — VConRelay 离线冒烟（不需要 Dota 2）
-// 场景: 1) 僵尸(一言不发)探针判死重连 2) 初始化帧重放 3) echo 探针 pong 存活+过滤 4) 无 pong 判死
+// 严格门控模型场景: 1) 无 GUI 只探测不连接 + auto-open 就绪沿 2) GUI 接入才连+初始化帧
+// 3) 活性探针 pong 存活/无 pong 判死(GUI 在才重连) 4) GUI 断开即断 Dota 回探测态
+// 5) Dota 消失 ready:false；回来→新就绪沿再 auto-open 6) 进程在/禁用不 auto-open
 import net from "node:net";
 
 const BASE = 20000 + Math.floor(Math.random() * 20000);
@@ -42,125 +44,154 @@ function prntFrame(text) {
   return Buffer.concat([head, body]);
 }
 
-// AINF 解析会读到 offset 80+，payload 必须 ≥85，否则 parseAinfPayload 抛越界
 const INIT = ["AINF", "CHAN", "CVRB", "CFGV", "ADON"];
-let phase = "zombie";        // zombie: 连接后一言不发 | init: 连接后发初始化序列
-let replyToProbe = false;    // 是否回应 echo 探针
-let connections = 0;
+// fake Dota：可关闭/重启；统计「持有连接」（存活≥400ms）与「探针连接」（秒关）
+let replyToProbe = false;
 let gotProbe = false;
-const serverSockets = new Set();
-const server = net.createServer((sock) => {
-  connections++;
-  serverSockets.add(sock);
-  sock.on("close", () => serverSockets.delete(sock));
-  if (phase === "init") for (const t of INIT) sock.write(frame(t, t === "AINF" ? 128 : 44));
-  sock.on("data", (d) => {
-    if (d.includes("__mcp_ping__")) {
-      gotProbe = true;
-      if (replyToProbe) sock.write(prntFrame("__mcp_ping__"));
+let server = null;
+const stats = { held: new Set(), probes: 0, real: 0 };
+function startServer() {
+  return new Promise((resolve) => {
+    server = net.createServer((sock) => {
+      sock.on("error", () => {}); // relay 侧断开/退出时会 reset，属预期
+      const t0 = Date.now();
+      let held = false;
+      sock._heldTimer = setTimeout(() => { held = true; stats.held.add(sock); stats.real++; }, 400);
+      for (const t of INIT) sock.write(frame(t, t === "AINF" ? 128 : 44));
+      sock.on("data", (d) => {
+        if (d.includes("__mcp_ping__")) {
+          gotProbe = true;
+          if (replyToProbe) sock.write(prntFrame("__mcp_ping__"));
+        }
+      });
+      sock.on("close", () => {
+        clearTimeout(sock._heldTimer);
+        if (!held) stats.probes++;
+        stats.held.delete(sock);
+      });
+    });
+    server.listen(BASE, "127.0.0.1", resolve);
+  });
+}
+async function stopServer() {
+  for (const s of stats.held) s.destroy();
+  await new Promise((r) => server.close(r));
+}
+
+const mkGui = () => {
+  const g = net.connect(BASE + 1, "127.0.0.1");
+  g.on("error", () => {});
+  return g;
+};
+function attachCtrl(statusSink) {
+  const ctrl = net.connect(BASE + 2, "127.0.0.1");
+  ctrl.on("error", () => {}); // relay 关闭时会 reset 客户端连接
+  let buf = "";
+  ctrl.on("data", (d) => {
+    buf += d;
+    let i;
+    while ((i = buf.indexOf("\n")) !== -1) {
+      const line = buf.slice(0, i); buf = buf.slice(i + 1);
+      try { const m = JSON.parse(line); if (m.type === "status") statusSink.push(m); } catch { /* 其它行 */ }
     }
   });
-});
-await new Promise((r) => server.listen(BASE, "127.0.0.1", r));
-
-const relay = new VConRelay({ probeIntervalMs: 200, silenceMs: 300, pongTimeoutMs: 600 });
-await relay.start();
-
-// 场景 1：僵尸连接（accept 但一言不发）→ 探针无 pong 判死并重连
-await waitFor(() => connections >= 2, 8000, "zombie kill + reconnect");
-assert(true, "zombie connection killed and reconnected");
-
-// 场景 2：下个连接发初始化帧 → 晚到 GUI 收到重放
-phase = "init";
-await waitFor(() => connections >= 3, 8000, "connect #3 with init frames");
-await sleep(300);
-const gui = net.connect(BASE + 1, "127.0.0.1");
-let buf = Buffer.alloc(0);
-gui.on("data", (d) => { buf = Buffer.concat([buf, d]); });
-await sleep(800);
-const got = [];
-while (buf.length >= 12) {
-  const len = buf.readUInt32BE(6);
-  if (len < 12 || buf.length < len) break;
-  got.push(buf.toString("ascii", 0, 4));
-  buf = buf.subarray(len);
+  ctrl.write("HELLO\n");
+  setTimeout(() => ctrl.write("STREAM\n"), 200);
+  return ctrl;
 }
-assert(JSON.stringify(got) === JSON.stringify(INIT), `late GUI received init replay in order: ${got.join(",")}`);
 
-// 场景 2b：GUI 断开/接入向 ctrl 瘦客户端广播 status（daemon 模式 guiConnected 的同步链路）
-const ctrl = net.connect(BASE + 2, "127.0.0.1");
-let cbuf = "";
-const statusMsgs = [];
-ctrl.on("data", (d) => {
-  cbuf += d;
-  let i;
-  while ((i = cbuf.indexOf("\n")) !== -1) {
-    const line = cbuf.slice(0, i); cbuf = cbuf.slice(i + 1);
-    try { const m = JSON.parse(line); if (m.type === "status") statusMsgs.push(m); } catch { /* hello-ok 等 */ }
-  }
-});
-ctrl.write("HELLO\n");
-await sleep(200);
-ctrl.write("STREAM\n");
-gui.destroy();
-await waitFor(() => statusMsgs.some((m) => m.gui === false), 5000, "status broadcast gui:false on GUI detach");
-assert(true, "status broadcast gui:false on GUI detach");
-const gui2 = net.connect(BASE + 1, "127.0.0.1");
-gui2.on("data", () => {});
-await waitFor(() => statusMsgs.some((m) => m.gui === true), 5000, "status broadcast gui:true on GUI attach");
-assert(true, "status broadcast gui:true on GUI attach");
-ctrl.destroy();
+await startServer();
 
-// 场景 3：场景 2 静默期发出的探针（replyToProbe=false）必然把 #3 杀死重连；
-// 在全新连接 #4 上开启 pong 回复，干净地验证 pong 保活 + ping 行不转发 GUI
-await waitFor(() => connections >= 4, 8000, "stale probe kills #3");
-gotProbe = false;
-replyToProbe = true;
-await waitFor(() => gotProbe, 5000, "probe sent after silence");
-await sleep(1200); // > pongTimeoutMs(600)：pong 若未生效连接必死
-assert(connections === 4, "pong keeps connection alive (no kill)");
-assert(!buf.includes("__mcp_ping__"), "probe echo filtered from GUI");
-
-// 场景 4：不再回应探针 → pong 超时判死重连
-replyToProbe = false;
-await waitFor(() => connections >= 5, 8000, "probe timeout kill + reconnect");
-assert(true, "no pong -> killed and reconnected");
-
-relay.close();
-
-// 场景 5：auto-open vconsole（注入 fake spawn/进程检查；relay1 已 close 释放 GUI 口）
+// ── 场景 1：无 GUI → 只探测不连接；就绪上升沿 auto-open ─────────────
 let spawnCalls = 0;
 let procExists = false;
-const relay2 = new VConRelay(
-  { probeIntervalMs: 60_000, silenceMs: 60_000, pongTimeoutMs: 60_000 },
+const relay = new VConRelay(
+  { probeIntervalMs: 200, silenceMs: 300, pongTimeoutMs: 600, readyProbeIntervalMs: 300 },
   { spawnFn: () => { spawnCalls++; return true; }, processRunningFn: () => procExists }
 );
-relay2.setDotaPath("fake-dota-path"); // 只需要非 null
-await relay2.start();
-await waitFor(() => spawnCalls === 1, 5000, "auto-open spawned on Dota connect");
-assert(true, "auto-open spawned on Dota connect");
+relay.setDotaPath("fake");
+await relay.start();
+await waitFor(() => spawnCalls === 1, 5000, "auto-open on ready rising edge");
+assert(true, "auto-open on ready rising edge");
+await sleep(1000);
+assert(stats.held.size === 0 && stats.real === 0, "no GUI -> probe only, never holds 29000");
+assert(stats.probes >= 2, "readiness probe keeps firing");
 
-// 已有 vconsole2 进程时，重连不再重复开
+// ── 场景 2：GUI 接入 → 真连接 + 初始化帧实时流过 + status 广播 ──────
+const statusMsgs = [];
+const ctrl = attachCtrl(statusMsgs);
+await sleep(300);
+const gui = mkGui();
+let guiBuf = Buffer.alloc(0);
+gui.on("data", (d) => { guiBuf = Buffer.concat([guiBuf, d]); });
+await waitFor(() => stats.real === 1, 5000, "real Dota connection after GUI attach");
+assert(true, "GUI attach -> relay connects to Dota");
+await waitFor(() => statusMsgs.some((m) => m.gui === true && m.ready === true), 5000, "status gui:true ready:true");
+assert(true, "status broadcast gui:true ready:true");
+await sleep(500);
+const got = [];
+while (guiBuf.length >= 12) {
+  const len = guiBuf.readUInt32BE(6);
+  if (len < 12 || guiBuf.length < len) break;
+  got.push(guiBuf.toString("ascii", 0, 4));
+  guiBuf = guiBuf.subarray(len);
+}
+assert(JSON.stringify(got) === JSON.stringify(INIT), `GUI received init frames: ${got.join(",")}`);
+
+// ── 场景 3：连接态活性探测：pong 保活 → 无 pong 判死 → GUI 在故重连 ──
+replyToProbe = true;
+await waitFor(() => gotProbe, 5000, "echo probe after silence");
+await sleep(1200);
+assert(stats.real === 1, "pong keeps connection alive");
+assert(!guiBuf.includes("__mcp_ping__"), "probe echo filtered from GUI");
+replyToProbe = false;
+await waitFor(() => stats.real === 2, 8000, "no pong -> kill -> reconnect (GUI present)");
+assert(true, "no pong -> killed and reconnected");
+
+// ── 场景 4：GUI 断开 → relay 断开 Dota → 回探测态；就绪未变不再 auto-open ──
+gui.destroy();
+await waitFor(() => statusMsgs.some((m) => m.gui === false), 5000, "status gui:false on detach");
+assert(true, "status gui:false on detach");
+await waitFor(() => stats.held.size === 0, 5000, "Dota connection dropped on GUI detach");
+assert(true, "GUI detach -> relay drops 29000");
+const probesBefore = stats.probes;
+await waitFor(() => stats.probes > probesBefore, 5000, "back to readiness probing");
+assert(true, "back to probing after GUI detach");
+await sleep(1000);
+assert(spawnCalls === 1, "no respawn (ready never fell, no new rising edge)");
+
+// ── 场景 5：Dota 消失 → ready:false；回来 → 新就绪沿 → 再次 auto-open ──
+await stopServer();
+await waitFor(() => statusMsgs.some((m) => m.ready === false), 8000, "ready:false when Dota gone");
+assert(true, "ready:false broadcast when Dota gone");
+await startServer();
+await waitFor(() => spawnCalls === 2, 8000, "auto-open again on new rising edge");
+assert(true, "auto-open again on new rising edge (Dota returned)");
+
+// ── 场景 6：已有进程 / 禁用 → 不 auto-open ─────────────────────────
+relay.close();
+ctrl.destroy();
+await sleep(300);
 procExists = true;
-const connsBefore = connections;
-[...serverSockets].at(-1)?.destroy();
-await waitFor(() => connections >= connsBefore + 1, 8000, "relay2 reconnect after socket kill");
-await sleep(500);
-assert(spawnCalls === 1, "no duplicate spawn while vconsole2 process exists");
-
-// 禁用后不开
-const relay3 = new VConRelay(
-  { probeIntervalMs: 60_000, silenceMs: 60_000, pongTimeoutMs: 60_000 },
-  { enabled: false, spawnFn: () => { spawnCalls++; return true; }, processRunningFn: () => procExists }
+const relay2 = new VConRelay(
+  { probeIntervalMs: 200, silenceMs: 300, pongTimeoutMs: 600, readyProbeIntervalMs: 300 },
+  { spawnFn: () => { spawnCalls++; return true; }, processRunningFn: () => procExists }
 );
-relay3.setDotaPath("fake-dota-path");
+relay2.setDotaPath("fake");
+await relay2.start();
+await sleep(1200);
+assert(spawnCalls === 2, "no spawn while vconsole2 process exists");
+const relay3 = new VConRelay(
+  { probeIntervalMs: 200, silenceMs: 300, pongTimeoutMs: 600, readyProbeIntervalMs: 300 },
+  { enabled: false, spawnFn: () => { spawnCalls++; return true; }, processRunningFn: () => false }
+);
+relay3.setDotaPath("fake");
 await relay3.start();
-await waitFor(() => connections >= connsBefore + 2, 8000, "relay3 connected");
-await sleep(500);
-assert(spawnCalls === 1, "auto-open disabled -> no spawn");
+await sleep(1200);
+assert(spawnCalls === 2, "auto-open disabled -> no spawn");
 
 relay2.close();
 relay3.close();
-server.close();
+await stopServer();
 console.log("PASS");
 process.exit(0);

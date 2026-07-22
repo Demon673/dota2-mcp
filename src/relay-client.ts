@@ -25,6 +25,7 @@ export class RelayClient extends EventEmitter {
   private buffer = "";
   private connected = false;
   private _dotaConnected = false;
+  private _dotaReady = false;
   private _guiConnected = false;
   private _mcpSuppressEnabled = true;
   private _guiSuppressPatterns: string[] = [];
@@ -49,6 +50,7 @@ export class RelayClient extends EventEmitter {
   }
 
   get dotaConnected() { return this._dotaConnected; }
+  get dotaReady() { return this._dotaReady; }
   get guiConnected() { return this._guiConnected; }
   get mcpSuppressEnabled() { return this._mcpSuppressEnabled; }
   get guiSuppressPatterns(): string[] { return [...this._guiSuppressPatterns]; }
@@ -108,6 +110,7 @@ export class RelayClient extends EventEmitter {
           this.reconnectAttempts = 0;
           this.off("hello", onHello);
           this._dotaConnected = !!msg.dota;
+          this._dotaReady = !!msg.ready;
           this._guiConnected = !!msg.gui;
           this.addonName = msg.addon || "";
           this.maps = msg.maps || [];
@@ -177,6 +180,7 @@ export class RelayClient extends EventEmitter {
         break;
       case "status":
         this._dotaConnected = !!msg.dota;
+        this._dotaReady = !!msg.ready;
         this._guiConnected = !!msg.gui;
         break;
       case "prnt":

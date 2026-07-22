@@ -241,16 +241,21 @@ async function main(): Promise<void> {
   /** vconsole 未打开的契约提示（控制台类工具需要 vconsole 旁观 agent 活动） */
   function vconsoleNotOpenText(): string {
     const exe = dotaPath ? path.join(getDotaBinDir(dotaPath), getDotaExeName("vconsole2")) : "vconsole2.exe";
-    return `vconsole 未打开。控制台类工具要求 vconsole 已打开并连接 127.0.0.1:29001（显式契约：保证你能旁观 agent 的控制台活动）。
-正常情况下 relay 连上 Dota 后会自动打开 vconsole；看到此消息说明自动打开被禁用（DOTA2_VCON_AUTO_OPEN_VCONSOLE=0）或打开失败/被你手动关闭了。
+    return `vconsole 未打开。控制台类工具要求 vconsole 已打开并连接 127.0.0.1:29001（显式契约：vconsole 不开，relay 就不连 Dota——保证你能旁观 agent 的控制台活动）。
+正常情况下 relay 探测到 Dota 就绪后会自动打开 vconsole；看到此消息说明自动打开被禁用（DOTA2_VCON_AUTO_OPEN_VCONSOLE=0）或打开失败/被你手动关闭了。
 请二选一：
 1. 直接运行 ${exe}（AssetBrowser 的 vconsole 按钮在 relay 持有 29000 时被引擎禁用，勿用）；
 2. 调用 dota_open_vconsole 让我帮你打开。`;
   }
 
-  /** 控制台类工具入口两段检查：Dota 连接 → vconsole 接入 */
+  /** 断连时的准确原因：Dota 真不在 vs 只是没开 vconsole（strict 模型下 relay 不连） */
+  function disconnectedReasonText(): string {
+    return (relay.dotaReady && !relay.guiConnected) ? vconsoleNotOpenText() : notConnectedText();
+  }
+
+  /** 控制台类工具入口检查：Dota 连接（strict 门控）→ vconsole 接入（双保险） */
   function requireConsole(): void {
-    if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, notConnectedText());
+    if (!relay.dotaConnected) throw new McpError(ErrorCode.InvalidRequest, disconnectedReasonText());
     if (!relay.guiConnected) throw new McpError(ErrorCode.InvalidRequest, vconsoleNotOpenText());
   }
 
@@ -500,6 +505,14 @@ async function main(): Promise<void> {
     {},
     async () => {
       if (!relay.dotaConnected) {
+        if (relay.dotaReady && !relay.guiConnected) {
+          return { content: [{ type: "text", text:
+`Dota 2 is up, but vconsole is not open — and by design the relay does not connect to Dota until vconsole is attached (explicit contract: no window, no connection, no console tools).
+
+Open it: run vconsole2.exe and connect to 127.0.0.1:29001 — the AssetBrowser vconsole button is disabled by the engine while this MCP holds port 29000 — or call dota_open_vconsole.
+
+Then call dota_status again.` }] };
+        }
         return { content: [{ type: "text", text:
 `Dota 2 is not connected. Ensure Dota 2 is running (with -vconsole or -tools). The relay reconnects automatically; if you just restarted Dota 2 and this persists, an old dota2.exe may not have fully exited — kill it completely and start again.
 
@@ -621,7 +634,7 @@ Then call dota_status again.` }] };
 
       while (Date.now() - startTime < timeoutMs) {
         if (!relay.dotaConnected) {
-          return { content: [{ type: "text", text: `Dota 2 disconnected while launching (crash?). ${notConnectedText()}` }] };
+          return { content: [{ type: "text", text: `Dota 2 disconnected while launching. ${disconnectedReasonText()}` }] };
         }
         await new Promise(r => setTimeout(r, 2000));
         const cur = parseGameState(await queryStatusJson(5000));
