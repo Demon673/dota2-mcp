@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.1 (2026-07-22)
+
+### 文档
+
+- **README 安装路径收敛为 npx 唯一推荐**（保证使用者始终自动最新），删除全局安装与独立 exe 安装指引（exe 仅保留一行特殊场景说明）；各客户端配置从一行表格扩为完整指引（Claude Code/Desktop、Cursor、VS Code、Cline、Codex TOML，含配置文件位置与粘贴即用 JSON）；新增启动后验证步骤与连接问题排查表（`--prefer-offline`、cmd 包装、未连接/vconsole 报错指向）；前置条件与 FAQ 按门控模型同步。
+
 ## 1.5.0 (2026-07-22)
 
 ### 行为变更（Breaking）

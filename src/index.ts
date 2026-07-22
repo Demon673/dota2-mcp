@@ -25,7 +25,7 @@ function getVersion(): string {
     const require = createRequire(import.meta.url);
     return require("../package.json").version;
   } catch {
-    return "1.5.0";
+    return "1.5.1";
   }
 }
 

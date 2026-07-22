@@ -1,6 +1,6 @@
 {
   "name": "dota2-mcp",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "MCP server for Dota 2 custom game development — real-time console bridge, live API docs, game control and asset tooling via the Model Context Protocol.",
   "type": "module",
   "main": "dist/index.js",
