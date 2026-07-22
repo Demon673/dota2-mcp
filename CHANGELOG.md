@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.0 (2026-07-22)
+
+### 新增
+
+- **连上 Dota 自动打开 vconsole**：relay 在 Dota 连接建立时，若无 GUI 接入且无 vconsole2.exe 进程，自动拉起 vconsole2.exe（`DOTA2_VCON_AUTO_OPEN_VCONSOLE=0` 关闭）。背景：vconsole 契约要求窗口已打开，而 AssetBrowser 的 vconsole 按钮被引擎禁用导致使用者自己点不开（使用者反馈「打不开，很怪」）——窗口由 relay 给。每次 Dota 连接最多拉起一次（触发点只有 connected），天然无拉起循环；手动关闭后不会被立刻重开，下次 Dota 重连才会再次尝试。
+- `getDotaBinDir`/`getDotaExeName` 移至 console-bridge 共享（relay 与 MCP 层复用）；契约报错文案同步说明自动打开及其失败原因。
+
 ## 1.4.0 (2026-07-22)
 
 ### 行为变更（Breaking）
