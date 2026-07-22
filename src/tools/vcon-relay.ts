@@ -105,6 +105,7 @@ export class VConRelay extends EventEmitter {
   /** 就绪探测结果（Dota 在但不一定连着；strict 模型下无 GUI 不持有连接） */
   private _dotaReady = false;
   private _readyProbeInterval: NodeJS.Timeout | null = null;
+  private _probeSock: net.Socket | null = null;
   private _guiConnected = false;
   private _addonName = "";
   private _maps: string[] = [];      // addoninfo.txt 中的官方地图
@@ -227,6 +228,7 @@ export class VConRelay extends EventEmitter {
     if (this._livenessInterval) clearInterval(this._livenessInterval);
     if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
     if (this._readyProbeInterval) clearInterval(this._readyProbeInterval);
+    if (this._probeSock) { this._probeSock.destroy(); this._probeSock = null; }
     this.dotaClient?.close();
     this.guiSocket?.destroy();
     this.guiServer?.close();
@@ -395,12 +397,14 @@ export class VConRelay extends EventEmitter {
   private _probeTick(): void {
     if (this._closed || this._guiConnected || this.dotaClient) return;
     const probe = new net.Socket();
+    this._probeSock = probe;
     probe.setNoDelay(true);
     let settled = false;
     const done = (ready: boolean) => {
       if (settled) return;
       settled = true;
       probe.destroy();
+      if (this._probeSock === probe) this._probeSock = null;
       this._setReady(ready);
     };
     probe.once("connect", () => done(true));
@@ -476,7 +480,9 @@ export class VConRelay extends EventEmitter {
     }
     // GUI 状态必须广播：瘦客户端的 guiConnected 只靠 hello-ok + status 同步
     this._broadcast(this._statusObj());
-    // 严格门控：vconsole 接入才连 Dota（此时就绪探测已因 guiConnected 停止）
+    // 严格门控：vconsole 接入才连 Dota。先掐死在飞的就绪探针——
+    // 它还占着引擎唯一客户端槽，会让首个真连接被拒（竞态，review 抓出）
+    if (this._probeSock) { this._probeSock.destroy(); this._probeSock = null; }
     this._connectDota();
 
     // vconsole2 → Dota 2：按 VCon 帧边界重组后再转发。
@@ -643,11 +649,15 @@ export class VConRelay extends EventEmitter {
   }
 
   /** 连上 Dota 且符合条件时自动打开 vconsole（契约的窗口来源：按钮被引擎禁用，
-   *  使用者自己点不开——已实测）。条件：无 GUI 接入、无 vconsole2 进程（单实例）、
-   *  未禁用。每次 Dota 连接最多尝试一次（触发点只有 connected），天然无拉起循环；
-   *  用户手动关闭后不会重开（无新 connected 事件），下次 Dota 重连才会再次尝试。 */
+   *  使用者自己点不开——已实测）。触发点：就绪上升沿（_setReady(true)），每次
+   *  就绪迁移最多一次，天然无拉起循环；手动关闭后不会重开（无新上升沿），
+   *  下次 Dota 重启才会再次尝试。条件：无 GUI 接入、无 vconsole2 进程（单实例）、未禁用。 */
   private _maybeAutoOpenVconsole(): void {
-    if (!this._autoOpenEnabled || !this._dotaPath || this._guiConnected) return;
+    if (!this._autoOpenEnabled || this._guiConnected) return;
+    if (!this._dotaPath) {
+      console.error("[relay] auto-open skipped: dotaPath unknown (detectDotaPath failed?)");
+      return;
+    }
     if (this._processRunningFn(process.platform === "win32" ? "vconsole2.exe" : "vconsole2")) return;
     const ok = this._spawnVconsoleFn(this._dotaPath);
     console.error(`[relay] auto-open vconsole2: ${ok ? "spawned" : "failed (exe not found or spawn error)"}`);

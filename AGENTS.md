@@ -87,7 +87,7 @@ node dist/index.js    # 启动 MCP server（通过 stdio）
 ## 关键发现
 
 - **VConsole2 协议**：12 字节帧头 `Type(4B)+Version(2B=212)+Length(4B)+Handle(2B)` + payload（详见下文「VConsole2 协议」）
-- **Dota 2 只允许 1 个 VCon 客户端**：Relay 抢占 29000，vconsole2 GUI 通过 relay 的 29001 端口共存。**已实测的副作用**：relay 持有 29000 期间引擎把 relay 当作已连接的 vconsole——AssetBrowser 的 vconsole 按钮/快捷键被禁用（不拉起进程）。打开 vconsole 请直接运行 vconsole2.exe 或调用 dota_open_vconsole
+- **Dota 2 只允许 1 个 VCon 客户端**：Relay 抢占 29000，vconsole2 GUI 通过 relay 的 29001 端口共存。**已实测的副作用**：relay 持有 29000 期间引擎把 relay 当作已连接的 vconsole——AssetBrowser 的 vconsole 按钮/快捷键被禁用（不拉起进程）。默认无需手动打开（relay 探测到 Dota 就绪会自动拉起）；手动路径：直接运行 vconsole2.exe 或调用 dota_open_vconsole。窗口关闭后 29000 释放、按钮恢复可用
 - **API 全部走控制台**：零本地 JSON 依赖，引擎版本决定 API 内容
 - **已验证的控制台命令**：
   - `script_help2` / `cl_script_help2` — Lua API（stub 格式）
@@ -138,9 +138,7 @@ src/tools/vcon-relay.ts  — VConRelay 透明代理
     └──→ vconsole2 GUI :29001
 ```
 
-Dota 2 在端口 `29000` 上只允许一个 VConsole2 客户端连接。Relay 独占该连接，并暴露第二个端口 `29001`，使官方 vconsole2 GUI 仍能透明连接。MCP 工具通过控制端口 `:29002` 注入命令并读取输出。
-
-**注意**：**连接模型（vconsole 门控）**：vconsole 不开，relay 不连。无 GUI 时 relay 以 1s 间隔探测 `:29000` 就绪（TCP 连一下即断，不持有）；vconsole2 连上 `:29001` 后 relay 才连 `:29000`（断线每 2s 重连）；GUI 断开立即断开 `:29000`（AssetBrowser 按钮随之恢复可用）。探测到 Dota 就绪（上升沿）且无 vconsole2 进程时自动拉起 vconsole2.exe（`DOTA2_VCON_AUTO_OPEN_VCONSOLE=0` 关闭）。
+Dota 2 在端口 `29000` 上只允许一个 VConsole2 客户端连接。Relay 在 vconsole2 接入期间独占该连接（无 GUI 时仅探测、不占用），并暴露第二个端口 `29001`，使官方 vconsole2 GUI 仍能透明连接。MCP 工具通过控制端口 `:29002` 注入命令并读取输出。
 
 **vconsole 契约（门控）**：控制台类工具要求 vconsole2 已接入 `:29001`——vconsole 不开 relay 就不连 Dota（「没窗口 = 没连接 = 没工具」，状态物理为真，使用者不会误判为 BUG），工具报明确错误并区分「Dota 没在跑」与「只是没开 vconsole」。relay 给晚接入的 GUI 重放初始化帧（AINF/CHAN/CVRB/CFGV/ADON）；连接态有活性探测（静默发 `echo` 探针，超时判死，GUI 还在就重连）；Dota 进程在跑时守护进程不做空闲退出。
 
@@ -165,10 +163,10 @@ Dota 2 会回显两条 `ai_disabled = false` / `ai_disabled = true` 标记行。
 | 文件 | 说明 |
 |------|------|
 | `src/index.ts` | MCP server 入口（瘦客户端）。注册全部工具；`createRelay()` 探测/拉起守护进程并以 `RelayClient` 接入，失败时退化为本地 `VConRelay` |
-| `src/relay-main.ts` | relay 守护进程入口（detached）。独占 Dota 2 `:29000`，监听 `:29001`(GUI)/`:29002`(控制)，空闲 5 分钟自动退出 |
+| `src/relay-main.ts` | relay 守护进程入口（detached）。vconsole 接入期间独占 Dota 2 `:29000`（无 GUI 仅就绪探测），监听 `:29001`(GUI)/`:29002`(控制)，空闲 5 分钟自动退出（Dota 在跑不退） |
 | `src/relay-client.ts` | `RelayClient` 类。瘦客户端，实现 `VConRelay` 公共接口子集，通过 `:29002` 与守护进程通信；断线自动重连并补发缓冲命令 |
 | `src/daemon-utils.ts` | 守护进程协调：原子锁、PID、token(0600)、spawn/等待。状态目录 `os.tmpdir()/dota2-mcp` |
-| `src/tools/vcon-relay.ts` | `VConRelay` 类。vconsole2 GUI（`:29001`）与 Dota 2（`:29000`）之间的透明代理；向各瘦客户端广播 PRNT/状态。断开后自动重连 Dota 2 |
+| `src/tools/vcon-relay.ts` | `VConRelay` 类。vconsole2 GUI（`:29001`）与 Dota 2（`:29000`）之间的透明代理（门控：无 GUI 不连）；向各瘦客户端广播 PRNT/状态。GUI 在场时断开后自动重连 Dota 2，无 GUI 时就绪探测 |
 | `src/tools/vcon-bridge.ts` | `VConClient` 类。底层 VConsole2 TCP 协议实现：12 字节帧头解析、`PRNT`/`AINF`/`CHAN`/`ADON`/`CVRB`/`CFGV` 分发、`CMND` 命令发送 |
 | `src/tools/console-bridge.ts` | 自动检测 Dota 2 路径、cfg 文件写命令 + tail `game/dota/console.log` 降级方案 |
 | `src/tools/proxy-intercept.ts` | 独立协议分析工具。`npx tsx src/tools/proxy-intercept.ts direct` 或 `proxy` 运行，可抓取或 MITM 分析 VCon 流量 |

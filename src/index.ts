@@ -248,6 +248,16 @@ async function main(): Promise<void> {
 2. 调用 dota_open_vconsole 让我帮你打开。`;
   }
 
+  /** dota_status 的 vconsole 未开英文指引（与 requireConsole 的中文报错同源不同语，共享 exe 解析） */
+  function vconsoleGuidanceEn(intro: string): string {
+    const exe = dotaPath ? path.join(getDotaBinDir(dotaPath), getDotaExeName("vconsole2")) : "vconsole2.exe";
+    return `${intro}
+
+Open it: run ${exe} and connect to 127.0.0.1:29001 — the AssetBrowser vconsole button is disabled by the engine while this MCP holds port 29000 — or call dota_open_vconsole.
+
+Then call dota_status again.`;
+  }
+
   /** 断连时的准确原因：Dota 真不在 vs 只是没开 vconsole（strict 模型下 relay 不连） */
   function disconnectedReasonText(): string {
     return (relay.dotaReady && !relay.guiConnected) ? vconsoleNotOpenText() : notConnectedText();
@@ -506,12 +516,8 @@ async function main(): Promise<void> {
     async () => {
       if (!relay.dotaConnected) {
         if (relay.dotaReady && !relay.guiConnected) {
-          return { content: [{ type: "text", text:
-`Dota 2 is up, but vconsole is not open — and by design the relay does not connect to Dota until vconsole is attached (explicit contract: no window, no connection, no console tools).
-
-Open it: run vconsole2.exe and connect to 127.0.0.1:29001 — the AssetBrowser vconsole button is disabled by the engine while this MCP holds port 29000 — or call dota_open_vconsole.
-
-Then call dota_status again.` }] };
+          return { content: [{ type: "text", text: vconsoleGuidanceEn(
+`Dota 2 is up, but vconsole is not open — and by design the relay does not connect to Dota until vconsole is attached (explicit contract: no window, no connection, no console tools).`) }] };
         }
         return { content: [{ type: "text", text:
 `Dota 2 is not connected. Ensure Dota 2 is running (with -vconsole or -tools). The relay reconnects automatically; if you just restarted Dota 2 and this persists, an old dota2.exe may not have fully exited — kill it completely and start again.
@@ -519,12 +525,8 @@ Then call dota_status again.` }] };
 Once connected, call dota_status again.` }] };
       }
       if (!relay.guiConnected) {
-        return { content: [{ type: "text", text:
-`Dota 2 is connected, but vconsole is not open. Console tools require an open vconsole attached to 127.0.0.1:29001 (explicit contract: you can watch the agent's console activity there).
-
-Open it: run vconsole2.exe and connect to 127.0.0.1:29001 — the AssetBrowser vconsole button is disabled by the engine while this MCP holds port 29000 — or call dota_open_vconsole.
-
-Then call dota_status again.` }] };
+        return { content: [{ type: "text", text: vconsoleGuidanceEn(
+`Dota 2 is connected, but vconsole is not open. Console tools require an open vconsole attached to 127.0.0.1:29001 (explicit contract: you can watch the agent's console activity there).`) }] };
       }
 
       // ADON 帧是 Dota 2 主动推送的，连接刚建立时可能还没到。
