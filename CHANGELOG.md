@@ -2,10 +2,18 @@
 
 ## 1.5.0 (2026-07-22)
 
+### 行为变更（Breaking）
+
+- **严格 vconsole 门控连接模型：没窗口就不连 Dota**。1.4.0 的契约是「政策假象」——工具物理上能用（29000 通着）却被规则拦下，使用者分不清是设计还是 BUG。现改为状态物理为真：无 GUI 时 relay 只以 1s 间隔探测 `:29000` 就绪（TCP 连一下即断，不持有）；vconsole2 连上 `:29001` 后 relay 才连 `:29000`；GUI 断开立即断开 29000。从此「没窗口 = 没连接 = 没工具」，没有例外。**接受代价：agent 不能脱离 vconsole 工作**（产品哲学：人必须能旁观 agent 的控制台活动）。副产品：窗口一关 29000 即释放，AssetBrowser 的 vconsole 按钮恢复可用——「自己点不开」在根上消失。
+- 状态广播/hello-ok 增加 `ready` 字段，工具报错精确区分「Dota 没在跑」与「只是没开 vconsole」。
+
 ### 新增
 
-- **连上 Dota 自动打开 vconsole**：relay 在 Dota 连接建立时，若无 GUI 接入且无 vconsole2.exe 进程，自动拉起 vconsole2.exe（`DOTA2_VCON_AUTO_OPEN_VCONSOLE=0` 关闭）。背景：vconsole 契约要求窗口已打开，而 AssetBrowser 的 vconsole 按钮被引擎禁用导致使用者自己点不开（使用者反馈「打不开，很怪」）——窗口由 relay 给。每次 Dota 连接最多拉起一次（触发点只有 connected），天然无拉起循环；手动关闭后不会被立刻重开，下次 Dota 重连才会再次尝试。
-- `getDotaBinDir`/`getDotaExeName` 移至 console-bridge 共享（relay 与 MCP 层复用）；契约报错文案同步说明自动打开及其失败原因。
+- **探测到 Dota 就绪自动打开 vconsole**：就绪上升沿（Dota 由不在变为在）且无 vconsole2.exe 进程时自动拉起（`DOTA2_VCON_AUTO_OPEN_VCONSOLE=0` 关闭）。触发点只有就绪沿，天然无拉起循环；手动关闭后不会被立刻重开，下次 Dota 重启才会再次尝试。
+
+### 修复
+
+- `close()` 未关闭控制端口 server 的端口泄漏。
 
 ## 1.4.0 (2026-07-22)
 
