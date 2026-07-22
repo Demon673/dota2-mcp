@@ -48,8 +48,11 @@ let phase = "zombie";        // zombie: 连接后一言不发 | init: 连接后�
 let replyToProbe = false;    // 是否回应 echo 探针
 let connections = 0;
 let gotProbe = false;
+const serverSockets = new Set();
 const server = net.createServer((sock) => {
   connections++;
+  serverSockets.add(sock);
+  sock.on("close", () => serverSockets.delete(sock));
   if (phase === "init") for (const t of INIT) sock.write(frame(t, t === "AINF" ? 128 : 44));
   sock.on("data", (d) => {
     if (d.includes("__mcp_ping__")) {
@@ -124,6 +127,40 @@ await waitFor(() => connections >= 5, 8000, "probe timeout kill + reconnect");
 assert(true, "no pong -> killed and reconnected");
 
 relay.close();
+
+// 场景 5：auto-open vconsole（注入 fake spawn/进程检查；relay1 已 close 释放 GUI 口）
+let spawnCalls = 0;
+let procExists = false;
+const relay2 = new VConRelay(
+  { probeIntervalMs: 60_000, silenceMs: 60_000, pongTimeoutMs: 60_000 },
+  { spawnFn: () => { spawnCalls++; return true; }, processRunningFn: () => procExists }
+);
+relay2.setDotaPath("fake-dota-path"); // 只需要非 null
+await relay2.start();
+await waitFor(() => spawnCalls === 1, 5000, "auto-open spawned on Dota connect");
+assert(true, "auto-open spawned on Dota connect");
+
+// 已有 vconsole2 进程时，重连不再重复开
+procExists = true;
+const connsBefore = connections;
+[...serverSockets].at(-1)?.destroy();
+await waitFor(() => connections >= connsBefore + 1, 8000, "relay2 reconnect after socket kill");
+await sleep(500);
+assert(spawnCalls === 1, "no duplicate spawn while vconsole2 process exists");
+
+// 禁用后不开
+const relay3 = new VConRelay(
+  { probeIntervalMs: 60_000, silenceMs: 60_000, pongTimeoutMs: 60_000 },
+  { enabled: false, spawnFn: () => { spawnCalls++; return true; }, processRunningFn: () => procExists }
+);
+relay3.setDotaPath("fake-dota-path");
+await relay3.start();
+await waitFor(() => connections >= connsBefore + 2, 8000, "relay3 connected");
+await sleep(500);
+assert(spawnCalls === 1, "auto-open disabled -> no spawn");
+
+relay2.close();
+relay3.close();
 server.close();
 console.log("PASS");
 process.exit(0);

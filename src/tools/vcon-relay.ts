@@ -20,7 +20,7 @@ import * as path from "path";
 import { EventEmitter } from "events";
 import { VConClient, PrntMessage, AinfMessage } from "./vcon-bridge.js";
 import { pidPath } from "../daemon-utils.js";
-import { isDotaProcessRunning } from "./console-bridge.js";
+import { isDotaProcessRunning, isProcessRunning, spawnVconsole } from "./console-bridge.js";
 
 const DEFAULT_DOTA_PORT = 29000;  // Dota 2 VCon 端口
 const DEFAULT_GUI_PORT = 29001;   // VConsole2 GUI 连接端口
@@ -38,6 +38,14 @@ export interface LivenessOpts {
   probeIntervalMs: number;
   silenceMs: number;
   pongTimeoutMs: number;
+}
+
+/** 自动打开 vconsole 的注入点（测试可替换 spawn/进程检查） */
+export interface AutoOpenOpts {
+  /** 默认 true；env DOTA2_VCON_AUTO_OPEN_VCONSOLE=0 可关 */
+  enabled?: boolean;
+  spawnFn?: (dotaPath: string) => boolean;
+  processRunningFn?: (imageName: string) => boolean;
 }
 
 function parsePort(name: string, fallback: number): number {
@@ -64,9 +72,12 @@ export class VConRelay extends EventEmitter {
   private _probeOutstandingAt: number | null = null;
   private _livenessInterval: NodeJS.Timeout | null = null;
   private _reconnectTimer: NodeJS.Timeout | null = null;
+  private _autoOpenEnabled: boolean;
+  private _spawnVconsoleFn: (dotaPath: string) => boolean;
+  private _processRunningFn: (imageName: string) => boolean;
   private liveness: LivenessOpts;
 
-  constructor(liveness: Partial<LivenessOpts> = {}) {
+  constructor(liveness: Partial<LivenessOpts> = {}, autoOpen: AutoOpenOpts = {}) {
     super();
     this.liveness = {
       probeIntervalMs: 10_000,
@@ -74,6 +85,9 @@ export class VConRelay extends EventEmitter {
       pongTimeoutMs: 20_000,
       ...liveness,
     };
+    this._autoOpenEnabled = autoOpen.enabled ?? (process.env.DOTA2_VCON_AUTO_OPEN_VCONSOLE !== "0");
+    this._spawnVconsoleFn = autoOpen.spawnFn ?? spawnVconsole;
+    this._processRunningFn = autoOpen.processRunningFn ?? isProcessRunning;
   }
 
   private guiServer!: net.Server;
@@ -477,6 +491,7 @@ export class VConRelay extends EventEmitter {
       this._initFrames = [];
       this._lastDataAt = Date.now();
       this._probeOutstandingAt = null;
+      this._maybeAutoOpenVconsole();
       console.error("[relay] Dota 2 connected");
       this._broadcast({ type: "status", dota: true, gui: this._guiConnected });
     });
@@ -570,6 +585,17 @@ export class VConRelay extends EventEmitter {
       this._reconnectTimer = null;
       this._connectDota();
     }, 2000);
+  }
+
+  /** 连上 Dota 且符合条件时自动打开 vconsole（契约的窗口来源：按钮被引擎禁用，
+   *  使用者自己点不开——已实测）。条件：无 GUI 接入、无 vconsole2 进程（单实例）、
+   *  未禁用。每次 Dota 连接最多尝试一次（触发点只有 connected），天然无拉起循环；
+   *  用户手动关闭后不会重开（无新 connected 事件），下次 Dota 重连才会再次尝试。 */
+  private _maybeAutoOpenVconsole(): void {
+    if (!this._autoOpenEnabled || !this._dotaPath || this._guiConnected) return;
+    if (this._processRunningFn(process.platform === "win32" ? "vconsole2.exe" : "vconsole2")) return;
+    const ok = this._spawnVconsoleFn(this._dotaPath);
+    console.error(`[relay] auto-open vconsole2: ${ok ? "spawned" : "failed (exe not found or spawn error)"}`);
   }
 
   /** 活性探测：静默超时发 echo 探针；探针后仍无数据 → 判死掐断走重连 */

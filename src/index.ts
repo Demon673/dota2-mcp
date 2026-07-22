@@ -242,6 +242,7 @@ async function main(): Promise<void> {
   function vconsoleNotOpenText(): string {
     const exe = dotaPath ? path.join(getDotaBinDir(dotaPath), getDotaExeName("vconsole2")) : "vconsole2.exe";
     return `vconsole 未打开。控制台类工具要求 vconsole 已打开并连接 127.0.0.1:29001（显式契约：保证你能旁观 agent 的控制台活动）。
+正常情况下 relay 连上 Dota 后会自动打开 vconsole；看到此消息说明自动打开被禁用（DOTA2_VCON_AUTO_OPEN_VCONSOLE=0）或打开失败/被你手动关闭了。
 请二选一：
 1. 直接运行 ${exe}（AssetBrowser 的 vconsole 按钮在 relay 持有 29000 时被引擎禁用，勿用）；
 2. 调用 dota_open_vconsole 让我帮你打开。`;
@@ -1141,21 +1142,9 @@ Then call dota_status again.` }] };
   // Workshop Tools 集成 — 启动编辑器 / 编译资源
   // ═══════════════════════════════════════════════════════════════
 
-  /** 根据平台返回 Dota 2 工具二进制目录 */
-  function getDotaBinDir(dotaRoot: string): string {
-    const platform = process.platform;
-    const archDir =
-      platform === "win32" ? "win64" :
-      platform === "linux" ? "linuxsteamrt64" :
-      platform === "darwin" ? "osx64" :
-      "win64";
-    return path.join(dotaRoot, "game", "bin", archDir);
-  }
-
-  /** 根据平台追加 .exe 后缀 */
-  function getDotaExeName(baseName: string): string {
-    return process.platform === "win32" ? `${baseName}.exe` : baseName;
-  }
+  /** 根据平台返回 Dota 2 工具二进制目录 / exe 后缀（共享实现见 console-bridge） */
+  const getDotaBinDir = consoleBridge.getDotaBinDir;
+  const getDotaExeName = consoleBridge.getDotaExeName;
 
   /** 执行 Dota 2 工具目录下的可执行文件。
    *

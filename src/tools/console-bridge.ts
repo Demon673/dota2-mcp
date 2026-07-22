@@ -13,7 +13,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { execSync } from "child_process";
+import { execSync, spawn } from "child_process";
 import { findSteamAppById } from "find-steam-app";
 
 // ---------------------------------------------------------------------------
@@ -234,4 +234,33 @@ export function isProcessRunning(imageName: string): boolean {
 /** Dota 2 进程是否在跑（守护进程空闲退出守卫：Dota 在跑 = 用户在开发，不退）。 */
 export function isDotaProcessRunning(): boolean {
   return isProcessRunning(process.platform === "win32" ? "dota2.exe" : "dota2");
+}
+
+/** 根据平台返回 Dota 2 工具二进制目录（index.ts 与 relay 共用） */
+export function getDotaBinDir(dotaRoot: string): string {
+  const platform = process.platform;
+  const archDir =
+    platform === "win32" ? "win64" :
+    platform === "linux" ? "linuxsteamrt64" :
+    platform === "darwin" ? "osx64" :
+    "win64";
+  return path.join(dotaRoot, "game", "bin", archDir);
+}
+
+/** 根据平台追加 .exe 后缀 */
+export function getDotaExeName(baseName: string): string {
+  return process.platform === "win32" ? `${baseName}.exe` : baseName;
+}
+
+/** 拉起 vconsole2 GUI（detached，不等待）。exe 不存在或 spawn 失败返回 false。 */
+export function spawnVconsole(dotaPath: string): boolean {
+  const exe = path.join(getDotaBinDir(dotaPath), getDotaExeName("vconsole2"));
+  if (!fs.existsSync(exe)) return false;
+  try {
+    const p = spawn(exe, [], { detached: true, stdio: "ignore", windowsHide: false });
+    p.unref();
+    return true;
+  } catch {
+    return false;
+  }
 }

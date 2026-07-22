@@ -96,6 +96,8 @@ KV are the exception, not the rule; when unsure, ask before editing KV.
 CONTRACT: all console-based tools (console_*, dota_api_*, dota_run_lua,
 dota_dump_*, dota_launch_game, dota_disconnect, dota_restart) require an open
 vconsole attached to 127.0.0.1:29001 — it exists so the human can watch what
-you do. If a tool reports "vconsole 未打开": call dota_open_vconsole. Never
+you do. The relay auto-opens vconsole2.exe when it connects to Dota (unless
+DOTA2_VCON_AUTO_OPEN_VCONSOLE=0), so the window is usually already there.
+If a tool still reports "vconsole 未打开": call dota_open_vconsole. Never
 tell the user to use the AssetBrowser vconsole button — it is engine-disabled
 while the relay holds port 29000.

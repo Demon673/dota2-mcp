@@ -24,7 +24,7 @@
 
 Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota2-mcp` 已经占用了这个端口，并把 GUI 转发到 `127.0.0.1:29001`，所以需要手动把 vconsole2 切过去。
 
-**怎么打开 vconsole2**：Dota 2 工具模式（AssetBrowser）里的 vconsole 按钮/快捷键在 dota2-mcp 占用 `29000` 期间会被引擎禁用（点了没反应）。请直接运行 `{dota 2 beta}\game\bin\win64\vconsole2.exe`，或让 AI 调用 `dota_open_vconsole` 帮你打开。晚打开的窗口会自动补齐初始化数据，随开随用。
+**怎么打开 vconsole2**：**默认不用管**——relay 连上 Dota 后会自动帮你打开（设 `DOTA2_VCON_AUTO_OPEN_VCONSOLE=0` 可关闭）。Dota 2 工具模式（AssetBrowser）里的 vconsole 按钮/快捷键在 dota2-mcp 占用 `29000` 期间会被引擎禁用（点了没反应），所以别用按钮；需要手动打开时请直接运行 `{dota 2 beta}\game\bin\win64\vconsole2.exe`，或让 AI 调用 `dota_open_vconsole`。晚打开的窗口会自动补齐初始化数据，随开随用。
 
 ### 首次设置
 

@@ -1,7 +1,15 @@
 // 一次性离线 MCP 冒烟：服务器启动 + dota_status 不抛异常 + 契约报错 + 新 skill 可加载
+// 端口随机化隔离：不受本机正在运行的 daemon/Dota 影响（env 直达 spawned daemon）
 import { spawn } from "node:child_process";
 
-const server = spawn("node", ["dist/index.js"], { stdio: ["pipe", "pipe", "pipe"] });
+const BASE = 20000 + Math.floor(Math.random() * 20000);
+const env = {
+  ...process.env,
+  DOTA2_VCON_DOTA_PORT: String(BASE),
+  DOTA2_VCON_GUI_PORT: String(BASE + 1),
+  DOTA2_VCON_CTRL_PORT: String(BASE + 2),
+};
+const server = spawn("node", ["dist/index.js"], { stdio: ["pipe", "pipe", "pipe"], env });
 let buf = "";
 const responses = new Map();
 server.stdout.on("data", (d) => {
