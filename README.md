@@ -164,7 +164,7 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 
 **为什么 vconsole2 GUI 要连 `29001`？**
 
-因为 `dota2-mcp` 需要独占 Dota 2 的 VConsole2 连接，它会把 GUI 转发到 `29001`。这样人类开发者和 AI 都能同时使用控制台。
+因为 Dota 2 的 `29000` 端口一次只允许一个 VConsole2 客户端连接，`dota2-mcp` 必须作为这条连接的唯一客户端，并通过 `29001` 将连接代理给 vconsole2 GUI。这样人类开发者和 AI 才能同时使用控制台。
 
 **我不想让 MCP 输出出现在 vconsole2 GUI 里**
 
