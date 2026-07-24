@@ -174,6 +174,10 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 
 正常情况下 relay 探测到 Dota 就绪会自动打开 vconsole2。没有打开时：直接运行 `{dota 2 beta}\game\bin\win64\vconsole2.exe`，或让 AI 调用 `dota_open_vconsole`。注意 vconsole 不开，控制台类工具就不可用（这样你能看到 AI 的操作）。AssetBrowser 里的 vconsole 按钮只在 vconsole 已连接时无效，是引擎的限制，不是故障。
 
+## 文档
+
+- 当前架构与设计：见 [docs/design.md](./docs/design.md)。
+
 ## 版本
 
 当前版本：`v1.5.1`
