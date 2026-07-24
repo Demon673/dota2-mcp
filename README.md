@@ -130,32 +130,6 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 
 > 独立可执行文件（win/linux/mac）仍随每个 Release 提供，仅面向不便使用 Node 的特殊场景；日常一律用 npx。
 
-## 可用工具
-
-| 工具 | 用途 |
-|------|------|
-| `dota_status` | 获取连接、vconsole、addon、地图、游戏状态与下一步建议。建议先调用。 |
-| `dota_open_vconsole` | 打开 vconsole2 窗口（控制台类工具需要它已打开）。 |
-| `dota_launch_game` | 启动自定义游戏地图（等待进入对局；卡住时返回相位与推进方法）。 |
-| `dota_disconnect` | 断开当前游戏。 |
-| `dota_restart` | 重载当前地图。 |
-| `console_send` | 向 Dota 2 控制台发送命令。 |
-| `console_output` | 读取控制台输出。 |
-| `console_channels` | 列出可用的 VConsole2 通道。 |
-| `console_find` | 搜索控制台命令或 cvar。 |
-| `console_help` | 查看命令说明。 |
-| `console_gui_filter` | 控制 MCP 产生的控制台输出是否显示在 vconsole2 GUI 里（默认屏蔽）。 |
-| `dota_api_lua` | 查询 Lua API。 |
-| `dota_api_panorama_js` | 查询 Panorama JS API。 |
-| `dota_api_css` | 查询 Panorama CSS 属性。 |
-| `dota_api_events` | 查询 Panorama 事件。 |
-| `dota_api_help` | 查询官方 Lua API 文档。 |
-| `dota_run_lua` | 在运行中的游戏里执行服务端 Lua。 |
-| `dota_dump_entities` | 列出当前场景实体。 |
-| `dota_dump_modifiers` | 列出修饰器。 |
-| `dota_entity_inspect` | 查看实体 Lua 作用域。 |
-| `dota_compile_asset` | 编译 Source 2 资源。 |
-
 ## 常见问题
 
 **AI 提示找不到 Dota 2 怎么办？**
@@ -176,7 +150,8 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 
 ## 文档
 
-- 当前架构与设计：见 [docs/design.md](./docs/design.md)。
+- 功能参考：见 [docs/features.md](./docs/features.md)。
+- 架构与设计：见 [docs/design.md](./docs/design.md)。
 
 ## 版本
 
