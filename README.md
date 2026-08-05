@@ -61,6 +61,11 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 
 ### 各客户端配置方法
 
+安装分两条路径，按你的习惯选一条：
+
+- **让 AI 装（推荐）**：把本 README（或上面的「通用配置」）发给你常用的 AI 助手，告诉它「安装 dota2-mcp 到我的客户端」。AI 会读本节指引，自己执行安装命令（如 `claude mcp add ...`）或写入对应配置文件。本工具面向 AI，这条路径最顺，也不用自己看下文。
+- **人类手动装**：按下方对应客户端的小节自己操作——有「方式一」的是运行一条命令，没有的（或方式二）是编辑配置文件。
+
 **Claude Code**
 
 - 方式一（推荐）：命令行运行 `claude mcp add dota2 -- npx -y dota2-mcp`
@@ -102,12 +107,20 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 
 **Codex CLI**
 
-- 编辑 `~/.codex/config.toml`（TOML 格式）：
+- 方式一（推荐）：命令行运行 `codex mcp add dota2 -- npx -y dota2-mcp`
+- 方式二：编辑 `~/.codex/config.toml`（TOML 格式）：
   ```toml
   [mcp_servers.dota2]
   command = "npx"
   args = ["-y", "dota2-mcp"]
   ```
+- 验证：`codex mcp list`，dota2 出现在列表且 enabled 为 true；或新开 Codex 会话后直接让 AI 调用 `dota_status`
+
+**Codex 桌面端（Desktop App）**
+
+- 桌面端与 CLI **共享同一份 `~/.codex/config.toml`**，不需要单独的配置入口——按上方 Codex CLI 的「方式二」把 TOML 写入即可
+- 写入后**完全退出并重启桌面端**（配置在启动时加载，不重启不生效），然后新开会话让 AI 调用 `dota_status` 验证
+- 桌面端没有 MCP 管理界面；装了 CLI 时也可用 `codex mcp list` 确认配置已生效
 
 **其他 MCP 客户端**
 
@@ -123,8 +136,8 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 
 | 现象 | 处理 |
 |------|------|
-| 客户端启动超时 / 连接失败 | 首次拉包慢：args 改为 `["--prefer-offline", "-y", "dota2-mcp"]`（缓存优先，仍会自动更新，新版本可能晚一个缓存周期） |
-| Windows 报「找不到命令 / not recognized」 | 用 cmd 包装：`"command": "cmd", "args": ["/c", "npx", "-y", "dota2-mcp"]` |
+| 客户端启动超时 / 连接失败 | 首次拉包慢：args 改为 `["--prefer-offline", "-y", "dota2-mcp"]`（缓存优先，仍会自动更新，新版本可能晚一个缓存周期）；Codex TOML 可另加 `startup_timeout_sec = 120` |
+| Windows 报「找不到命令 / not recognized」 | 用 cmd 包装：JSON 客户端 `"command": "cmd", "args": ["/c", "npx", "-y", "dota2-mcp"]`；Codex TOML 则 `command = "cmd"`、`args = ["/c", "npx", "-y", "dota2-mcp"]` |
 | 工具报「未连接到 Dota 2」 | 启动 Dota 2（`-vconsole` 或 `-tools`） |
 | 工具报「vconsole 未打开」 | 正常会被自动打开；没有则见下方「常见问题」 |
 
