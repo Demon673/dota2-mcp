@@ -1,0 +1,3 @@
+# Normalize line endings: LF in the repository, platform-native (CRLF) on checkout.
+# Prevents Windows checkouts from showing every file as modified.
+* text=auto
