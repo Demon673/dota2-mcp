@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   node scripts/verify-translation-pairing.mjs --write docs/i18n/translation-rules.md
+translation-rules.md: 7e6d9274a7486e07ddf1dc5c5c14448390fbae50
+translation-rules.zh.md: 1dc373525c33c056a4ac8cbe875c7f66d9f081ad

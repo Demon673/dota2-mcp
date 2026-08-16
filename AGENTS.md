@@ -46,12 +46,13 @@ node dist/index.js    # 启动 MCP server（通过 stdio）
 
 ## 开发-验证工作流
 
-新功能/修 BUG 的标准验证路径（2026-07 vconsole 生命周期一役沉淀）：
+新功能/修 BUG 的标准验证路径：
 
 **0. 原则**
 - **能离线不活体**：传输层/协议层逻辑用 fake TCP server 离线钉死（test-relay.mjs 模式：env 覆盖端口 + 随机端口 + 构造函数注入小超时）。
+- **mock 只 mock 边界**：离线脚本里 fake VCon server 只替换 Dota 引擎那一条不可控边界，relay/client/daemon 全走真实实现——一个手搓替身只证明桥通了字节，不证明真实工具按断言行为。详见 `docs/defensive-patterns.md`。
 - **机械观测代替肉眼**：进程（tasklist）、端口（netstat）、daemon 日志即可验证一切；MCP 功能没有视觉成分，唯一需要人眼的是 vconsole 窗口内容本身。
-- **活体验证必须跑**：离线绿灯 ≠ 设计正确。本次活体抓出 4 个离线抓不到的错误（AINF 计时器开机误杀、GUI 状态不广播致契约全失效、open 超时过短、加载期 INIT 误报 stuck）。
+- **活体验证必须跑**：离线绿灯 ≠ 设计正确，活体会抓到离线抓不到的错误——实例见 [architecture note](.agents/notes/implemented/architecture/2026-07-22-vconsole-lifecycle.md#testing) 与 [feature note](.agents/notes/implemented/feature/2026-07-22-vconsole-contract-and-phase-guidance.md#testing) 的 Testing。
 
 **1. 离线先行**
 `npm run check` + 相关离线脚本。新增 relay 行为先扩展 `scripts/test-relay.mjs`（fake server 形态：accept 装死、发初始化帧后沉默、选择性应答探针）。
@@ -140,7 +141,7 @@ src/tools/vcon-relay.ts  — VConRelay 透明代理
 
 Dota 2 在端口 `29000` 上只允许一个 VConsole2 客户端连接。Relay 在 vconsole2 接入期间独占该连接（无 GUI 时仅探测、不占用），并暴露第二个端口 `29001`，使官方 vconsole2 GUI 仍能透明连接。MCP 工具通过控制端口 `:29002` 注入命令并读取输出。
 
-**vconsole 契约（门控）**：控制台类工具要求 vconsole2 已接入 `:29001`——vconsole 不开 relay 就不连 Dota（「没窗口 = 没连接 = 没工具」，状态物理为真，使用者不会误判为 BUG），工具报明确错误并区分「Dota 没在跑」与「只是没开 vconsole」。relay 给晚接入的 GUI 重放初始化帧（AINF/CHAN/CVRB/CFGV/ADON）；连接态有活性探测（静默发 `echo` 探针，超时判死，GUI 还在就重连）；Dota 进程在跑时守护进程不做空闲退出。
+**vconsole 契约（门控）**：控制台类工具要求 vconsole2 已接入 `:29001`——vconsole 不开 relay 就不连 Dota（「没窗口 = 没连接 = 没工具」，状态物理为真，使用者不会误判为 BUG），工具报明确错误并区分「Dota 没在跑」与「只是没开 vconsole」。relay 给晚接入的 GUI 重放初始化帧（AINF/CHAN/CVRB/CFGV/ADON）；连接态有活性探测（静默发 `echo` 探针，超时判死，GUI 还在就重连）；Dota 进程在跑时守护进程不做空闲退出。决策理由与取舍见 [生命周期 note](.agents/notes/implemented/architecture/2026-07-22-vconsole-lifecycle.md) 与 [契约 note](.agents/notes/implemented/feature/2026-07-22-vconsole-contract-and-phase-guidance.md)。
 
 ### MCP 输出与 vconsole2 GUI 的隔离
 
@@ -244,6 +245,8 @@ Relay/Client 实现了已针对 Dota 2 验证的 VConsole2 二进制帧格式：
   自查：`Grep "[A-Za-z]:[\\/]"` 仅允许 URL/占位符命中；`Grep -i "<当期项目名>"` 应零残留（历史 spec/plan/CHANGELOG 除外）
 - **工具描述**：每个工具清晰标注对应的控制台命令，AI 可通过 `console_find` 自行发现
 - **TSTL/SolidJS 优先**：编辑 `.ts`/`.tsx` 源文件，不动生成的 `.lua`/`.js`
+- **TODO 标记语义**：`FIXME` = 发版阻塞；`TODO` = 应尽快修；`XXX` = 哪天可能修。按紧急度选标，别混用
+- **写生命周期/并发/子进程/teardown 代码前读** `docs/defensive-patterns.md`（7 条 bug-class 规则）
 - **文档分工**：`README.md` 是对外介绍文档（面向终端用户 / AI 客户端配置者），不写实现细节、代码层级或内部协议细节；这些写在 `AGENTS.md` 或代码注释里。公共信息的改动优先更新 `AGENTS.md`，不要在 `CLAUDE.md` 复制一份
 
 ## 已知问题 / 注意事项
@@ -278,7 +281,28 @@ Issues 追踪在 GitHub Issues（`gh` CLI）。见 `docs/agents/issue-tracker.md
 
 ### Domain docs
 
-Single-context：根目录 `CONTEXT.md` + `docs/adr/`（不存在时静默跳过）。见 `docs/agents/domain.md`。
+Single-context：决策记录在 `.agents/notes/`（Agent Note）。见 `docs/agents/domain.md`。
+
+### Documentation standard
+
+文档层级、tutorial/reference 分类、写作规则、slop 清单在 `docs/AGENTS.md`；Agent Note 的 lifecycle/class/格式在 `.agents/notes/README.md`。每条非平凡改动带一条 Agent Note（同 commit）。
+
+### Bilingual pairing
+
+`.agents/notes/**` 与 `docs/**` 是英文 canonical + 中文 counterpart + `.i18n.yaml` 三件套（`docs/AGENTS.md`、`docs/i18n/terminology.md`、`.agents/notes/archived/**` 除外），契约见 `docs/i18n/README.md`、翻译规则见 `docs/i18n/translation-rules.md`、术语见 `docs/i18n/terminology.md`。改英文侧须同 commit 更新中文对侧并 `npm run verify-pairs -- --write <file>` 重记录；门禁 `npm run verify-pairs` 变红即配对不同步。
+
+### Doc / editing skills
+
+内置 skill（`skills/<name>/SKILL.md`，经 `dota2_skill` 暴露）中与文档与评审相关的：
+
+| skill | 用途 |
+|------|------|
+| `doc-standards` | 文档放置/审计（结构、层级、slop 清单） |
+| `prose-standard` | 契约完整性 + 编辑判断（写/改/删 prose 前读） |
+| `trim-cot-leakage` | 清推理过程泄漏（设计会话语境、变更叙事、评审口吻） |
+| `translate-docs` | 维护双语配对（英文 canonical ↔ 中文对侧，`--write` 重记录） |
+| `archive-agent-notes` | Agent Note 归档/删除/保留判断 |
+| `code-review` | 按本仓标准 + spec 评审变更 |
 
 ## TODO — 后续计划
 

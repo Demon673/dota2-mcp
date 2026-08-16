@@ -1,0 +1,6 @@
+{
+  "excluded": [
+    "docs/AGENTS.md",
+    "docs/i18n/terminology.md"
+  ]
+}
