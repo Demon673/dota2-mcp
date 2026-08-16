@@ -474,7 +474,7 @@ Then call dota_status again.`;
       const file = path.join(dir, e.name, "SKILL.md");
       try {
         const raw = fs.readFileSync(file, "utf-8");
-        const fm = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+        const fm = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
         const meta = fm ? fm[1] : "";
         const body = fm ? fm[2] : raw;
         const name = (meta.match(/^name:\s*(.+)$/m)?.[1] || e.name).trim();
