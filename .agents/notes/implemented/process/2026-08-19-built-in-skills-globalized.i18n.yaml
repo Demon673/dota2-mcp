@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/process/2026-08-19-built-in-skills-globalized.md
+2026-08-19-built-in-skills-globalized.md: 6a3a37dfb7c04c76264d58dd0f4fa4fa3132d4b0
+2026-08-19-built-in-skills-globalized.zh.md: 0141a22b4016912fdf284504b0f53b438c302b73

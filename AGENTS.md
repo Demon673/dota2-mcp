@@ -293,16 +293,11 @@ Single-context：决策记录在 `.agents/notes/`（Agent Note）。见 `docs/ag
 
 ### Doc / editing skills
 
-内置 skill（`skills/<name>/SKILL.md`，经 `dota2_skill` 暴露）中与文档与评审相关的：
+文档与评审类 skill 在全局目录（`~/.agents/skills/`）维护，本仓不内置：`prose-standard`、`trim-cot-leakage`、`translate-docs`、`archive-agent-notes`、`code-review`。仓库内裸文本引用「the global X skill」即指该目录。内置 skill（`skills/<name>/SKILL.md`，经 `dota2_skill` 暴露）中与文档相关的：
 
 | skill | 用途 |
 |------|------|
-| `doc-standards` | 文档放置/审计（结构、层级、slop 清单） |
-| `prose-standard` | 契约完整性 + 编辑判断（写/改/删 prose 前读） |
-| `trim-cot-leakage` | 清推理过程泄漏（设计会话语境、变更叙事、评审口吻） |
-| `translate-docs` | 维护双语配对（英文 canonical ↔ 中文对侧，`--write` 重记录） |
-| `archive-agent-notes` | Agent Note 归档/删除/保留判断 |
-| `code-review` | 按本仓标准 + spec 评审变更 |
+| `doc-standards` | 文档放置/审计（结构、层级、slop 清单；引用全局 `prose-standard`/`trim-cot-leakage`） |
 
 ## TODO — 后续计划
 

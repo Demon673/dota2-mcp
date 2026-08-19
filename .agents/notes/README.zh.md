@@ -16,7 +16,7 @@
 
 文件名里的日期是主题**首次提出**的日期（按 git 历史）。Agent Note 之间用相对 markdown 链接互引（`[topic](../../implemented/architecture/2026-…-….md)`）—— 不用裸文件名或编号 —— 这样它们能随目录移动而存活。
 
-活跃的 lifecycle 树就是工作清单：浏览它的 lifecycle/class 目录或搜索仓库。不要加集中式 `INDEX.md`。
+活跃的 lifecycle 树就是工作清单：浏览它的 lifecycle/class 目录或搜索仓库。不要加集中式 `INDEX.md`。lifecycle/class 目录已预建（空目录以 `.gitkeep` 入库）；新 note 直接放入对应目录。
 
 <a id="classification"></a>
 
@@ -49,13 +49,13 @@
 
 归档路径是 `archived/{class}/yyyy-mm-dd-topic-title.md`；`implemented` 刻意缺席，因为只有 implemented note 能进入。归档改动 = 移动文件 + 保留 `Status: implemented` + 紧接该 status 插入 `Archived: YYYY-MM-DD`。这是归档期间唯一允许的内容改动。
 
-一旦归档，note 永久冻结。不要编辑、翻译、改写、移动或删除它，也不要把它当作当前行为的权威。活跃 prose 可以在有意引用历史时链入归档 note。本仓库没有归档校验脚本：冻结是约定，靠 [archive-agent-notes](../../skills/archive-agent-notes/SKILL.md) 与 review 执行。
+一旦归档，note 永久冻结。不要编辑、翻译、改写、更新、移动或删除它，也不要把它当作当前行为的权威。活跃 prose 可以在有意引用历史时链入归档 note。本仓库没有归档校验脚本：冻结是约定，靠全局 archive-agent-notes skill 与 review 执行。
 
 <a id="the-file-format"></a>
 
 ## 文件内格式
 
-每条活跃 Agent Note 遵循一个格式（约定，无校验脚本；[doc-standards](../../skills/doc-standards/SKILL.md) 与 [archive-agent-notes](../../skills/archive-agent-notes/SKILL.md) 执行）。
+每条活跃 Agent Note 遵循一个格式（约定，无校验脚本；[doc-standards](../../skills/doc-standards/SKILL.md) 与全局 archive-agent-notes skill 执行）。
 
 ### 头部块
 
@@ -120,7 +120,7 @@ Status 不带日期、不带括号：文件名持有首次提出日期，git 持
 
 ### 在 lifecycle 之间移动
 
-在 lifecycle 目录间移动文件 = 更新 `Status:` 行并在同一改动里重新满足目标目录的骨架。具体：`proposed/` → `implemented/` 把 `## Proposal` 改写成现在时的 `## Decision`，把 `## Acceptance criteria` 和 `## Risks` 折进 `## Consequences`（或现在时的 `## Testing`/`## Verification` 章节），并丢弃计划、保留落地内容。`proposed/` → `rejected/` 只在 `Status:` 行加理由并冻结文件。
+在 lifecycle 目录间移动文件 = 更新 `Status:` 行并在同一改动里重新满足目标目录的骨架。具体：`proposed/` → `implemented/` 把 `## Proposal` 改写成现在时的 `## Decision`，把 `## Acceptance criteria` 和 `## Risks` 折进 `## Consequences`（或现在时的 `## Testing`/`## Verification` 章节，记录现在固定行为的内容），并丢弃计划、保留落地内容。`proposed/` → `rejected/` 只在 `Status:` 行加理由并冻结文件。
 
 ## 双语配对
 

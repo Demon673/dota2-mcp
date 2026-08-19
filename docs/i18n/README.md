@@ -47,4 +47,4 @@ The gate's limit, stated plainly: **a green gate means the pair was confirmed co
 
 ## Division of labor
 
-Routine counterpart updates are done directly by the working agent in one pass after loading [terminology.md](terminology.md): minimally patch the counterpart against the edited English side's diff, never re-translate a whole document to apply a small update. Then re-record with `node scripts/verify-translation-pairing.mjs --write <file>`. The [translate-docs](../../skills/translate-docs/SKILL.md) skill documents this path; review owns translation quality and terminology.
+Routine counterpart updates are done directly by the working agent in one pass after loading [terminology.md](terminology.md): minimally patch the counterpart against the edited English side's diff, never re-translate a whole document to apply a small update. Then re-record with `node scripts/verify-translation-pairing.mjs --write <file>`. The global translate-docs skill documents this path; review owns translation quality and terminology.

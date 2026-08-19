@@ -5,7 +5,7 @@ description: Use when writing, moving, reviewing, or auditing documentation in t
 
 # Applying the dota2-mcp Documentation Standard
 
-The documentation rules live in [docs/AGENTS.md](../../docs/AGENTS.md). This workflow covers placement, corpus audits, and validation across Markdown, JSDoc, and code comments. It is guidance, not a script; use [prose-standard](../prose-standard/SKILL.md) for required coverage and editorial judgment, and never treat length alone as a defect.
+The documentation rules live in [docs/AGENTS.md](../../docs/AGENTS.md). This workflow covers placement, corpus audits, and validation across Markdown, JSDoc, and code comments. It is guidance, not a script; use the global prose-standard skill for required coverage and editorial judgment, and never treat length alone as a defect.
 
 ## Sources of truth (read, don't re-summarize)
 
@@ -35,7 +35,7 @@ Then check constraints that make placement expensive or wrong:
 After the structural pass, hunt the standard's slop checklist with the cheapest probes first, then apply semantic judgment.
 
 1. Measure with `git ls-files '*.md' | xargs wc -w | sort -rn | head -30` to spot oversized outliers. There is no budget gate; use size as a discovery hint, not a verdict.
-2. Hunt reasoning-transcript leakage — narrated history, dead design-session citations, review choreography, control-flow narration, test walkthroughs — with [trim-cot-leakage](../trim-cot-leakage/SKILL.md), which defines the taxonomy and rules for what to keep or delete. Preserve only a non-obvious contract or durable rationale; the same rationale repeated beside sibling methods keeps one home.
+2. Hunt reasoning-transcript leakage — narrated history, dead design-session citations, review choreography, control-flow narration, test walkthroughs — with the global trim-cot-leakage skill, which defines the taxonomy and rules for what to keep or delete. Preserve only a non-obvious contract or durable rationale; the same rationale repeated beside sibling methods keeps one home.
 3. Hunt duplication by grepping distinctive phrases. Keep one home and replace other copies with links.
 4. In `implemented/` Agent Notes, remove migration plans, acceptance-task checklists, and future-tense spec language. Keep concise verification contracts that identify the behaviors and tiers pinning the shipped decision, plus named coverage gaps.
 5. If removing prose changes a promised behavior rather than its explanation, use a proposed Agent Note first.

@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-本仓库维护一个小型双语语料库：**英文是权威（author）侧**，简体中文逐节镜像它。本页定义配对契约、门禁与范围；[translation-rules.md](translation-rules.md) 定义如何翻译；[terminology.md](terminology.md) 是术语来源真相。
+本仓库维护一个小型双语语料库：**英文是权威源（撰写侧）**，简体中文逐节镜像它。本页定义配对契约、门禁与范围；[translation-rules.md](translation-rules.md) 定义如何翻译；[terminology.md](terminology.md) 是术语来源真相。
 
 ## 配对契约
 
-- **英文是权威。** 文档用英文撰写与评审；中文 counterpart 是它的翻译。一次改动绝不只落一种语言而没有另外两个文件。
+- **英文是权威源。** 文档用英文撰写与评审；中文 counterpart 是它的翻译。一次改动绝不只落一种语言而没有另外两个文件。
 - **一对是三个同级文件。** 英文 `foo.md`、中文 `foo.zh.md`、一致性记录 `foo.i18n.yaml`，都在同一目录。不要 locale 目录，不要交织的双语文件。
 - **一致性记录。** `foo.i18n.yaml` 记录两边自最后一次确认「说同一件事」以来的 git blob hash：
 
@@ -27,7 +27,7 @@
 2. 每边的当前 blob hash 等于记录值；编辑任一边而不重记录就变红。
 3. 切换行存在，且结构签名匹配（标题、代码块、表格、列表、链接目标）。
 
-`--list` 打印每对的状态（ok / out-of-sync）且永不失败。`--write <文件…>` 重记录点名的一对；它拒绝裸跑，所以批量重记录总是显式的。
+`--list` 打印每对的状态（ok / out-of-sync）且永不失败。`--write <file…>` 重记录点名的各对；它拒绝裸跑，所以批量重记录总是显式的。
 
 这条门禁产生的实操规则：**当一次改动编辑配对文档的英文侧，同一次改动以一次术语引导的通读更新中文 counterpart，并用 `--write <file>` 重记录。** 让一对失步的改动会变红。
 
@@ -47,4 +47,4 @@
 
 ## 分工
 
-routine 的 counterpart 更新由工作 agent 在加载 [terminology.md](terminology.md) 后一次性直接完成：针对英文侧的 diff 最小化补译 counterpart，绝不为应用一个小更新而整篇重译。然后用 `node scripts/verify-translation-pairing.mjs --write <file>` 重记录。[translate-docs](../../skills/translate-docs/SKILL.md) skill 记录这条路径；评审拥有翻译质量与术语。
+例行的 counterpart 更新由工作 agent 在加载 [terminology.md](terminology.md) 后一次性直接完成：针对英文侧的 diff 最小化补译 counterpart，绝不为应用一个小更新而整篇重译。然后用 `node scripts/verify-translation-pairing.mjs --write <file>` 重记录。全局 translate-docs skill 记录这条路径；评审拥有翻译质量与术语。

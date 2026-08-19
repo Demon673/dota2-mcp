@@ -16,7 +16,7 @@ Every Agent Note has two axes, both encoded in its **path** — `{lifecycle}/{cl
 
 The date in the filename is when the topic was **first proposed** (per git history). Cross-references between Agent Notes use relative markdown links (`[topic](../../implemented/architecture/2026-…-….md)`) — never bare prose or numbers — so they survive moves between folders.
 
-The active lifecycle tree is the working inventory: browse its lifecycle/class folders or search the repository. Do not add a centralized `INDEX.md`.
+The active lifecycle tree is the working inventory: browse its lifecycle/class folders or search the repository. Do not add a centralized `INDEX.md`. Lifecycle/class directories are pre-created (empty directories are tracked via `.gitkeep`); drop a new note into the matching directory.
 
 ## Classification
 
@@ -47,11 +47,11 @@ Archive an `implemented/` Agent Note when the shipped decision is complete and i
 
 The archive path is `archived/{class}/yyyy-mm-dd-topic-title.md`; `implemented` is deliberately absent because only implemented notes can enter it. An archival change moves the file, keeps `Status: implemented`, and inserts `Archived: YYYY-MM-DD` immediately below that status. These are the only permitted content changes during archival.
 
-Once archived, a note is permanently frozen. Do not edit, translate, reformat, update, move, or delete it, and do not treat it as authority for current behavior. Active prose may link into an archived note when it intentionally cites history. This repo has no archive verifier script: the freeze is a convention enforced by [archive-agent-notes](../../skills/archive-agent-notes/SKILL.md) and review.
+Once archived, a note is permanently frozen. Do not edit, translate, reformat, update, move, or delete it, and do not treat it as authority for current behavior. Active prose may link into an archived note when it intentionally cites history. This repo has no archive verifier script: the freeze is a convention enforced by the global archive-agent-notes skill and review.
 
 ## The file format
 
-Every active Agent Note follows one in-file format (a convention, with no verifier script; [doc-standards](../../skills/doc-standards/SKILL.md) and [archive-agent-notes](../../skills/archive-agent-notes/SKILL.md) enforce it).
+Every active Agent Note follows one in-file format (a convention, with no verifier script; [doc-standards](../../skills/doc-standards/SKILL.md) and the global archive-agent-notes skill enforce it).
 
 ### The header block
 

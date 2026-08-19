@@ -2,7 +2,7 @@
 
 [English](translation-rules.md) | 中文
 
-如何在本仓库的一对文档两边之间翻译。英文是权威（[README.md](README.md)）：改动用英文撰写，中文 counterpart 镜像它。这些规则约束生产或更新 counterpart，对人类和 agent 同等有效。规则级别遵循 RFC 2119 用法：**MUST** / **MUST NOT** 是门禁或评审阻塞级；**SHOULD** 偏离需要说明理由；**MAY** 是酌情。
+如何在本仓库的一对文档两边之间翻译。英文是权威源（[README.md](README.md)）：改动用英文撰写，中文 counterpart 镜像它。这些规则约束生产或更新 counterpart，对人类和 agent 同等有效。规则级别遵循 RFC 2119 用法：**MUST** / **MUST NOT** 是门禁或评审阻塞级；**SHOULD** 偏离需要说明理由；**MAY** 是酌情。
 
 ## 忠实
 
@@ -33,7 +33,7 @@
 
 ## 术语
 
-- [terminology.md](terminology.md) 是双向的来源真相。翻译前加载它；每个列出的术语 MUST 遵循它的行与它的「不要译作」禁令。中文目标用「中文」列与其「首次出现」括注；英文目标用「English」列，不加中文括注。
+- [terminology.md](terminology.md) 是双向的来源真相。翻译前加载它；每个列出的术语 MUST 遵循它的行与它的「不要译作」禁令。中文目标用「中文」列；英文目标用「English」列，不加中文括注。
 - 对中文目标，未列出的技术术语 MAY 采用主流中文 OSS 或厂商来源的既有译法，并在 PR 中引用。没有这样先例的 MUST 保持英文，并列入「待定术语」附建议译法。
 - 对英文目标，用既有的英文技术术语。若源术语没有无歧义的既有对应，保留它并附简短解释性括注，列入待定术语。两个方向都不得内联发明译法；定下的术语在同一 PR 或后续进入 [terminology.md](terminology.md)。
 

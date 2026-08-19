@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/feature/2026-07-22-vconsole-contract-and-phase-guidance.md
 2026-07-22-vconsole-contract-and-phase-guidance.md: cace3969b01dac9676dda3e2d3a0f85667e100ac
-2026-07-22-vconsole-contract-and-phase-guidance.zh.md: d7663165343c27cbc2fa3af2a74d7623e0d7675e
+2026-07-22-vconsole-contract-and-phase-guidance.zh.md: a903265a43659a170a1e136277eaaf65438c0163

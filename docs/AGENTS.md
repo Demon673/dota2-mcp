@@ -1,6 +1,6 @@
 # AGENTS.md — The documentation standard
 
-This file defines document structure, Markdown tiers, and writing rules for this repo. Use [doc-standards](../skills/doc-standards/SKILL.md) for placement and validation, and [prose-standard](../skills/prose-standard/SKILL.md) for required coverage and editorial judgment.
+This file defines document structure, Markdown tiers, and writing rules for this repo. Use [doc-standards](../skills/doc-standards/SKILL.md) for placement and validation, and the global prose-standard skill for required coverage and editorial judgment.
 
 ## Document structure
 
@@ -35,7 +35,7 @@ Placement: rationale → Agent Notes; procedures → skills or cookbook content;
 - **Document current state, not change history.** Avoid "previously / now / no longer", PRs, commits, and stack positions in durable prose; name the live mechanism. Put change stories in commits, Agent Notes, or postmortems; Agent Notes may cite merged PRs and issues as evidence.
 - **Every non-trivial change includes at least one Agent Note in the same commit.** Update the owning note or add one; only mechanical/local edits are exempt ([scope](../.agents/notes/README.md#when-to-write-one)).
 - **One physical line per paragraph** — use editor soft-wrap. Code blocks, tables, and list structure keep their formatting.
-- **Comments and JSDoc state complete contracts, not reasoning transcripts.** Preserve behavior, failure, timing, ownership, modality, exceptions, and consequences; delete narration, test walkthroughs, and code restatement. Use [prose-standard](../skills/prose-standard/SKILL.md) for details.
+- **Comments and JSDoc state complete contracts, not reasoning transcripts.** Preserve behavior, failure, timing, ownership, modality, exceptions, and consequences; delete narration, test walkthroughs, and code restatement. Use the global prose-standard skill for details.
 - **Write directly: name actors and facts.** Reserve `contract`, `boundary`, `seam`, `gate`, and `surface` for the exact technical subject; otherwise name the rule, API, field set, type, or failure state.
 - **Cross-reference with relative Markdown paths, never bare filenames.** Links must resolve from the document's location; keep them mechanically checkable — a move fixes every inbound link in the same change.
 - **Paired documents update together.** Documents in scope (`.agents/notes/**`, `docs/**`) are English-canonical bilingual pairs; a change to the English side updates the Chinese counterpart in the same change and re-records the pair with `node scripts/verify-translation-pairing.mjs --write <file>`. See [the pairing contract](i18n/README.md), [translation rules](i18n/translation-rules.md), and [terminology](i18n/terminology.md). This file, `skills/**`, and root `AGENTS.md`/`README.md` are single-language (out of scope).

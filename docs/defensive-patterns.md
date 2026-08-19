@@ -26,7 +26,7 @@ A thin client's socket handler that throws must not reject the broadcast loop or
 
 ## Never hand untrusted output the ambient environment or predictable paths
 
-Spawned processes get a scrubbed env (drop `*KEY*`/`*SECRET*`/`*TOKEN*`/`*PASSWORD*`) so credentials cannot leak into output or spill files. State/token files use a private (0700) dir and owner-only opens — `relay.token` is 0600 under `os.tmpdir()/dota2-mcp/`; predictable world-readable paths invite disclosure.
+Spawned processes get a scrubbed env (drop `*KEY*`/`*SECRET*`/`*TOKEN*`/`*PASSWORD*`) so credentials cannot leak into output or state files. State/token files use a private (0700) dir and owner-only opens — `relay.token` is 0600 under `os.tmpdir()/dota2-mcp/`; predictable world-readable paths invite disclosure.
 
 ## Unlink link-shaped paths
 

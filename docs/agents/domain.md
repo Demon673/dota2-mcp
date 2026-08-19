@@ -7,14 +7,15 @@ How the engineering skills should consume this repo's domain documentation when 
 ## Before exploring, read these
 
 - **`AGENTS.md`** at the repo root — standing orders and conventions.
-- **`.agents/notes/`** — the Agent Note corpus. Read the notes whose class (`architecture` / `feature` / `bug-fix` / `process` / `testing`) or topic touches the area you're about to work in. `implemented/` notes describe shipped reality in present tense; `proposed/` are under review; `rejected/` are frozen verdicts.
-- **`CONTEXT.md`** at the repo root, if it exists — a glossary of domain terms. If absent, proceed silently.
+- **`.agents/notes/`** — the Agent Note corpus. Read the notes whose class (`architecture` / `feature` / `bug-fix` / `simplification` / `process` / `testing`) or topic touches the area you're about to work in. `implemented/` notes describe shipped reality in present tense; `proposed/` are under review; `rejected/` are frozen verdicts.
+- **`docs/i18n/terminology.md`** — this repo's domain glossary (English ↔ Chinese). Load it before naming domain concepts.
+- **`CONTEXT.md`** at the repo root, if it exists — a supplementary glossary. If absent, proceed silently.
 
-If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront.
+If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. In this repo, decision records live in `.agents/notes/`, not in `docs/adr/`, and terms live in `docs/i18n/terminology.md`, not in `CONTEXT.md`; the `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) records terms and decisions lazily into those two homes.
 
 ## File structure
 
-Agent Notes are path-encoded as `{lifecycle}/{class}/yyyy-mm-dd-topic-title.md` under `.agents/notes/`:
+Single-context repo. Agent Notes are path-encoded as `{lifecycle}/{class}/yyyy-mm-dd-topic-title.md` under `.agents/notes/`:
 
 ```
 .agents/notes/
@@ -35,9 +36,9 @@ Read `.agents/notes/README.md` for the full format (header block, per-lifecycle 
 
 ## Use the glossary's vocabulary
 
-When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `CONTEXT.md` or `AGENTS.md`. Don't drift to synonyms the glossary explicitly avoids.
+When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `docs/i18n/terminology.md` or `AGENTS.md`. Don't drift to synonyms the glossary explicitly avoids.
 
-If the concept you need isn't in the glossary yet, that's a signal — either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for the author).
+If the concept you need isn't in the glossary yet, that's a signal — either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/domain-modeling`).
 
 ## Flag Agent Note conflicts
 

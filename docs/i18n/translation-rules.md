@@ -33,7 +33,7 @@ The repo's Markdown conventions apply to `.zh.md` files unchanged: one physical 
 
 ## Terminology
 
-- [terminology.md](terminology.md) is the source of truth in both directions. Before translating, load it; every listed term MUST follow its row and its "不要译作" prohibitions. A Chinese target uses the "中文" column and its "首次出现" annotation; an English target uses the "English" column without adding a Chinese gloss.
+- [terminology.md](terminology.md) is the source of truth in both directions. Before translating, load it; every listed term MUST follow its row and its "不要译作" prohibitions. A Chinese target uses the "中文" column; an English target uses the "English" column without adding a Chinese gloss.
 - For a Chinese target, an unlisted technical term MAY use an established rendering from a major Chinese-language OSS or vendor source, cited in the PR. Without such precedent it MUST stay in English and be listed under 「待定术语」 with a suggested rendering.
 - For an English target, use the established English technical term. If the source term has no unambiguous established equivalent, preserve it with a short explanatory gloss and list it under pending terms. Neither direction may invent a rendering inline; a decided term enters [terminology.md](terminology.md) in the same PR or a follow-up.
 

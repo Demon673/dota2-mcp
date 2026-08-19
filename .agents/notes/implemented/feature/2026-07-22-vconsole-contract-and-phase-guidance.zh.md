@@ -20,14 +20,14 @@ Status: implemented
 
 **`project_info` 删除，并入 `dota_status`**：`dota_status` 吸收全部字段（allMaps、hibernating、cpu_usage、build_version、process_uptime、clients_* 等）+ 保留 nextStep 导航 + 永不抛异常。
 
-**`dota_launch_game` 相位轮询**：发启动命令后每 2s 轮询 `status_json`，终点从「map loaded」改为 `game_state` 含 `GAME_IN_PROGRESS`（默认 timeout 90s）。跟踪 `lastState + lastChangeAt`：同一 `game_state` 持续 15s 未达终点 → 返回 stuck 报告（正常文本，不抛异常）：当前 state + 已卡时长 + 该相位推进指引（`PHASE_GUIDANCE` 表）+ 最近 ~8 条 VScript/verbosity≥3 输出行 + 指向 `dota2_skill` 的 `dota2-game-phases`。轮询中 `dotaConnected` 变 false → 立即返回崩溃/断线提示。
+**`dota_launch_game` 相位轮询**：发启动命令后每 2s 轮询 `status_json`，终点从「map loaded」改为 `game_state` 含 `GAME_IN_PROGRESS`（默认 timeout 90s）。跟踪 `lastState + lastChangeAt`：同一 `game_state` 持续 15s 未达终点 → 返回卡相位报告（正常文本，不抛异常）：当前 state + 已卡时长 + 该相位推进指引（`PHASE_GUIDANCE` 表）+ 最近 ~8 条 VScript/verbosity≥3 输出行 + 指向 `dota2_skill` 的 `dota2-game-phases`。轮询中 `dotaConnected` 变 false → 立即返回崩溃/断线提示。
 
 完整相位表与推进方法放在 `skills/dota2-game-phases/SKILL.md`（命令名经活体 `script_help2` 验证后才写死）。
 
 ## Alternatives considered
 
 - **vconsole 看门狗 / 自动拉起 / 关闭计数** — 输了：与人工意志冲突（关掉窗口是明确意图，自动重开是灵异体验）；显式 > 兜底，规则简单、报错指名原因、补救路径写在报错里。
-- **契约下沉到 daemon/relay 层** — 输了：契约是 MCP 层的产品决策（「保证人类能旁观 agent 的控制台活动」）；daemon 保持宽松，29002 直连协议仍可用作验证旁路。
+- **契约下沉到守护进程/relay 层** — 输了：契约是 MCP 层的产品决策（「人类能旁观 agent 的控制台活动」）；守护进程保持宽松，29002 直连协议仍可用作验证旁路。
 - **保留 project_info 独立** — 输了：两份都查 status_json，职责重复；合并后入口单一（`dota_status` 即导航）。
 - **自动杀残留 dota2.exe** — 输了：破坏性操作；改为报错文案指引用户彻底结束进程。
 
@@ -38,4 +38,4 @@ Status: implemented
 
 ## Testing
 
-`scripts/test-mcp-offline.mjs` 覆盖契约门控报错 + `dota_status` 不抛异常；`scripts/test-mcp-live.mjs` 覆盖门控 → `dota_open_vconsole` → 解门控全链路；`scripts/test-launch-phases.mjs` 覆盖卡相位 stuck 报告 + 按指引 `dota_run_lua` 推进到 GAME_IN_PROGRESS；`scripts/test-multi-session.mjs` 覆盖多会话共享 daemon。活体抓到两个离线抓不到的错误：dota_open_vconsole 等待过短，以及加载期 INIT 被误报为 stuck。
+`scripts/test-mcp-offline.mjs` 覆盖契约门控报错 + `dota_status` 不抛异常；`scripts/test-mcp-live.mjs` 覆盖门控 → `dota_open_vconsole` → 解门控全链路；`scripts/test-launch-phases.mjs` 覆盖卡相位报告 + 按指引 `dota_run_lua` 推进到 GAME_IN_PROGRESS；`scripts/test-multi-session.mjs` 覆盖多会话共享守护进程。活体抓到两个离线抓不到的错误：dota_open_vconsole 等待过短，以及加载期 INIT 被误报为 stuck。
