@@ -26,7 +26,7 @@ function sortKeys<T>(v: T): T {
 }
 
 /** 提取 KV3 resource 引用与裸 materials/ 路径（去重排序）。 */
-function extractRefs(text: string): string[] {
+export function extractRefs(text: string): string[] {
   const refs = new Set<string>();
   for (const m of text.matchAll(/resource:"([^"]+)"/g)) refs.add(m[1]);
   for (const m of text.matchAll(/\b(materials\/[A-Za-z0-9_/. -]+)/g)) refs.add(m[1]);

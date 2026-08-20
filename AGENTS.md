@@ -35,6 +35,7 @@ node dist/index.js    # 启动 MCP server（通过 stdio）
 | `scripts/test-fileops.mjs` | 离线 | FileOps 四件：读写编辑删除往返 + 三种越界拒绝 |
 | `scripts/test-vrf-ensure.mjs` | 离线 | vrf_ensure：fake Release API + zip fixture，下载/缓存/sha256 篡改拒绝 |
 | `scripts/test-asset-inspect.mjs` | 离线 | asset_inspect：fake VRF CLI + 五类型 fixture，摘要字段与 raw 截断 |
+| `scripts/test-asset-check-refs.mjs` | 离线 | asset_check_refs：临时资产树四桶断言 + 防环 |
 | `scripts/test-mcp-live.mjs` | 活体 | vconsole 契约全链路：门控 → dota_open_vconsole → 解门控（自带环境重置杀 vconsole2） |
 | `scripts/test-launch-phases.mjs` | 活体 | 真实地图 launch：卡相位 stuck 报告 + 按指引 dota_run_lua 推进到 GAME_IN_PROGRESS |
 | `scripts/test-crash-recovery.mjs` | 活体 | 崩溃恢复：同一 MCP 会话杀 Dota → 检测 → 重启 → 自恢复（脚本自起自杀 Dota） |
@@ -187,7 +188,7 @@ Relay/Client 实现了已针对 Dota 2 验证的 VConsole2 二进制帧格式：
 服务端 → 客户端消息类型：`AINF`、`ADON`、`CHAN`、`CVRB`、`PRNT`、`CFGV`。  
 客户端 → 服务端命令类型：`CMND`（以 null 结尾的 ASCII）。
 
-### 当前已实现的 28 个 MCP 工具
+### 当前已实现的 29 个 MCP 工具
 
 **游戏控制**
 | 工具 | 控制台命令 | 说明 |
@@ -231,6 +232,7 @@ Relay/Client 实现了已针对 Dota 2 验证的 VConsole2 二进制帧格式：
 | `dota_compile_asset` | 调 resourcecompiler / Source2Viewer-CLI 编译资源 |
 | `vrf_ensure` | 确保 VRF CLI 可用：检测 / 下载 pin 版本 / sha256 校验 / 缓存（离线安全，缺了才联网） |
 | `asset_inspect` | VRF 反编译 + 结构化摘要（vpcf/vmdl/vmat/vtex 各字段；include_raw 截断 4000） |
+| `asset_check_refs` | 单资产递归引用完整性：ok/uncompiled/engine_refs/broken 四桶 + 两级解析 + 防环 |
 
 **文件操作（离线，无需游戏）**
 | 工具 | 说明 |

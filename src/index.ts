@@ -20,6 +20,7 @@ import { RelayClient } from "./relay-client.js";
 import * as consoleBridge from "./tools/console-bridge.js";
 import { ensureVrf } from "./tools/vrf-ensure.js";
 import { inspectAsset } from "./tools/asset-inspect.js";
+import { checkRefs } from "./tools/asset-check-refs.js";
 import * as daemon from "./daemon-utils.js";
 
 function getVersion(): string {
@@ -1306,6 +1307,31 @@ Once connected, call dota_status again.` }] };
       }
       const resolved = resolveAssetPath(target, a);
       const result = await inspectAsset(dotaPath, resolved, { includeRaw: include_raw ?? false });
+      return { content: [{ type: "text", text: result.text }], isError: !result.ok };
+    }
+  );
+
+
+  // Tool: 单资产递归引用完整性检查（VRF CLI，离线）
+  server.tool("asset_check_refs",
+    "Recursively check one asset's reference chain for integrity (offline; no game needed). Decompiles with the VRF CLI and walks asset refs (vmdl→vmat→vtex, vpcf→vmat→vtex) up to max_depth (default 3, visited-set cycle guard). Two-level resolution per ref: inside the addon (content source + compiled game output) → then game/dota (engine assets, reported as engine_refs). Reports four buckets: ok, uncompiled (source exists but compiled output missing — did you forget to compile?), engine_refs (legit engine assets, depth not walked), broken (not found anywhere).",
+    {
+      target: z.string().describe("Asset to check (absolute, or content/ / game/ prefixed, or addon-content relative)"),
+      addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
+      max_depth: z.number().int().min(0).max(10).optional().describe("Max reference chain depth. Default 3."),
+    },
+    async ({ target, addon, max_depth }) => {
+      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
+      const a = resolveAddon(addon);
+      if (!a) {
+        const addons = listAddonsFs();
+        throw new McpError(ErrorCode.InvalidRequest, addons.length > 1
+          ? `No addon detected. Please specify one of: ${addons.join(", ")}`
+          : "No addon detected. Load a project first or specify the addon name."
+        );
+      }
+      const resolved = resolveAssetPath(target, a);
+      const result = await checkRefs(dotaPath, a, resolved, { maxDepth: max_depth ?? 3 });
       return { content: [{ type: "text", text: result.text }], isError: !result.ok };
     }
   );
