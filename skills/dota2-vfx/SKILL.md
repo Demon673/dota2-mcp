@@ -114,6 +114,19 @@ Root scalars: `m_nMaxParticles`, `m_nInitialParticles`, `m_ConstantColor` [R,G,B
 
 典型参数（官方分位数）：`m_nMaxParticles` 20（p90=128）、`m_flEmitRate` 30/s（p90=256）、随机寿命 0.5~1.0s、`m_flConstantRadius` 20（p90=180）、材质首选 particle_glow_05 / sparks / smoke1。
 
+### 全量类字段参考（263 类，字段级文档）
+
+完整字段表随 skill 分发，经 `dota2_skill` data 参数读取：
+
+- **机器可读**：`data='vpcf-class-fields.json'`（1.6MB：263 类每字段的类型/默认值/来源/语料计数与 Top 值）
+- **人类可读分卷**：`data='class-ref/operators.md'`、`class-ref/initializers.md`、`class-ref/renderers.md`、`class-ref/emitters.md`、`class-ref/forces.md`、`class-ref/constraints.md`、`class-ref/preemission.md`、`class-ref/enums.md`、`class-ref/base-classes.md`（先读 `class-ref/README.md`）
+
+来源：GameTracking-Dota2 引擎 schema（507 个头文件，与官方语料 13,553 采样交叉验证 0 偏差）。三条使用铁律：
+
+1. **「Corpus set %」是覆盖默认值的比例，不是使用率**——VRF 只输出与类默认值不同的字段。某字段 80% 的文件不写它，通常意味着 80% 都要默认值（如 `RenderSprites.m_nOrientationType` 默认屏幕对齐）。
+2. **12 个在用类已从引擎 schema 删除**（含 rank #10 的 `C_INIT_CreateWithinSphere`）——后继类改用 `CParticleTransformInput` 而非裸 CP 索引（`C_INIT_CreateWithinSphereTransform` 等）。手写时优先用新类。
+3. **18 个 schema 类携带 legacy 字段**（官方资产还在写、schema 已删，如 `C_OP_PositionLock.m_nControlPointNumber` 出现 1,418 次）——**把反编译输出的字段名直接抄进手写源不安全**；完整 legacy 表见 `class-ref/README.md`。
+
 ### 坑清单（全部实证）
 
 1. 错误的字段名被**静默丢弃**回退引擎默认（如写 `m_flSpawnRate` → 实际 m_nParticlesToEmit=100），无编译错误。
