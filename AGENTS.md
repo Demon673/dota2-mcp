@@ -315,13 +315,18 @@ Single-context：决策记录在 `.agents/notes/`（Agent Note）。见 `docs/ag
 
 `.agents/notes/**` 与 `docs/**` 是英文 canonical + 中文 counterpart + `.i18n.yaml` 三件套（`docs/AGENTS.md`、`docs/i18n/terminology.md`、`.agents/notes/archived/**` 除外），契约见 `docs/i18n/README.md`、翻译规则见 `docs/i18n/translation-rules.md`、术语见 `docs/i18n/terminology.md`。改英文侧须同 commit 更新中文对侧并 `npm run verify-pairs -- --write <file>` 重记录；门禁 `npm run verify-pairs` 变红即配对不同步。
 
-### Doc / editing skills
+### 两类 skill 规范（不得混为一谈）
 
-文档与评审类 skill 在全局目录（`~/.agents/skills/`）维护，本仓不内置：`prose-standard`、`trim-cot-leakage`、`translate-docs`、`archive-agent-notes`、`code-review`。仓库内裸文本引用「the global X skill」即指该目录。内置 skill（`skills/<name>/SKILL.md`，经 `dota2_skill` 暴露）中与文档相关的：
+**项目发布 skill**（`skills/<name>/SKILL.md` + `data/`，经 `dota2_skill` 工具暴露给所有 MCP 用户，随 npm 包分发）——只有运行时开发知识：
 
 | skill | 用途 |
 |------|------|
-| `doc-standards` | 文档放置/审计（结构、层级、slop 清单；引用全局 `prose-standard`/`trim-cot-leakage`） |
+| `dota2-vfx` | 粒子特效格式/配方/官方语料统计 |
+| `dota2-model` | 模型资产格式/官方语料统计 |
+| `dota2-game-phases` | 游戏相位推进指引 |
+| `dota2-runtime-dev` | 运行时开发模型 |
+
+**维护本仓用的 skill**（全局目录 `~/.agents/skills/`，不进仓库、不随包分发）：`doc-standards`、`prose-standard`、`trim-cot-leakage`、`translate-docs`、`archive-agent-notes`、`code-review`。仓库内裸文本引用「the global X skill」即指该目录。维护类 skill 不得放回 `skills/`（发布列表只收运行时知识）。
 
 ## TODO — 后续计划
 

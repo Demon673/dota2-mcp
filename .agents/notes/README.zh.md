@@ -55,7 +55,7 @@
 
 ## 文件内格式
 
-每条活跃 Agent Note 遵循一个格式（约定，无校验脚本；[doc-standards](../../skills/doc-standards/SKILL.md) 与全局 archive-agent-notes skill 执行）。
+每条活跃 Agent Note 遵循一个格式（约定，无校验脚本；全局 doc-standards 与 archive-agent-notes skill 执行）。
 
 ### 头部块
 

@@ -51,7 +51,7 @@ Once archived, a note is permanently frozen. Do not edit, translate, reformat, u
 
 ## The file format
 
-Every active Agent Note follows one in-file format (a convention, with no verifier script; [doc-standards](../../skills/doc-standards/SKILL.md) and the global archive-agent-notes skill enforce it).
+Every active Agent Note follows one in-file format (a convention, with no verifier script; the global doc-standards and archive-agent-notes skills enforce it).
 
 ### The header block
 
