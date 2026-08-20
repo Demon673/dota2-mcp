@@ -18,6 +18,7 @@ import { createRequire } from "module";
 import { VConRelay } from "./tools/vcon-relay.js";
 import { RelayClient } from "./relay-client.js";
 import * as consoleBridge from "./tools/console-bridge.js";
+import { ensureVrf } from "./tools/vrf-ensure.js";
 import * as daemon from "./daemon-utils.js";
 
 function getVersion(): string {
@@ -1267,6 +1268,19 @@ Once connected, call dota_status again.` }] };
         ? `Compiled ${resolved}\n${result.stdout.slice(0, 2000)}`
         : `Compile failed: ${result.stderr}`
       }] };
+    }
+  );
+
+
+  // Tool: 确保 VRF CLI（Source2Viewer-CLI）可用（离线安全：仅缺失时联网下载）
+  server.tool("vrf_ensure",
+    "Ensure the ValveResourceFormat CLI (Source2Viewer-CLI) is available for asset inspection. Returns the cached path, or downloads the pinned release (default v20.0, self-contained, no .NET runtime needed), verifies its sha256, and caches under os.tmpdir()/dota2-mcp/vrf/. Offline-safe: touches the network only when the CLI is missing. Used automatically by asset_inspect and asset_check_refs.",
+    {
+      version: z.string().optional().describe("Pin a VRF release version. Default 20.0 (VRF_VERSION env overrides)."),
+    },
+    async ({ version }) => {
+      const info = await ensureVrf({ version });
+      return { content: [{ type: "text", text: info.message }] };
     }
   );
 

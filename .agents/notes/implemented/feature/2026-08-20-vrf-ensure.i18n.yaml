@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/feature/2026-08-20-vrf-ensure.md
+2026-08-20-vrf-ensure.md: 4e254fdd1f043a9b0878be144f6e74e46d31666d
+2026-08-20-vrf-ensure.zh.md: b9456c0e8fad488abc8564dcd834cecdf088ed8c
