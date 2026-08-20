@@ -326,7 +326,12 @@ Single-context：决策记录在 `.agents/notes/`（Agent Note）。见 `docs/ag
 | `dota2-game-phases` | 游戏相位推进指引 |
 | `dota2-runtime-dev` | 运行时开发模型 |
 
-**维护本仓用的 skill**（全局目录 `~/.agents/skills/`，不进仓库、不随包分发）：`doc-standards`、`prose-standard`、`trim-cot-leakage`、`translate-docs`、`archive-agent-notes`、`code-review`。仓库内裸文本引用「the global X skill」即指该目录。维护类 skill 不得放回 `skills/`（发布列表只收运行时知识）。
+**维护本仓用的 skill**（不进 `skills/`、不随包分发），分两处：
+
+| 位置 | skill | 说明 |
+|------|-------|------|
+| 仓库内 `.agents/skills/`（真实目录，随仓库走；`.claude/skills` 软链接到此） | `doc-standards` | dota2-mcp 专属维护 skill（文档放置/审计） |
+| 全局 `~/.agents/skills/`（用户所有项目通用） | `prose-standard`、`trim-cot-leakage`、`translate-docs`、`archive-agent-notes`、`code-review` | 通用维护 skill；仓库内裸文本引用「the global X skill」即指该目录 |
 
 ## TODO — 后续计划
 

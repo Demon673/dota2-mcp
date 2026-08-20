@@ -1,0 +1,4 @@
+interface:
+  display_name: "Doc Standards"
+  short_description: "Apply the documentation standard: placement, structure, corpus audits, and budget probes"
+  default_prompt: "Use $doc-standards to apply the documentation standard in this repository."
