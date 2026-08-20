@@ -19,6 +19,7 @@ import { VConRelay } from "./tools/vcon-relay.js";
 import { RelayClient } from "./relay-client.js";
 import * as consoleBridge from "./tools/console-bridge.js";
 import { ensureVrf } from "./tools/vrf-ensure.js";
+import { inspectAsset } from "./tools/asset-inspect.js";
 import * as daemon from "./daemon-utils.js";
 
 function getVersion(): string {
@@ -1281,6 +1282,31 @@ Once connected, call dota_status again.` }] };
     async ({ version }) => {
       const info = await ensureVrf({ version });
       return { content: [{ type: "text", text: info.message }] };
+    }
+  );
+
+
+  // Tool: 反编译 + 结构化摘要单个资产（VRF CLI，离线）
+  server.tool("asset_inspect",
+    "Decompile and structurally summarize a single Source 2 asset (offline; no game needed). Uses the VRF CLI (Source2Viewer-CLI, auto-installed by vrf_ensure). Returns a stable JSON summary keyed by asset type: vpcf (particle system/emitter/operator counts, child and material refs, max particles), vmdl (mesh count, material refs, LOD group, skeleton ref), vmat (shader, texture refs, param count), vtex (PNG dimensions). Unknown types pass through the decompiled text. raw_decompiled is omitted unless include_raw=true (then truncated to 4000 chars). Single-level references only: recursive reference walking is asset_check_refs' job.",
+    {
+      target: z.string().describe("Asset to inspect (absolute, or content/ / game/ prefixed, or addon-content relative)"),
+      addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
+      include_raw: z.boolean().optional().describe("Include the raw decompiled text (truncated to 4000 chars). Default false."),
+    },
+    async ({ target, addon, include_raw }) => {
+      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
+      const a = resolveAddon(addon);
+      if (!a) {
+        const addons = listAddonsFs();
+        throw new McpError(ErrorCode.InvalidRequest, addons.length > 1
+          ? `No addon detected. Please specify one of: ${addons.join(", ")}`
+          : "No addon detected. Load a project first or specify the addon name."
+        );
+      }
+      const resolved = resolveAssetPath(target, a);
+      const result = await inspectAsset(dotaPath, resolved, { includeRaw: include_raw ?? false });
+      return { content: [{ type: "text", text: result.text }], isError: !result.ok };
     }
   );
 

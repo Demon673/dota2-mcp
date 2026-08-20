@@ -166,7 +166,7 @@ function steamPathFromRegistry(): string | null {
   try {
     const out = execSync(
       'reg query "HKCU\\Software\\Valve\\Steam" /v SteamPath',
-      { encoding: "utf-8", windowsHide: true }
+      { encoding: "utf-8", windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }
     );
     const m = out.match(/SteamPath\s+REG_SZ\s+(.+?)\s*$/m);
     return m ? m[1].replace(/\\/g, "/") : null;
