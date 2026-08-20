@@ -1,7 +1,8 @@
 // asset_check_refs：单资产递归引用完整性检查（wayfinder #10 契约）
 // 两级解析：addon（content 源 + game 产物）→ game/dota（引擎资产）；编译状态单列 uncompiled。
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { ensureVrf } from "./vrf-ensure.js";
 import { extractRefs } from "./asset-inspect.js";
@@ -66,7 +67,17 @@ function sortKeys<T>(v: T): T {
 /** 反编译一个资产（文本；vtex 跳过——纹理无引用）。 */
 function decompileText(exe: string, p: string): string {
   try {
-    return execFileSync(exe, ["-i", p, "-d"], { encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 });
+    // 反编译文本走 -o 文件（stdout 是分析摘要）；.NET 无 libicu 时需 invariant 全球化
+    const tmp = path.join(tmpdir(), "dota2-mcp", "checkrefs", path.basename(p) + "." + process.pid + ".txt");
+    mkdirSync(path.dirname(tmp), { recursive: true });
+    execFileSync(exe, ["-i", p, "-o", tmp], {
+      encoding: "utf-8",
+      maxBuffer: 64 * 1024 * 1024,
+      env: { ...process.env, DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1" },
+    });
+    const text = readFileSync(tmp, "utf-8");
+    rmSync(tmp, { force: true });
+    return text;
   } catch { return ""; }
 }
 

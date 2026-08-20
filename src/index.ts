@@ -243,7 +243,7 @@ async function main(): Promise<void> {
 
   /** vconsole 未打开的契约提示（控制台类工具需要 vconsole 旁观 agent 活动） */
   function vconsoleNotOpenText(): string {
-    const exe = dotaPath ? path.join(getDotaBinDir(dotaPath), getDotaExeName("vconsole2")) : "vconsole2.exe";
+    const exe = dotaPath ? consoleBridge.resolveDotaToolPath(dotaPath, "vconsole2") : "vconsole2.exe";
     return `vconsole 未打开。控制台类工具要求 vconsole 已打开并连接 127.0.0.1:29001（显式契约：vconsole 不开，relay 就不连 Dota——保证你能旁观 agent 的控制台活动）。
 正常情况下 relay 探测到 Dota 就绪后会自动打开 vconsole；看到此消息说明自动打开被禁用（DOTA2_VCON_AUTO_OPEN_VCONSOLE=0）或打开失败/被你手动关闭了。
 请二选一：
@@ -253,7 +253,7 @@ async function main(): Promise<void> {
 
   /** dota_status 的 vconsole 未开英文指引（与 requireConsole 的中文报错同源不同语，共享 exe 解析） */
   function vconsoleGuidanceEn(intro: string): string {
-    const exe = dotaPath ? path.join(getDotaBinDir(dotaPath), getDotaExeName("vconsole2")) : "vconsole2.exe";
+    const exe = dotaPath ? consoleBridge.resolveDotaToolPath(dotaPath, "vconsole2") : "vconsole2.exe";
     return `${intro}
 
 Open it: run ${exe} and connect to 127.0.0.1:29001 — the AssetBrowser vconsole button is disabled by the engine while this MCP holds port 29000 — or call dota_open_vconsole.
@@ -702,7 +702,7 @@ Once connected, call dota_status again.` }] };
       if (consoleBridge.isProcessRunning(process.platform === "win32" ? "vconsole2.exe" : "vconsole2")) {
         return { content: [{ type: "text", text: "A vconsole2.exe instance is already running but not attached to 127.0.0.1:29001 (stale window — vconsole2 is single-instance, launching another just focuses it). Close it and call dota_open_vconsole again, or in that window use Devices → Connect to 127.0.0.1:29001." }] };
       }
-      const exe = path.join(getDotaBinDir(dotaPath), getDotaExeName("vconsole2"));
+      const exe = consoleBridge.resolveDotaToolPath(dotaPath, "vconsole2");
       if (!fs.existsSync(exe)) {
         throw new McpError(ErrorCode.InvalidRequest, `vconsole2.exe not found at ${exe}`);
       }
@@ -1177,9 +1177,8 @@ Once connected, call dota_status again.` }] };
   // Workshop Tools 集成 — 启动编辑器 / 编译资源
   // ═══════════════════════════════════════════════════════════════
 
-  /** 根据平台返回 Dota 2 工具二进制目录 / exe 后缀（共享实现见 console-bridge） */
-  const getDotaBinDir = consoleBridge.getDotaBinDir;
-  const getDotaExeName = consoleBridge.getDotaExeName;
+  /** Dota 2 工具完整路径解析（共享实现见 console-bridge） */
+  const resolveDotaToolPath = consoleBridge.resolveDotaToolPath;
 
   /** 执行 Dota 2 工具目录下的可执行文件。
    *
@@ -1189,9 +1188,12 @@ Once connected, call dota_status again.` }] };
    * 调用前需确保 dotaPath 非空（dota_compile_asset 已检查）。
    */
   function runDotaTool(exeBase: string, args: string[], waitForExit = false): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-    const exePath = path.join(getDotaBinDir(dotaPath!), getDotaExeName(exeBase));
+    const exePath = resolveDotaToolPath(dotaPath!, exeBase);
+    // WSL 下 win64 目录命中 = Windows 安装：参数里的 /mnt/ 路径必须转成 Windows 路径
+    const isWinTool = process.platform !== "win32" && path.basename(path.dirname(exePath)) === "win64";
+    const finalArgs = isWinTool ? args.map((a) => consoleBridge.toWindowsPath(a)) : args;
     return new Promise((resolve) => {
-      const proc = spawn(exePath, args, {
+      const proc = spawn(exePath, finalArgs, {
         detached: !waitForExit,
         windowsHide: false,
       });

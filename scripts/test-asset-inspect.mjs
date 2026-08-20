@@ -61,8 +61,12 @@ if (input.endsWith(".vtex_c") || input.endsWith(".vtex")) {
   process.exit(0);
 }
 const body = ${JSON.stringify({ vpcf: vpcfFixture, vmdl: vmdlFixture, vmat: vmatFixture })};
-for (const [k, v] of Object.entries(body)) if (input.endsWith(k) || input.endsWith(k + "_c")) { process.stdout.write(v); process.exit(0); }
-process.stdout.write("opaque_binary_blob_that_is_not_any_known_format");
+for (const [k, v] of Object.entries(body)) if (input.endsWith(k) || input.endsWith(k + "_c")) {
+  if (out) { writeFileSync(out, v); } else { process.stdout.write(v); }
+  process.exit(0);
+}
+if (out) writeFileSync(out, "opaque_binary_blob_that_is_not_any_known_format");
+else process.stdout.write("opaque_binary_blob_that_is_not_any_known_format");
 process.exit(0);
 `;
 

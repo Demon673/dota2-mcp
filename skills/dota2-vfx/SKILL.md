@@ -92,7 +92,6 @@ A minimal world-origin burst system you can file_write and compile as a starting
   [
     {
       _class = "CParticleSystemDefinition"
-      m_nMaxParticles = 32
       m_flConstantRadius = 4.0
       m_Operators =
       [

@@ -37,6 +37,7 @@ node dist/index.js    # 启动 MCP server（通过 stdio）
 | `scripts/test-asset-inspect.mjs` | 离线 | asset_inspect：fake VRF CLI + 五类型 fixture，摘要字段与 raw 截断 |
 | `scripts/test-asset-check-refs.mjs` | 离线 | asset_check_refs：临时资产树四桶断言 + 防环 |
 | `scripts/test-vfx-live.mjs` | 活体 | vfx_preview：launch 地图 → spawn 粒子（pid>0）→ stop |
+| `scripts/drill-vfx-workflow.mjs` | 演练 | 实际使用全链路：skill 学习 → 写源 → 编译 → inspect → check_refs → 预览 → 查错 → 停止 → 迭代 |
 | `scripts/test-mcp-live.mjs` | 活体 | vconsole 契约全链路：门控 → dota_open_vconsole → 解门控（自带环境重置杀 vconsole2） |
 | `scripts/test-launch-phases.mjs` | 活体 | 真实地图 launch：卡相位 stuck 报告 + 按指引 dota_run_lua 推进到 GAME_IN_PROGRESS |
 | `scripts/test-crash-recovery.mjs` | 活体 | 崩溃恢复：同一 MCP 会话杀 Dota → 检测 → 重启 → 自恢复（脚本自起自杀 Dota） |
@@ -276,6 +277,7 @@ Relay/Client 实现了已针对 Dota 2 验证的 VConsole2 二进制帧格式：
 - 守护进程占用端口 `29001`（GUI）和 `29002`（控制）；多个 MCP 会话通过瘦客户端共享同一个守护进程，不再互斥。仅在守护进程拉起失败退化为本地 relay 时，才受单实例限制
 - **vconsole 使用路径**：vconsole2 连接目标固定为 `127.0.0.1:29001`（relay 的 GUI 口）。默认无需手动开——relay 探测到 Dota 就绪会自动拉起（`DOTA2_VCON_AUTO_OPEN_VCONSOLE=0` 关闭）。AssetBrowser 的 vconsole 按钮只在 relay 持有 29000 时（即 vconsole 已接入期间）被引擎禁用；窗口关闭后 29000 释放、按钮恢复可用。晚接入的窗口会收到初始化帧重放，随开随用
 - Dota 2 必须带 `-vconsole` 参数启动（或已启用 vconsole2 监听器），relay 才能连上 `:29000`
+- **WSL 环境**：工具目录按存在性探测（win64 命中即 Windows 安装）、参数路径自动转 Windows 格式、VRF CLI 需 invariant 全球化 env；残留 daemon 导致端口冲突时杀 node/relay 进程并清 `os.tmpdir()/dota2-mcp/` 状态文件；daemon 存活期间勿删 `relay.token`
 - 很多 API dump 工具需要地图已加载，调用过早可能返回空结果
 
 ## References

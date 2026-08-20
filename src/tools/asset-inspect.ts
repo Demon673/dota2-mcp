@@ -1,6 +1,6 @@
 // asset_inspect：VRF 反编译 + 轻量 KV1/KV3 文本扫描 → 结构化摘要（wayfinder #8 schema）
 import { execFileSync } from "node:child_process";
-import { readFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ensureVrf } from "./vrf-ensure.js";
@@ -105,16 +105,23 @@ export async function inspectAsset(dotaPath: string, resolvedPath: string, opts:
   const assetType = ext.replace(/^\./, "").replace(/_c$/, "") || "unknown";
   const isVtex = ext === ".vtex_c" || ext === ".vtex";
 
+  // .NET 在无 libicu 的系统（WSL 常见）上需要 invariant 全球化才能启动
+  const cliEnv = { ...process.env, DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1" };
   let stdout = "";
   let pngPath: string | null = null;
+  let tmpOut: string | null = null;
   try {
     if (isVtex) {
       const outDir = path.join(tmpdir(), "dota2-mcp", "inspect");
       mkdirSync(outDir, { recursive: true });
       pngPath = path.join(outDir, path.basename(resolvedPath).replace(/_c$/, "") + ".png");
-      execFileSync(vrf.executable, ["-i", resolvedPath, "-o", pngPath, "-d"], { encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 });
+      execFileSync(vrf.executable, ["-i", resolvedPath, "-o", pngPath], { encoding: "utf-8", maxBuffer: 64 * 1024 * 1024, env: cliEnv });
     } else {
-      stdout = execFileSync(vrf.executable, ["-i", resolvedPath, "-d"], { encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 });
+      // 反编译文本走 -o 文件（stdout 是分析摘要不是文本）；vtex 输出 PNG
+      tmpOut = path.join(tmpdir(), "dota2-mcp", "inspect", path.basename(resolvedPath) + ".txt");
+      mkdirSync(path.dirname(tmpOut), { recursive: true });
+      execFileSync(vrf.executable, ["-i", resolvedPath, "-o", tmpOut], { encoding: "utf-8", maxBuffer: 64 * 1024 * 1024, env: cliEnv });
+      stdout = readFileSync(tmpOut, "utf-8");
     }
   } catch (e) {
     const err = e as { stdout?: string; stderr?: string; message?: string };
@@ -122,6 +129,8 @@ export async function inspectAsset(dotaPath: string, resolvedPath: string, opts:
     if (!stdout.trim()) {
       return { ok: false, text: "asset_inspect failed to run the VRF CLI" };
     }
+  } finally {
+    if (tmpOut) { try { rmSync(tmpOut, { force: true }); } catch { /* ignore */ } }
   }
 
   const pngInfo = pngPath && existsSync(pngPath) ? pngHead(pngPath) : null;

@@ -45,9 +45,12 @@ import { writeFileSync } from "node:fs";
 const argv = process.argv.slice(2);
 const i = argv.indexOf("-i");
 const input = i >= 0 ? argv[i + 1] : "";
+const o = argv.indexOf("-o");
+const out = o >= 0 ? argv[o + 1] : null;
 const body = { vmdl: ${vmdlFixture}, vmat: "" };
-if (input.endsWith("hero.vmdl")) { process.stdout.write(body.vmdl); process.exit(0); }
-process.stdout.write("");
+const emit = (t) => { if (out) writeFileSync(out, t); else process.stdout.write(t); };
+if (input.endsWith("hero.vmdl")) { emit(body.vmdl); process.exit(0); }
+emit("");
 process.exit(0);
 `;
 const cache = mkdtempSync(path.join(tmpdir(), "refs-cache-"));
