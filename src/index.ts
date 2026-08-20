@@ -1336,6 +1336,49 @@ Once connected, call dota_status again.` }] };
     }
   );
 
+
+  // ===== VFX 预览：运行时粒子实例（继承 dota_run_lua 门控；资产创建/删除走 file_write/file_delete）=====
+
+  const PATTACH_NAMES = ["PATTACH_ABSORIGIN", "PATTACH_ABSORIGIN_FOLLOW", "PATTACH_CUSTOMORIGIN", "PATTACH_CUSTOMORIGIN_FOLLOW", "PATTACH_POINT", "PATTACH_POINT_FOLLOW", "PATTACH_EYES_FOLLOW", "PATTACH_OVERHEAD_FOLLOW", "PATTACH_WORLDORIGIN", "PATTACH_ROOTBONE_FOLLOW", "PATTACH_RENDERORIGIN_FOLLOW", "PATTACH_MAIN_VIEW", "PATTACH_WATERWAKE", "PATTACH_CENTER_FOLLOW", "PATTACH_CUSTOM_GAME_STATE_1", "PATTACH_HEALTHBAR"];
+
+  server.tool("vfx_preview",
+    "Spawn a particle effect in the running game to preview it (runtime instance, NOT an asset file — create/edit/delete .vpcf sources with file_write/file_edit/file_delete instead). Runs ParticleManager:CreateParticle via the dota_run_lua channel, so it needs a running game with an open vconsole. The returned particle id feeds vfx_preview_stop; a failed load prints engine errors in the Particles/ResourceSystem channels (read them with console_output) — do not trust the id alone.",
+    {
+      particle_path: z.string().describe("Particle path relative to content root, e.g. 'particles/basic_explosion/basic_explosion.vpcf'"),
+      attach: z.number().int().min(0).max(15).optional().describe("ParticleAttachment_t value. Default 8 (PATTACH_WORLDORIGIN)."),
+      position: z.array(z.number()).length(3).optional().describe("World position [x,y,z] for control point 0 (only meaningful with world-origin attaches)."),
+    },
+    async ({ particle_path, attach, position }) => {
+      requireConsole();
+      const attachIdx = attach ?? 8;
+      const attachName = PATTACH_NAMES[attachIdx] ?? "PATTACH_WORLDORIGIN";
+      const pathSafe = particle_path.replace(/'/g, "");
+      const posLua = position
+        ? " ParticleManager:SetParticleControl(pid, 0, Vector(" + position.join(",") + ")) "
+        : " ";
+      const luaBody = "print('[MCP-VFX] IsServer: ' .. tostring(IsServer())) local pid = ParticleManager:CreateParticle('" + pathSafe + "', " + attachName + ", nil)" + posLua + " print('[MCP-VFX] pid=' .. tostring(pid) .. ' attach=" + attachName + "')";
+      const safeCode = luaBody.replace(/"/g, "'");
+      const execOut = await collectOutput('ent_fire 0 RunScriptCode "' + safeCode + '"', { waitMs: 15000, settleMs: 400 });
+      const lines = execOut.filter((l) => l.includes("[MCP-VFX]") || /error|failed|missing/i.test(l));
+      return { content: [{ type: "text", text: lines.join("\n") || "Sent. Read console_output (channels Particles/ResourceSystem) for load errors." }] };
+    }
+  );
+
+  server.tool("vfx_preview_stop",
+    "Destroy a runtime particle instance spawned by vfx_preview (stops the on-screen preview). Give the particle id returned by vfx_preview. Needs a running game with an open vconsole.",
+    {
+      particle_id: z.number().int().min(0).describe("Particle id returned by vfx_preview"),
+    },
+    async ({ particle_id }) => {
+      requireConsole();
+      const luaBody = "print('[MCP-VFX] destroy pid=' .. tostring(" + particle_id + ")) local ok = ParticleManager:DestroyParticle(" + particle_id + ", false) print('[MCP-VFX] destroyed pid=" + particle_id + " ok=' .. tostring(ok))";
+      const safeCode = luaBody.replace(/"/g, "'");
+      const execOut = await collectOutput('ent_fire 0 RunScriptCode "' + safeCode + '"', { waitMs: 15000, settleMs: 400 });
+      const lines = execOut.filter((l) => l.includes("[MCP-VFX]") || /error|failed/i.test(l));
+      return { content: [{ type: "text", text: lines.join("\n") || "Sent. Check console_output for errors." }] };
+    }
+  );
+
   // ===== FileOps：addon 内文件读写编辑删除（离线工具，不门控）=====
 
   /** 解析 FileOps 目标路径并校验边界。
