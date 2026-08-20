@@ -257,6 +257,7 @@ Relay/Client 实现了已针对 Dota 2 验证的 VConsole2 二进制帧格式：
 
 ## Conventions
 
+- **Act only on an explicit execution signal and confirmed scope; otherwise ask one clarifying question**
 - **API 数据源**：只走控制台实时查询，不使用本地 JSON 数据库（引擎版本决定 API 内容）
 - **信任边界**：Server Lua 权威，Panorama JS 客户端 UI 逻辑
 - **零硬编码**：addon/map 全部动态检测，不写死任何项目名。地图扫描路径 `{dota2Path}/content/dota_addons/{addon}/maps/*.vmap`
