@@ -85,6 +85,16 @@ Root scalars: `m_nMaxParticles`, `m_nInitialParticles`, `m_ConstantColor` [R,G,B
 - 控制点：`C_OP_SetChildControlPoints`（`m_nFirstControlPoint`）、`C_OP_SetSingleControlPointPosition`（pre-emission 类会被编译器自动挪进 `m_PreEmissionOperators`）。
 - 力：`C_OP_RandomForce`、`C_OP_TurbulenceForce`、`C_OP_AttractToControlPoint`。
 
+### 官方语料统计（13,553 个官方粒子采样，16.5%，100% 反编译成功）
+
+来源：pak01_dir.vpk 分层采样反编译（research/vpcf-official/findings.md，含 stats.json 机器可读统计）。
+
+- **类频率 Top 5**（191,161 实例 / 263 种类）：`C_INIT_InitFloat` 39,889 → `C_OP_Decay` 11,513 → `C_OP_BasicMovement` 9,812 → `C_OP_InterpolateRadius` 9,114 → `C_OP_RenderSprites` 8,597。**官方语料中不存在 `C_INIT_RandomLifeTime` 等 Random* 类**——编译后全是通用 `C_INIT_InitFloat` 写属性索引。
+- **标准配方**（最常见的组合签名，1,065 个文件）：`ContinuousEmitter + RenderSprites + [BasicMovement, ColorInterpolate, Decay]`。
+- **参数典型值**：`m_nMaxParticles` p50=20 / p75=64 / p90=128 / p99=500；`m_flEmitRate` p50=30/s（p90=256）；随机寿命（InitFloat 字段1，PF_TYPE_RANDOM_UNIFORM）min p50=0.5s、max p50=1.0s（5,903 例）；`m_flConstantLifespan` p50=0.74s；`m_flConstantRadius` p50=20（p90=180）。
+- **材质 Top**（962 种路径）：particle_glow_05(486)、sparks(466)、smoke1(374)、particle_glow_04(335)、yellowflare2(288)。
+- **高级技术使用率**：子粒子链（`m_Children`）26.6%（平均 3.41 个直接子、最大链深 6）；控制点 79.9%；`m_Constraints` 2.8%；序列帧（`m_nConstantSequenceNumber`）8.1%。
+
 ### 坑清单（全部实证）
 
 1. 错误的字段名被**静默丢弃**回退引擎默认（如写 `m_flSpawnRate` → 实际 m_nParticlesToEmit=100），无编译错误。
