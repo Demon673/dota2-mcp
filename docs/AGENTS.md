@@ -24,7 +24,8 @@ Each fact has one home — the tier whose job it is; elsewhere, link there.
 | `docs/agents/*.md` | Agent workflow guidance: issue tracker, triage labels, domain consumption | Decision rationale (→ Agent Notes) |
 | [Agent Notes](../.agents/notes/README.md) | Active decision records: the why, what-was-given-up, and required verification; `implemented/` notes describe shipped reality in present tense | Migration plans, acceptance checklists, fixture walkthroughs, spec-speak |
 | [postmortem/](postmortem/README.md) | Incident stories — the only tier where war-story narrative belongs | — |
-| `skills/` | Reusable workflows and specialized knowledge, shipped to npm and exposed via `dota2_skill` | Product and runtime contracts (→ `AGENTS.md` / `README.md`) |
+| `skills/` | Reusable workflows and specialized knowledge, shipped to npm and exposed via `dota2_skill` (machine-readable data in `skills/<name>/data/`, read via the tool's `data` argument) | Product and runtime contracts (→ `AGENTS.md` / `README.md`) |
+| `research/` | One-off investigation records (sampling methodology, decompiler behavior notes) not yet absorbed into a skill | Duplicated copies of files already delivered under `skills/` — the skill's `data/` copy is canonical |
 | Code comments / JSDoc | Non-obvious contracts: behavior, failure, timing, ownership, exceptions | Reasoning transcripts, control-flow narration, code restatement |
 | `scripts/*.mjs` | Plain-node smoke tests (assert style) | — |
 

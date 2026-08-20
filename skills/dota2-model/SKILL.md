@@ -5,7 +5,7 @@ description: Use when creating, editing, compiling, or validating Dota 2 model a
 
 # Dota 2 Model Assets — 模型资产
 
-This skill owns the model-asset workflow of the dota2-mcp toolchain: authoring `.vmdl` / `.vmat` / `.vtex` sources, compiling them, and validating structure and references. All structural facts below are verified against the official corpus (research/model-official: 3,161 vmdl + 2,549 vmat decompiles, 100% success).
+This skill owns the model-asset workflow of the dota2-mcp toolchain: authoring `.vmdl` / `.vmat` / `.vtex` sources, compiling them, and validating structure and references. All structural facts below are verified against the official corpus (`dota2_skill` data='model-stats.json': 3,161 vmdl + 2,549 vmat decompiles, 100% success).
 
 ## 核心心智模型：资产管线
 
