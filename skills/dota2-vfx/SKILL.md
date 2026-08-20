@@ -95,6 +95,25 @@ Root scalars: `m_nMaxParticles`, `m_nInitialParticles`, `m_ConstantColor` [R,G,B
 - **材质 Top**（962 种路径）：particle_glow_05(486)、sparks(466)、smoke1(374)、particle_glow_04(335)、yellowflare2(288)。
 - **高级技术使用率**：子粒子链（`m_Children`）26.6%（平均 3.41 个直接子、最大链深 6）；控制点 79.9%；`m_Constraints` 2.8%；序列帧（`m_nConstantSequenceNumber`）8.1%。
 
+### 官方配方库（可直接套用的组合签名，按出现次数排序）
+
+来源：13,553 官方采样中 12,108 个可签名文件的组合统计（stats.json e_combos）。配典型参数（c_params 分位数）。
+
+| # | 配方（Emitter | Renderer | Operators） | 次数 | 用途 |
+|---|------|------|------|------|
+| 1 | ContinuousEmitter | RenderSprites | [BasicMovement, ColorInterpolate, Decay] | 1065 | 持续发光/烟雾主体 |
+| 2 | InstantaneousEmitter | RenderSprites | [BasicMovement, ColorInterpolate, Decay] | 738 | 爆发闪光 |
+| 3 | ContinuousEmitter | RenderSprites | [BasicMovement, Decay, FadeInSimple] | 590 | 持续淡入光 |
+| 4 | InstantaneousEmitter | RenderSprites | [BasicMovement, Decay, FadeOutSimple] | 549 | 爆发淡出 |
+| 5 | InstantaneousEmitter | RenderSprites | [BasicMovement, Decay, FadeInSimple] | 275 | 爆发淡入 |
+| 6 | ContinuousEmitter | RenderRopes | [BasicMovement, ColorInterpolate, Decay] | 254 | 光束/绳索拖尾 |
+| 7 | ContinuousEmitter | RenderSprites | [BasicMovement, Decay, FadeOutSimple] | 192 | 持续淡出 |
+| 8 | ContinuousEmitter | RenderRopes | [BasicMovement, Decay, FadeInSimple] | 157 | 绳索淡入 |
+| 9 | ContinuousEmitter | RenderSprites | [SetFloat, BasicMovement, Decay] | 149 | 持续粒子+属性驱动 |
+| 10 | ContinuousEmitter | RenderSprites | [BasicMovement, Decay, InterpolateRadius] | 140 | 半径渐变粒子 |
+
+典型参数（官方分位数）：`m_nMaxParticles` 20（p90=128）、`m_flEmitRate` 30/s（p90=256）、随机寿命 0.5~1.0s、`m_flConstantRadius` 20（p90=180）、材质首选 particle_glow_05 / sparks / smoke1。
+
 ### 坑清单（全部实证）
 
 1. 错误的字段名被**静默丢弃**回退引擎默认（如写 `m_flSpawnRate` → 实际 m_nParticlesToEmit=100），无编译错误。
