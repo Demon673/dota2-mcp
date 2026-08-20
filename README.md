@@ -189,6 +189,6 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 
 ## 版本
 
-当前版本：`v1.5.1`
+当前版本：`v1.6.0`
 
 详情见 [CHANGELOG.md](./CHANGELOG.md) 与 [GitHub Releases](https://github.com/Demon673/dota2-mcp/releases)。

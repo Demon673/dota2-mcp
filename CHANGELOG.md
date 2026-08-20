@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.6.0 (2026-08-20)
+
+### 新增（特效与模型处理能力，9 个新工具，总数 22 → 31）
+
+- **FileOps 四件（离线）**：`file_read` / `file_write` / `file_edit`（old_string→new_string 恰好一次匹配）/ `file_delete`（返回内容快照）——读写 addon 内文本源文件；路径限制 `content|game/dota_addons/{addon}/`，规范化前缀检查拒绝 `../` 逃逸与其他 addon。
+- **`vrf_ensure`（离线）**：VRF CLI 半集成——检测 / 下载 pin 版本（默认 20.0，自包含无 .NET 依赖）/ sha256 校验（篡改拒绝且不缓存）/ 缓存 `os.tmpdir()/dota2-mcp/vrf/`；按 release assets[] 动态匹配 `cli-{os}-{arch}.zip`，缺了才联网。
+- **`asset_inspect`（离线）**：VRF 反编译 + 五类型结构化摘要（vpcf/vmdl/vmat/vtex/unknown），键排序稳定可 diff；`include_raw` 显式截断 4000 字符。
+- **`asset_check_refs`（离线）**：单资产递归引用完整性——ok / uncompiled（源在产物缺）/ engine_refs（两级解析落 game/dota）/ broken 四桶；`max_depth=3` + visited 防环。
+- **`vfx_preview` / `vfx_preview_stop`（需游戏 + vconsole）**：运行时粒子实例预览——ParticleManager:CreateParticle（PATTACH_* 全枚举、可选世界坐标）返回 pid；以 console 加载错误为准（id 不能证明加载成功）；继承 `dota_run_lua` 门控通道（非新增限制）。
+- **内置 skill `dota2-vfx` / `dota2-model`**：vpcf/vmdl/vmat/vtex KV3 写作速查（真实模板验证）、管线模型、SOP、工具映射、常见错误表、最小模板；完整字段参考章节 TODO(rare) 分批补全。
+- **`dota2_skill` 分节参数**：`section`（返回单个 `##` 章节）/ `outline`（标题目录），应对字面全量 skill 的大正文。
+
+### 修复
+
+- **WSL 路径检测**：`detectDotaPath()` 加 `toHostPath()`——非 win32 平台 Windows 盘符路径映射 `/mnt/<drive>/`；注册表经 WSL interop 查询、默认位置全平台探测。修复 WSL 下所有文件系统类工具不可用的问题。
+
+### 依赖
+
+- 新增 `adm-zip`（纯 JS；VRF 发布包解压，保持无外部二进制规则）。
+
+### 测试
+
+- 新离线脚本：`test-fileops` / `test-vrf-ensure` / `test-asset-inspect` / `test-asset-check-refs`；新活体脚本：`test-vfx-live`（launch → spawn → stop）。
+- 活体测试暴露并记录测试 addon 两前置：basic 模板 `addoninfo.txt` 为空 KV3 需声明 maps/IsPlayable；地图先编译（resourcecompiler → `game/maps/*.vpk`）才能 launch。
+
 ## 1.5.1 (2026-07-22)
 
 ### 文档
