@@ -87,7 +87,7 @@ Root scalars: `m_nMaxParticles`, `m_nInitialParticles`, `m_ConstantColor` [R,G,B
 
 ### 官方语料统计（13,553 个官方粒子采样，16.5%，100% 反编译成功）
 
-来源：pak01_dir.vpk 分层采样反编译（research/vpcf-official/findings.md，含 stats.json 机器可读统计）。
+来源：pak01_dir.vpk 分层采样反编译。**机器可读全量统计随 skill 分发**：`dota2_skill(name='dota2-vfx', data='vpcf-stats.json')` 返回完整 JSON（263 类全频率、全部组合签名、962 种材质、参数全分位数）；人类可读版 `data='vpcf-official-findings.md'`。
 
 - **类频率 Top 5**（191,161 实例 / 263 种类）：`C_INIT_InitFloat` 39,889 → `C_OP_Decay` 11,513 → `C_OP_BasicMovement` 9,812 → `C_OP_InterpolateRadius` 9,114 → `C_OP_RenderSprites` 8,597。**官方语料中不存在 `C_INIT_RandomLifeTime` 等 Random* 类**——编译后全是通用 `C_INIT_InitFloat` 写属性索引。
 - **标准配方**（最常见的组合签名，1,065 个文件）：`ContinuousEmitter + RenderSprites + [BasicMovement, ColorInterpolate, Decay]`。

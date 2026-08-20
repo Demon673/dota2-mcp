@@ -490,13 +490,14 @@ Then call dota_status again.`;
 
   // Tool: 获取内置 skill — 教 agent 怎么用这套 MCP（Roblox skill 模式）
   server.tool("dota2_skill",
-    "Retrieve built-in skill / knowledge on how to develop a Dota 2 custom game with this MCP. Call with no argument to list available skills, with a name to retrieve its full content, with name + section to retrieve one '##' section (large skills like dota2-vfx/dota2-model are several thousand lines — prefer section retrieval), or with name + outline to list its section headings. Learn the runtime development model (long-lived process + hot reload, no map restarts for code edits) before testing or editing.",
+    "Retrieve built-in skill / knowledge on how to develop a Dota 2 custom game with this MCP. Call with no argument to list available skills, with a name to retrieve its full content, with name + section to retrieve one '##' section (large skills like dota2-vfx/dota2-model are several thousand lines — prefer section retrieval), with name + outline to list its section headings, or with name + data to read a machine-readable data file bundled with the skill (e.g. dota2-vfx ships the official particle corpus statistics as vpcf-stats.json). Learn the runtime development model (long-lived process + hot reload, no map restarts for code edits) before testing or editing.",
     {
       name: z.string().optional().describe("Skill name, e.g. 'dota2-runtime-dev'. Omit to list available skills."),
       section: z.string().optional().describe("Exact '##' section heading to retrieve (without the leading ##). Requires name."),
       outline: z.boolean().optional().describe("List the skill's section headings instead of content. Requires name."),
+      data: z.string().optional().describe("Name of a data file under skills/<name>/data/ to return verbatim (e.g. 'vpcf-stats.json'). Use data='list' to list available data files. Requires name."),
     },
-    async ({ name, section, outline }) => {
+    async ({ name, section, outline, data }) => {
       const skills = loadSkills();
       if (skills.length === 0) {
         return { content: [{ type: "text", text: "No built-in skills found (skills/ directory missing)." }] };
@@ -523,6 +524,30 @@ Then call dota_status again.`;
         const end = lines.findIndex((l, i) => i > start && /^## /.test(l));
         const slice = lines.slice(start, end === -1 ? undefined : end).join("\n");
         return { content: [{ type: "text", text: slice }] };
+      }
+      if (data) {
+        const dataDir = path.join(skillsDir(), skill.name, "data");
+        let dataFiles: string[] = [];
+        try {
+          dataFiles = fs.readdirSync(dataDir, { withFileTypes: true })
+            .filter(e => e.isFile())
+            .map(e => e.name);
+        } catch { dataFiles = []; }
+        if (data === "list") {
+          return { content: [{ type: "text", text: dataFiles.length > 0
+            ? `Data files of ${skill.name}:\n${dataFiles.map(f => "- " + f).join("\n")}`
+            : `No data files bundled with ${skill.name}.` }] };
+        }
+        const file = dataFiles.find(f => f === data || f === data + ".json" || f === data + ".md");
+        if (!file) {
+          return { content: [{ type: "text", text: `Unknown data file '${data}'. Available: ${dataFiles.join(", ") || "(none)"}` }] };
+        }
+        try {
+          const content = fs.readFileSync(path.join(dataDir, file), "utf-8");
+          return { content: [{ type: "text", text: content }] };
+        } catch (e) {
+          return { content: [{ type: "text", text: `Cannot read data file ${file}: ${(e as Error).message}` }] };
+        }
       }
       return { content: [{ type: "text", text: skill.body }] };
     }

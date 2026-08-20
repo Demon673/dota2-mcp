@@ -1,0 +1,1344 @@
+{
+  "meta": {
+    "corpusRoot": "/tmp/vpcf-corpus",
+    "filesAnalyzed": 13553,
+    "generatedAt": "2026-08-20T17:35:50.048Z",
+    "strata": {
+      "heroes": {
+        "label": "Hero ability FX",
+        "prefixes": 40,
+        "files": 9014
+      },
+      "items_fx": {
+        "label": "Item FX",
+        "prefixes": 1,
+        "files": 733
+      },
+      "neutral_fx": {
+        "label": "Neutral (creep/jungle) FX",
+        "prefixes": 1,
+        "files": 613
+      },
+      "ui": {
+        "label": "UI / main-menu FX",
+        "prefixes": 1,
+        "files": 1423
+      },
+      "world": {
+        "label": "World / environment / creature FX",
+        "prefixes": 9,
+        "files": 1165
+      },
+      "gameplay": {
+        "label": "Gameplay / projectile / status FX",
+        "prefixes": 5,
+        "files": 605
+      },
+      "TOTAL": 13553
+    }
+  },
+  "a_classes": {
+    "totalClassInstances": 191161,
+    "distinctClasses": 263,
+    "topClassesOverall": [
+      [
+        "C_INIT_InitFloat",
+        39889
+      ],
+      [
+        "C_OP_Decay",
+        11513
+      ],
+      [
+        "C_OP_BasicMovement",
+        9812
+      ],
+      [
+        "C_OP_InterpolateRadius",
+        9114
+      ],
+      [
+        "C_OP_RenderSprites",
+        8597
+      ],
+      [
+        "C_INIT_RandomColor",
+        6973
+      ],
+      [
+        "C_OP_FadeOutSimple",
+        6826
+      ],
+      [
+        "C_OP_InstantaneousEmitter",
+        6774
+      ],
+      [
+        "C_OP_ContinuousEmitter",
+        6168
+      ],
+      [
+        "C_INIT_CreateWithinSphere",
+        5843
+      ],
+      [
+        "C_INIT_PositionOffset",
+        5316
+      ],
+      [
+        "C_OP_FadeInSimple",
+        5051
+      ],
+      [
+        "C_OP_ColorInterpolate",
+        4455
+      ],
+      [
+        "C_INIT_RandomSequence",
+        3909
+      ],
+      [
+        "C_OP_PositionLock",
+        3812
+      ],
+      [
+        "C_OP_SetFloat",
+        3159
+      ],
+      [
+        "C_INIT_InitialVelocityNoise",
+        3093
+      ],
+      [
+        "C_OP_RampScalarLinearSimple",
+        2989
+      ],
+      [
+        "C_INIT_RandomYawFlip",
+        2750
+      ],
+      [
+        "C_OP_SpinUpdate",
+        2230
+      ],
+      [
+        "C_INIT_RingWave",
+        2132
+      ],
+      [
+        "C_OP_RenderRopes",
+        2064
+      ],
+      [
+        "C_INIT_RemapParticleCountToScalar",
+        1911
+      ],
+      [
+        "C_INIT_CreateWithinSphereTransform",
+        1825
+      ],
+      [
+        "C_OP_VectorNoise",
+        1372
+      ],
+      [
+        "C_OP_EndCapTimedDecay",
+        1285
+      ],
+      [
+        "C_OP_AttractToControlPoint",
+        1229
+      ],
+      [
+        "C_OP_RenderTrails",
+        1161
+      ],
+      [
+        "C_OP_RampScalarLinear",
+        1159
+      ],
+      [
+        "C_OP_LerpEndCapScalar",
+        1051
+      ],
+      [
+        "C_OP_OscillateVector",
+        1022
+      ],
+      [
+        "C_INIT_CreateOnModel",
+        988
+      ],
+      [
+        "C_OP_RenderModels",
+        933
+      ],
+      [
+        "C_OP_SetSingleControlPointPosition",
+        832
+      ],
+      [
+        "C_INIT_PositionPlaceOnGround",
+        799
+      ],
+      [
+        "C_OP_SetVec",
+        735
+      ],
+      [
+        "C_OP_FadeAndKill",
+        676
+      ],
+      [
+        "C_INIT_CreateFromParentParticles",
+        658
+      ],
+      [
+        "C_OP_LockToBone",
+        641
+      ],
+      [
+        "C_INIT_InitVec",
+        625
+      ],
+      [
+        "C_INIT_InheritFromParentParticles",
+        588
+      ],
+      [
+        "C_OP_RenderDeferredLight",
+        585
+      ],
+      [
+        "C_OP_Spin",
+        581
+      ],
+      [
+        "C_INIT_VelocityRandom",
+        570
+      ],
+      [
+        "C_OP_FadeOut",
+        534
+      ],
+      [
+        "C_OP_OscillateScalar",
+        524
+      ],
+      [
+        "C_INIT_CreationNoise",
+        451
+      ],
+      [
+        "C_OP_MovementRotateParticleAroundAxis",
+        430
+      ],
+      [
+        "C_OP_InheritFromParentParticlesV2",
+        425
+      ],
+      [
+        "C_OP_DistanceToCP",
+        373
+      ],
+      [
+        "C_INIT_CreateSequentialPath",
+        360
+      ],
+      [
+        "C_OP_RandomForce",
+        343
+      ],
+      [
+        "C_OP_DampenToCP",
+        332
+      ],
+      [
+        "C_OP_Orient2DRelToCP",
+        328
+      ],
+      [
+        "C_INIT_PositionWarp",
+        315
+      ],
+      [
+        "C_OP_RampScalarSpline",
+        314
+      ],
+      [
+        "C_OP_MovementPlaceOnGround",
+        305
+      ],
+      [
+        "C_OP_AlphaDecay",
+        288
+      ],
+      [
+        "C_OP_MaxVelocity",
+        281
+      ],
+      [
+        "C_OP_SetControlPointPositions",
+        277
+      ],
+      [
+        "C_OP_HSVShiftToCP",
+        275
+      ],
+      [
+        "C_OP_NoiseEmitter",
+        275
+      ],
+      [
+        "C_OP_SetChildControlPoints",
+        275
+      ],
+      [
+        "C_INIT_NormalAlignToCP",
+        273
+      ],
+      [
+        "C_INIT_InheritVelocity",
+        267
+      ],
+      [
+        "C_OP_Noise",
+        263
+      ],
+      [
+        "C_OP_TwistAroundAxis",
+        251
+      ],
+      [
+        "C_OP_FadeIn",
+        244
+      ],
+      [
+        "C_OP_SetAttributeToScalarExpression",
+        236
+      ],
+      [
+        "C_OP_InheritFromParentParticles",
+        235
+      ],
+      [
+        "C_OP_SetControlPointOrientation",
+        233
+      ],
+      [
+        "C_INIT_CreateSequentialPathV2",
+        232
+      ],
+      [
+        "C_OP_OscillateScalarSimple",
+        227
+      ],
+      [
+        "C_OP_StopAfterCPDuration",
+        224
+      ],
+      [
+        "C_INIT_RandomNamedModelSequence",
+        222
+      ],
+      [
+        "C_INIT_RandomSecondSequence",
+        206
+      ],
+      [
+        "C_OP_RenderProjected",
+        200
+      ],
+      [
+        "C_OP_SetControlPointsToParticle",
+        189
+      ],
+      [
+        "C_INIT_RemapCPtoVector",
+        178
+      ],
+      [
+        "C_INIT_InitFromCPSnapshot",
+        173
+      ]
+    ],
+    "categoryCounts": {
+      "PreEmissionOperator": 2333,
+      "Emitter": 13271,
+      "Initializer": 82557,
+      "Operator": 76851,
+      "ForceGenerator": 2117,
+      "Constraint": 407,
+      "Renderer": 13625,
+      "undefined": 0
+    },
+    "categoryTopClasses": {
+      "PreEmissionOperator": [
+        [
+          "C_OP_SetSingleControlPointPosition",
+          832
+        ],
+        [
+          "C_OP_SetControlPointPositions",
+          277
+        ],
+        [
+          "C_OP_HSVShiftToCP",
+          275
+        ],
+        [
+          "C_OP_SetControlPointOrientation",
+          233
+        ],
+        [
+          "C_OP_StopAfterCPDuration",
+          224
+        ],
+        [
+          "C_OP_SetParentControlPointsToChildCP",
+          89
+        ],
+        [
+          "C_OP_SetControlPointRotation",
+          89
+        ],
+        [
+          "C_OP_SetCPOrientationToPointAtCP",
+          79
+        ],
+        [
+          "C_OP_RemapSpeedtoCP",
+          68
+        ],
+        [
+          "C_OP_SetControlPointToCenter",
+          35
+        ],
+        [
+          "C_OP_SetControlPointFromObjectScale",
+          27
+        ],
+        [
+          "C_OP_SelectivelyEnableChildren",
+          26
+        ],
+        [
+          "C_OP_RepeatedTriggerChildGroup",
+          21
+        ],
+        [
+          "C_OP_SetRandomControlPointPosition",
+          14
+        ],
+        [
+          "C_OP_EnableChildrenFromParentParticleCount",
+          9
+        ],
+        [
+          "C_OP_DistanceBetweenCPsToCP",
+          8
+        ],
+        [
+          "C_OP_RemapCPtoCP",
+          6
+        ],
+        [
+          "C_OP_ForceControlPointStub",
+          5
+        ],
+        [
+          "C_OP_SetControlPointToVectorExpression",
+          5
+        ],
+        [
+          "C_OP_RemapAverageScalarValuetoCP",
+          4
+        ],
+        [
+          "C_OP_SetControlPointToImpactPoint",
+          4
+        ],
+        [
+          "C_OP_PlayEndCapWhenFinished",
+          2
+        ],
+        [
+          "C_OP_SetControlPointToPlayer",
+          1
+        ]
+      ],
+      "Emitter": [
+        [
+          "C_OP_InstantaneousEmitter",
+          6774
+        ],
+        [
+          "C_OP_ContinuousEmitter",
+          6168
+        ],
+        [
+          "C_OP_NoiseEmitter",
+          275
+        ],
+        [
+          "C_OP_MaintainEmitter",
+          54
+        ]
+      ],
+      "Initializer": [
+        [
+          "C_INIT_InitFloat",
+          39889
+        ],
+        [
+          "C_INIT_RandomColor",
+          6973
+        ],
+        [
+          "C_INIT_CreateWithinSphere",
+          5843
+        ],
+        [
+          "C_INIT_PositionOffset",
+          5316
+        ],
+        [
+          "C_INIT_RandomSequence",
+          3909
+        ],
+        [
+          "C_INIT_InitialVelocityNoise",
+          3093
+        ],
+        [
+          "C_INIT_RandomYawFlip",
+          2750
+        ],
+        [
+          "C_INIT_RingWave",
+          2132
+        ],
+        [
+          "C_INIT_RemapParticleCountToScalar",
+          1911
+        ],
+        [
+          "C_INIT_CreateWithinSphereTransform",
+          1825
+        ],
+        [
+          "C_INIT_CreateOnModel",
+          988
+        ],
+        [
+          "C_INIT_PositionPlaceOnGround",
+          799
+        ],
+        [
+          "C_INIT_CreateFromParentParticles",
+          658
+        ],
+        [
+          "C_INIT_InitVec",
+          625
+        ],
+        [
+          "C_INIT_InheritFromParentParticles",
+          588
+        ],
+        [
+          "C_INIT_VelocityRandom",
+          570
+        ],
+        [
+          "C_INIT_CreationNoise",
+          451
+        ],
+        [
+          "C_INIT_CreateSequentialPath",
+          360
+        ],
+        [
+          "C_INIT_PositionWarp",
+          315
+        ],
+        [
+          "C_INIT_NormalAlignToCP",
+          273
+        ],
+        [
+          "C_INIT_InheritVelocity",
+          267
+        ],
+        [
+          "C_INIT_CreateSequentialPathV2",
+          232
+        ],
+        [
+          "C_INIT_RandomNamedModelSequence",
+          222
+        ],
+        [
+          "C_INIT_RandomSecondSequence",
+          206
+        ],
+        [
+          "C_INIT_RemapCPtoVector",
+          178
+        ],
+        [
+          "C_INIT_InitFromCPSnapshot",
+          173
+        ],
+        [
+          "C_INIT_InitSkinnedPositionFromCPSnapshot",
+          153
+        ],
+        [
+          "C_INIT_CreateInEpitrochoid",
+          149
+        ],
+        [
+          "C_INIT_DistanceToCPInit",
+          135
+        ],
+        [
+          "C_INIT_RemapInitialCPDirectionToRotation",
+          131
+        ],
+        [
+          "C_INIT_NormalOffset",
+          124
+        ],
+        [
+          "C_INIT_InitFromParentKilled",
+          110
+        ],
+        [
+          "C_INIT_VelocityFromCP",
+          100
+        ],
+        [
+          "C_INIT_CreateWithinBox",
+          98
+        ],
+        [
+          "C_INIT_SetAttributeToScalarExpression",
+          94
+        ],
+        [
+          "C_INIT_Orient2DRelToCP",
+          91
+        ],
+        [
+          "C_INIT_RemapInitialDirectionToCPToVector",
+          77
+        ],
+        [
+          "C_INIT_SetVectorAttributeToVectorExpression",
+          71
+        ],
+        [
+          "C_INIT_SequenceLifeTime",
+          70
+        ],
+        [
+          "C_INIT_CreateAlongPath",
+          67
+        ],
+        [
+          "C_INIT_GlobalScale",
+          49
+        ],
+        [
+          "C_INIT_SetFloatAttributeToVectorExpression",
+          42
+        ],
+        [
+          "C_INIT_RemapInitialDirectionToTransformToVector",
+          40
+        ],
+        [
+          "C_INIT_RadiusFromCPObject",
+          39
+        ],
+        [
+          "C_INIT_AgeNoise",
+          34
+        ],
+        [
+          "C_INIT_RemapScalarToVector",
+          32
+        ],
+        [
+          "C_INIT_RemapInitialTransformDirectionToRotation",
+          31
+        ],
+        [
+          "C_INIT_RemapTransformToVector",
+          31
+        ],
+        [
+          "C_INIT_CreateSpiralSphere",
+          22
+        ],
+        [
+          "C_INIT_CreateFromPlaneCache",
+          21
+        ]
+      ],
+      "Operator": [
+        [
+          "C_OP_Decay",
+          11513
+        ],
+        [
+          "C_OP_BasicMovement",
+          9812
+        ],
+        [
+          "C_OP_InterpolateRadius",
+          9114
+        ],
+        [
+          "C_OP_FadeOutSimple",
+          6826
+        ],
+        [
+          "C_OP_FadeInSimple",
+          5051
+        ],
+        [
+          "C_OP_ColorInterpolate",
+          4455
+        ],
+        [
+          "C_OP_PositionLock",
+          3812
+        ],
+        [
+          "C_OP_SetFloat",
+          3159
+        ],
+        [
+          "C_OP_RampScalarLinearSimple",
+          2989
+        ],
+        [
+          "C_OP_SpinUpdate",
+          2230
+        ],
+        [
+          "C_OP_VectorNoise",
+          1372
+        ],
+        [
+          "C_OP_EndCapTimedDecay",
+          1285
+        ],
+        [
+          "C_OP_RampScalarLinear",
+          1159
+        ],
+        [
+          "C_OP_LerpEndCapScalar",
+          1051
+        ],
+        [
+          "C_OP_OscillateVector",
+          1022
+        ],
+        [
+          "C_OP_SetVec",
+          735
+        ],
+        [
+          "C_OP_FadeAndKill",
+          676
+        ],
+        [
+          "C_OP_LockToBone",
+          641
+        ],
+        [
+          "C_OP_Spin",
+          581
+        ],
+        [
+          "C_OP_FadeOut",
+          534
+        ],
+        [
+          "C_OP_OscillateScalar",
+          524
+        ],
+        [
+          "C_OP_MovementRotateParticleAroundAxis",
+          430
+        ],
+        [
+          "C_OP_InheritFromParentParticlesV2",
+          425
+        ],
+        [
+          "C_OP_DistanceToCP",
+          373
+        ],
+        [
+          "C_OP_DampenToCP",
+          332
+        ],
+        [
+          "C_OP_Orient2DRelToCP",
+          328
+        ],
+        [
+          "C_OP_RampScalarSpline",
+          314
+        ],
+        [
+          "C_OP_MovementPlaceOnGround",
+          305
+        ],
+        [
+          "C_OP_AlphaDecay",
+          288
+        ],
+        [
+          "C_OP_MaxVelocity",
+          281
+        ],
+        [
+          "C_OP_SetChildControlPoints",
+          275
+        ],
+        [
+          "C_OP_Noise",
+          263
+        ],
+        [
+          "C_OP_FadeIn",
+          244
+        ],
+        [
+          "C_OP_SetAttributeToScalarExpression",
+          236
+        ],
+        [
+          "C_OP_InheritFromParentParticles",
+          235
+        ],
+        [
+          "C_OP_OscillateScalarSimple",
+          227
+        ],
+        [
+          "C_OP_SetControlPointsToParticle",
+          189
+        ],
+        [
+          "C_OP_RemapCPtoScalar",
+          169
+        ],
+        [
+          "C_OP_ClampScalar",
+          155
+        ],
+        [
+          "C_OP_SetToCP",
+          149
+        ],
+        [
+          "C_OP_SpinYaw",
+          144
+        ],
+        [
+          "C_OP_MaintainSequentialPath",
+          139
+        ],
+        [
+          "C_OP_RemapDirectionToCPToVector",
+          129
+        ],
+        [
+          "C_OP_SetControlPointsToModelParticles",
+          126
+        ],
+        [
+          "C_OP_RemapSpeed",
+          125
+        ],
+        [
+          "C_OP_RadiusDecay",
+          124
+        ],
+        [
+          "C_OP_LerpScalar",
+          122
+        ],
+        [
+          "C_OP_SetVectorAttributeToVectorExpression",
+          117
+        ],
+        [
+          "C_OP_SetPerChildControlPoint",
+          112
+        ],
+        [
+          "C_OP_PercentageBetweenCPs",
+          111
+        ]
+      ],
+      "ForceGenerator": [
+        [
+          "C_OP_AttractToControlPoint",
+          1229
+        ],
+        [
+          "C_OP_RandomForce",
+          343
+        ],
+        [
+          "C_OP_TwistAroundAxis",
+          251
+        ],
+        [
+          "C_OP_CurlNoiseForce",
+          167
+        ],
+        [
+          "C_OP_TurbulenceForce",
+          76
+        ],
+        [
+          "C_OP_ExternalWindForce",
+          23
+        ],
+        [
+          "C_OP_ParentVortices",
+          9
+        ],
+        [
+          "C_OP_LocalAccelerationForce",
+          6
+        ],
+        [
+          "C_OP_PerParticleForce",
+          5
+        ],
+        [
+          "C_OP_ForceBasedOnDistanceToPlane",
+          4
+        ],
+        [
+          "C_OP_TimeVaryingForce",
+          3
+        ],
+        [
+          "C_OP_WindForce",
+          1
+        ]
+      ],
+      "Constraint": [
+        [
+          "C_OP_ConstrainDistance",
+          124
+        ],
+        [
+          "C_OP_WorldTraceConstraint",
+          105
+        ],
+        [
+          "C_OP_ConstrainDistanceToPath",
+          97
+        ],
+        [
+          "C_OP_PlanarConstraint",
+          64
+        ],
+        [
+          "C_OP_RopeSpringConstraint",
+          15
+        ],
+        [
+          "C_OP_BoxConstraint",
+          2
+        ]
+      ],
+      "Renderer": [
+        [
+          "C_OP_RenderSprites",
+          8597
+        ],
+        [
+          "C_OP_RenderRopes",
+          2064
+        ],
+        [
+          "C_OP_RenderTrails",
+          1161
+        ],
+        [
+          "C_OP_RenderModels",
+          933
+        ],
+        [
+          "C_OP_RenderDeferredLight",
+          585
+        ],
+        [
+          "C_OP_RenderProjected",
+          200
+        ],
+        [
+          "C_OP_RenderScreenShake",
+          43
+        ],
+        [
+          "C_OP_RenderBlobs",
+          20
+        ],
+        [
+          "C_OP_RenderCables",
+          10
+        ],
+        [
+          "C_OP_RenderStatusEffect",
+          8
+        ],
+        [
+          "C_OP_RenderScreenVelocityRotate",
+          3
+        ],
+        [
+          "C_OP_RenderStandardLight",
+          1
+        ]
+      ],
+      "undefined": []
+    }
+  },
+  "b_blocks": {
+    "total": 13553,
+    "nonEmpty": {
+      "m_PreEmissionOperators": {
+        "files": 1680,
+        "pct": 12.4
+      },
+      "m_Emitters": {
+        "files": 12590,
+        "pct": 92.89
+      },
+      "m_Initializers": {
+        "files": 12623,
+        "pct": 93.14
+      },
+      "m_Operators": {
+        "files": 12642,
+        "pct": 93.28
+      },
+      "m_ForceGenerators": {
+        "files": 1806,
+        "pct": 13.33
+      },
+      "m_Constraints": {
+        "files": 381,
+        "pct": 2.81
+      },
+      "m_Renderers": {
+        "files": 12144,
+        "pct": 89.6
+      },
+      "m_Children": {
+        "files": 0,
+        "pct": 0
+      }
+    }
+  },
+  "c_params": {
+    "m_nMaxParticles": {
+      "count": 13259,
+      "min": 0,
+      "p25": 6,
+      "p50": 20,
+      "p75": 64,
+      "p90": 128,
+      "p95": 200,
+      "p99": 500,
+      "max": 10000,
+      "mean": 53.154
+    },
+    "m_flConstantRadius": {
+      "count": 5547,
+      "min": -350,
+      "p25": 8,
+      "p50": 20,
+      "p75": 64,
+      "p90": 180,
+      "p95": 300,
+      "p99": 640,
+      "max": 10000000,
+      "mean": 1870.585
+    },
+    "m_flConstantLifespan": {
+      "count": 1281,
+      "min": 0,
+      "p25": 0.5,
+      "p50": 0.74,
+      "p75": 2,
+      "p90": 5,
+      "p95": 10,
+      "p99": 600,
+      "max": 99999,
+      "mean": 342.751
+    },
+    "m_flEmitRate_literal": {
+      "count": 5588,
+      "min": 0,
+      "p25": 10,
+      "p50": 30,
+      "p75": 85,
+      "p90": 256,
+      "p95": 500,
+      "p99": 1200,
+      "max": 500000,
+      "mean": 239.381
+    },
+    "m_nParticlesToEmit_literal": {
+      "count": 6364,
+      "min": 0,
+      "p25": 1,
+      "p50": 6,
+      "p75": 24,
+      "p90": 48,
+      "p95": 64,
+      "p99": 170,
+      "max": 2256,
+      "mean": 18.971
+    },
+    "randomLifetime_min": {
+      "count": 5903,
+      "min": 0,
+      "p25": 0.25,
+      "p50": 0.5,
+      "p75": 1,
+      "p90": 2,
+      "p95": 2,
+      "p99": 5,
+      "max": 50,
+      "mean": 0.851
+    },
+    "randomLifetime_max": {
+      "count": 5903,
+      "min": 0,
+      "p25": 0.5,
+      "p50": 1,
+      "p75": 2,
+      "p90": 3,
+      "p95": 4,
+      "p99": 7,
+      "max": 60,
+      "mean": 1.415
+    }
+  },
+  "d_materials": {
+    "distinct": 962,
+    "top30": [
+      [
+        "materials/particle/particle_glow_05.vtex",
+        486
+      ],
+      [
+        "materials/particle/sparks/sparks.vtex",
+        466
+      ],
+      [
+        "materials/particle/smoke1/smoke1.vtex",
+        374
+      ],
+      [
+        "materials/particle/particle_glow_04.vtex",
+        335
+      ],
+      [
+        "materials/particle/yellowflare2.vtex",
+        288
+      ],
+      [
+        "materials/particle/smoke3/smoke3b.vtex",
+        284
+      ],
+      [
+        "materials/particle/particle_flares/aircraft_white.vtex",
+        240
+      ],
+      [
+        "materials/particle/impact/fleks3.vtex",
+        227
+      ],
+      [
+        "materials/particle/beam_generic_2.vtex",
+        198
+      ],
+      [
+        "materials/particle/yellowflare.vtex",
+        180
+      ],
+      [
+        "materials/particle/beam_hotwhite.vtex",
+        148
+      ],
+      [
+        "materials/particle/impact/fleks.vtex",
+        144
+      ],
+      [
+        "materials/particles/light_flare/light_glow_01.vtex",
+        144
+      ],
+      [
+        "materials/particle/smoke/steam/steam.vtex",
+        144
+      ],
+      [
+        "materials/particle/spray1/spray1.vtex",
+        142
+      ],
+      [
+        "materials/particle/particle_glow_08.vtex",
+        135
+      ],
+      [
+        "materials/particle/smoke/static/static_smoke.vtex",
+        133
+      ],
+      [
+        "materials/particle/lens_flare/lens_flare.vtex",
+        123
+      ],
+      [
+        "materials/particle/vistasmokev1/vistasmokev1.vtex",
+        120
+      ],
+      [
+        "materials/particle/fire_particle_10/fire_particle_10_low.vtex",
+        119
+      ],
+      [
+        "materials/particle/particle_flares/particle_flare_004b_mod.vtex",
+        116
+      ],
+      [
+        "materials/particle/particle_glow_01.vtex",
+        114
+      ],
+      [
+        "materials/particle/particle_flares/aircraft_blue2.vtex",
+        111
+      ],
+      [
+        "materials/particle/particle_flares/aircraft_white_v3.vtex",
+        111
+      ],
+      [
+        "materials/particle/particle_flares/particle_flare_001.vtex",
+        104
+      ],
+      [
+        "materials/particle/beam_generic_7.vtex",
+        100
+      ],
+      [
+        "materials/particle/particle_flares/aircraft_red.vtex",
+        99
+      ],
+      [
+        "materials/particle/dust/large_swirl_dust.vtex",
+        98
+      ],
+      [
+        "materials/particle/particle_flares/aircraft_white_v2.vtex",
+        90
+      ],
+      [
+        "materials/particle/particle_ring_wavy4.vtex",
+        88
+      ]
+    ]
+  },
+  "e_combos": {
+    "eligibleFiles": 12108,
+    "top10": [
+      [
+        "E:C_OP_ContinuousEmitter | R:C_OP_RenderSprites | O:C_OP_BasicMovement+C_OP_ColorInterpolate+C_OP_Decay",
+        1065
+      ],
+      [
+        "E:C_OP_InstantaneousEmitter | R:C_OP_RenderSprites | O:C_OP_BasicMovement+C_OP_ColorInterpolate+C_OP_Decay",
+        738
+      ],
+      [
+        "E:C_OP_ContinuousEmitter | R:C_OP_RenderSprites | O:C_OP_BasicMovement+C_OP_Decay+C_OP_FadeInSimple",
+        590
+      ],
+      [
+        "E:C_OP_InstantaneousEmitter | R:C_OP_RenderSprites | O:C_OP_BasicMovement+C_OP_Decay+C_OP_FadeOutSimple",
+        549
+      ],
+      [
+        "E:C_OP_InstantaneousEmitter | R:C_OP_RenderSprites | O:C_OP_BasicMovement+C_OP_Decay+C_OP_FadeInSimple",
+        275
+      ],
+      [
+        "E:C_OP_ContinuousEmitter | R:C_OP_RenderRopes | O:C_OP_BasicMovement+C_OP_ColorInterpolate+C_OP_Decay",
+        254
+      ],
+      [
+        "E:C_OP_ContinuousEmitter | R:C_OP_RenderSprites | O:C_OP_BasicMovement+C_OP_Decay+C_OP_FadeOutSimple",
+        192
+      ],
+      [
+        "E:C_OP_ContinuousEmitter | R:C_OP_RenderRopes | O:C_OP_BasicMovement+C_OP_Decay+C_OP_FadeInSimple",
+        157
+      ],
+      [
+        "E:C_OP_ContinuousEmitter | R:C_OP_RenderSprites | O:C_OP_SetFloat+C_OP_BasicMovement+C_OP_Decay",
+        149
+      ],
+      [
+        "E:C_OP_ContinuousEmitter | R:C_OP_RenderSprites | O:C_OP_BasicMovement+C_OP_Decay+C_OP_InterpolateRadius",
+        140
+      ]
+    ]
+  },
+  "f_advanced": {
+    "children": {
+      "filesWithChildren": 3599,
+      "pct": 26.56,
+      "totalDirectChildren": 12273,
+      "avgDirectChildrenPerFile": 3.41,
+      "totalChildRefs": 12273,
+      "resolvableInCorpus": 12127,
+      "pctResolvable": 98.81,
+      "distinctChildTargets": 10177,
+      "chainDepth": {
+        "countFilesWithChildren": 3599,
+        "avgMaxDepth": 1.45,
+        "maxDepth": 6
+      }
+    },
+    "controlPoints": {
+      "filesWithControlPoint": 10833,
+      "pct": 79.93
+    },
+    "constraints": {
+      "filesWithConstraints": 381,
+      "pct": 2.81
+    },
+    "sequence": {
+      "filesWithSequenceNumber": 1101,
+      "filesWithNonZero": 1101,
+      "pctNonZero": 8.12
+    }
+  }
+}
