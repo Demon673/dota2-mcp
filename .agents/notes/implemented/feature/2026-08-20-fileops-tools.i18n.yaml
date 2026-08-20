@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/feature/2026-08-20-fileops-tools.md
+2026-08-20-fileops-tools.md: 46b7ffb2515159130b3d781fa3569093fbca2fb0
+2026-08-20-fileops-tools.zh.md: d7b9286c91859803b827cf445ed6ee41d0761b2f

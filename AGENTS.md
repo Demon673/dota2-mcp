@@ -184,7 +184,7 @@ Relay/Client 实现了已针对 Dota 2 验证的 VConsole2 二进制帧格式：
 服务端 → 客户端消息类型：`AINF`、`ADON`、`CHAN`、`CVRB`、`PRNT`、`CFGV`。  
 客户端 → 服务端命令类型：`CMND`（以 null 结尾的 ASCII）。
 
-### 当前已实现的 22 个 MCP 工具
+### 当前已实现的 26 个 MCP 工具
 
 **游戏控制**
 | 工具 | 控制台命令 | 说明 |
@@ -226,6 +226,14 @@ Relay/Client 实现了已针对 Dota 2 验证的 VConsole2 二进制帧格式：
 | 工具 | 说明 |
 |------|------|
 | `dota_compile_asset` | 调 resourcecompiler / Source2Viewer-CLI 编译资源 |
+
+**文件操作（离线，无需游戏）**
+| 工具 | 说明 |
+|------|------|
+| `file_read` | 读 addon 内文本文件（限 5 MB；路径越界拒绝） |
+| `file_write` | 写/覆盖 addon 内文件（自动建目录） |
+| `file_edit` | old_string→new_string 替换（恰好一次匹配，否则响亮失败） |
+| `file_delete` | 删除 addon 内文件（返回内容快照） |
 
 **技能**
 | 工具 | 说明 |
@@ -301,7 +309,7 @@ Single-context：决策记录在 `.agents/notes/`（Agent Note）。见 `docs/ag
 
 ## TODO — 后续计划
 
-- [ ] **FileOps** — 读写 KV/Lua/TS/JS/CSS/XML 源文件
+- [x] **FileOps** — 读写 KV/Lua/TS/JS/CSS/XML 源文件（`file_read/write/edit/delete` 已落地）
 - [ ] **BuildTools** — npm/tstl/rollup 构建集成 + 脚手架生成
 - [ ] **AssetInspector** — VRF CLI 子进程调用，解析 .vmdl_c/.vmap_c/.vpcf_c 等
 - [ ] **Claude MCP 配置** — 写配置让 AI agent 直接调用

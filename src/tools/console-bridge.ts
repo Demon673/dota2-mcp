@@ -128,13 +128,22 @@ export function readErrors(
 // Default config (auto-detected)
 // ---------------------------------------------------------------------------
 
+/** 非 win32 平台（WSL 等）把 Windows 盘符路径映射到 /mnt/<drive>/ 挂载，使 fs 可访问；win32 原样返回。 */
+function toHostPath(p: string | null): string | null {
+  if (!p) return null;
+  if (process.platform === "win32") return p;
+  const m = p.match(/^([A-Za-z]):[\/\\]?(.*)$/);
+  if (!m) return p; // 已是 host 路径（如 /mnt/d/...）
+  return "/mnt/" + m[1].toLowerCase() + "/" + m[2];
+}
+
 /** 尝试自动检测 Dota 2 路径（通过 Steam appid 570） */
 export async function detectDotaPath(): Promise<string | null> {
   // 先试 find-steam-app
   try {
     const appPath = await findSteamAppById(570);
     if (appPath && fs.existsSync(path.join(appPath, "game", "dota"))) {
-      return appPath;
+      return toHostPath(appPath);
     }
   } catch {
     // find-steam-app 1.0.2 无法解析新版 libraryfolders.vdf（条目是对象不是字符串），
@@ -148,18 +157,18 @@ export async function detectDotaPath(): Promise<string | null> {
       "Asset compilation and addon map scanning will be unavailable."
     );
   }
-  return manual;
+  return toHostPath(manual);
 }
 
 /** 从 Windows 注册表读 Steam 安装路径（Steam 自己记录的，比猜默认位置可靠）。 */
 function steamPathFromRegistry(): string | null {
-  if (process.platform !== "win32") return null;
+  // WSL 下 reg.exe 经 interop 可用；纯 Linux 上 execSync 抛错走 catch 返回 null。
   try {
     const out = execSync(
       'reg query "HKCU\\Software\\Valve\\Steam" /v SteamPath',
       { encoding: "utf-8", windowsHide: true }
     );
-    const m = out.match(/SteamPath\s+REG_SZ\s+(\S+)/);
+    const m = out.match(/SteamPath\s+REG_SZ\s+(.+?)\s*$/m);
     return m ? m[1].replace(/\\/g, "/") : null;
   } catch { return null; }
 }
@@ -179,10 +188,11 @@ function parseLibraryFolders(vdfPath: string): string[] {
 
 /** 在候选 Steam 根及其 libraryfolders 列出的所有库中查找 Dota 2。 */
 function findDotaInLibraries(steamRoot: string): string | null {
-  // Steam 根本身也是一个库
-  const candidates = [steamRoot];
-  const vdfPath = path.join(steamRoot, "steamapps", "libraryfolders.vdf");
-  candidates.push(...parseLibraryFolders(vdfPath));
+  // Steam 根本身也是一个库（Windows 路径在非 win32 下转 /mnt 挂载，fs 才可访问）
+  const hostRoot = toHostPath(steamRoot) ?? steamRoot;
+  const candidates = [hostRoot];
+  const vdfPath = path.join(hostRoot, "steamapps", "libraryfolders.vdf");
+  candidates.push(...parseLibraryFolders(vdfPath).map((p) => toHostPath(p) ?? p));
 
   for (const lib of candidates) {
     const dota = path.join(lib, "steamapps", "common", "dota 2 beta");
@@ -198,8 +208,8 @@ function detectDotaPathManual(): string | null {
   const steamRoots = [
     steamPathFromRegistry(),
     process.env.STEAM_PATH,
-    process.platform === "win32" ? "C:/Program Files (x86)/Steam" : null,
-    process.platform === "win32" ? "C:/Program Files/Steam" : null,
+    "C:/Program Files (x86)/Steam",
+    "C:/Program Files/Steam",
     process.platform === "linux" ? "~/.steam/steam" : null,
     process.platform === "darwin" ? "~/Library/Application Support/Steam" : null,
   ].filter((p): p is string => !!p);

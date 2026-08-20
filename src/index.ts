@@ -1270,6 +1270,135 @@ Once connected, call dota_status again.` }] };
     }
   );
 
+  // ===== FileOps：addon 内文件读写编辑删除（离线工具，不门控）=====
+
+  /** 解析 FileOps 目标路径并校验边界。
+   *  - content/ 或 game/ 开头：相对于 dotaPath
+   *  - 其他：默认 content/dota_addons/{addon}/...
+   *  - 解析结果必须落在 content/dota_addons/{addon}/ 或 game/dota_addons/{addon}/ 内（防 ../ 逃逸）
+   */
+  function resolveFileOpsPath(target: string, addon: string): string {
+    const lower = target.toLowerCase().replace(/\\/g, "/");
+    const resolved = (lower.startsWith("content/") || lower.startsWith("game/"))
+      ? path.join(dotaPath!, target)
+      : path.join(dotaPath!, "content", "dota_addons", addon, target);
+    const normalized = path.resolve(resolved);
+    const bases = [
+      path.resolve(dotaPath!, "content", "dota_addons", addon),
+      path.resolve(dotaPath!, "game", "dota_addons", addon),
+    ];
+    const inside = bases.some((b) => normalized === b || normalized.startsWith(b + path.sep));
+    if (!inside) {
+      throw new McpError(ErrorCode.InvalidRequest,
+        `Path outside addon '${addon}': ${target}. Allowed roots: content/dota_addons/${addon}/ and game/dota_addons/${addon}/ (start target with content/ or game/).`);
+    }
+    return normalized;
+  }
+
+  /** FileOps 的 addon 解析：显式参数 > relay 检测 > DOTA2_TEST_ADDON > 文件系统唯一推断 */
+  function resolveFileOpsAddon(addon?: string): string {
+    const fromEnv = process.env.DOTA2_TEST_ADDON;
+    const a = resolveAddon(addon) ?? (fromEnv ? fromEnv : null);
+    if (a) return a;
+    const addons = listAddonsFs();
+    throw new McpError(ErrorCode.InvalidRequest, addons.length > 1
+      ? `No addon detected. Specify the addon name or one of: ${addons.join(", ")}`
+      : "No addon detected. Load a project first or specify the addon name.");
+  }
+
+  const FILEOPS_MAX_BYTES = 5 * 1024 * 1024;
+
+  server.tool("file_read",
+    "Read a text file inside the current Dota 2 addon. Offline tool: no game or vconsole required. Target can start with content/ or game/ (relative to the Dota 2 install), or be relative to the addon content dir. Paths outside content/dota_addons/{addon}/ and game/dota_addons/{addon}/ are rejected.",
+    {
+      target: z.string().describe("File path inside the addon"),
+      addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
+    },
+    async ({ target, addon }) => {
+      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
+      const a = resolveFileOpsAddon(addon);
+      const resolved = resolveFileOpsPath(target, a);
+      try {
+        const stat = fs.statSync(resolved);
+        if (stat.size > FILEOPS_MAX_BYTES) {
+          throw new McpError(ErrorCode.InvalidRequest, `File too large (${stat.size} bytes, max ${FILEOPS_MAX_BYTES}). Use asset_inspect for binary assets.`);
+        }
+        const content = fs.readFileSync(resolved, "utf8");
+        return { content: [{ type: "text", text: content }] };
+      } catch (e) {
+        if (e instanceof McpError) throw e;
+        throw new McpError(ErrorCode.InvalidRequest, `Cannot read ${resolved}: ${(e as Error).message}`);
+      }
+    }
+  );
+
+  server.tool("file_write",
+    "Write (create or overwrite) a text file inside the current Dota 2 addon. Offline tool: no game or vconsole required. Same path rules as file_read; parent directories are created.",
+    {
+      target: z.string().describe("File path inside the addon"),
+      content: z.string().describe("Full UTF-8 content to write"),
+      addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
+    },
+    async ({ target, content, addon }) => {
+      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
+      const a = resolveFileOpsAddon(addon);
+      const resolved = resolveFileOpsPath(target, a);
+      try {
+        fs.mkdirSync(path.dirname(resolved), { recursive: true });
+        fs.writeFileSync(resolved, content, "utf8");
+        return { content: [{ type: "text", text: `Wrote ${resolved} (${Buffer.byteLength(content, "utf8")} bytes)` }] };
+      } catch (e) {
+        throw new McpError(ErrorCode.InvalidRequest, `Cannot write ${resolved}: ${(e as Error).message}`);
+      }
+    }
+  );
+
+  server.tool("file_edit",
+    "Replace one occurrence of old_string with new_string in a file inside the current Dota 2 addon. Offline tool. old_string must appear exactly once (report counts when not), so ambiguous edits fail loudly.",
+    {
+      target: z.string().describe("File path inside the addon"),
+      old_string: z.string().describe("Exact text to replace (must appear exactly once)"),
+      new_string: z.string().describe("Replacement text (may be empty to delete)"),
+      addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
+    },
+    async ({ target, old_string, new_string, addon }) => {
+      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
+      const a = resolveFileOpsAddon(addon);
+      const resolved = resolveFileOpsPath(target, a);
+      try {
+        const content = fs.readFileSync(resolved, "utf8");
+        const count = content.split(old_string).length - 1;
+        if (count === 0) throw new McpError(ErrorCode.InvalidRequest, `old_string not found in ${resolved}`);
+        if (count > 1) throw new McpError(ErrorCode.InvalidRequest, `old_string appears ${count} times in ${resolved}; make it unique before editing`);
+        fs.writeFileSync(resolved, content.replace(old_string, new_string), "utf8");
+        return { content: [{ type: "text", text: `Edited ${resolved} (1 replacement)` }] };
+      } catch (e) {
+        if (e instanceof McpError) throw e;
+        throw new McpError(ErrorCode.InvalidRequest, `Cannot edit ${resolved}: ${(e as Error).message}`);
+      }
+    }
+  );
+
+  server.tool("file_delete",
+    "Delete a file inside the current Dota 2 addon. Offline tool. Returns a short snapshot of the deleted content so the deletion is auditable.",
+    {
+      target: z.string().describe("File path inside the addon"),
+      addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
+    },
+    async ({ target, addon }) => {
+      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
+      const a = resolveFileOpsAddon(addon);
+      const resolved = resolveFileOpsPath(target, a);
+      try {
+        const snapshot = fs.readFileSync(resolved, "utf8").slice(0, 500);
+        fs.unlinkSync(resolved);
+        return { content: [{ type: "text", text: `Deleted ${resolved}\n--- snapshot (first 500 chars) ---\n${snapshot}` }] };
+      } catch (e) {
+        throw new McpError(ErrorCode.InvalidRequest, `Cannot delete ${resolved}: ${(e as Error).message}`);
+      }
+    }
+  );
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   server.sendLoggingMessage({ level: "info", data: "dota2-mcp ready" });
