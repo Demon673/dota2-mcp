@@ -21,5 +21,5 @@ Agent 需要特效/模型工具链的内置格式知识（地图 #9）：怎么�
 
 ## Consequences
 
-- dota2_skill 暴露的 skill：doc-standards、dota2-game-phases、dota2-model、dota2-runtime-dev、dota2-vfx。
+- dota2_skill 暴露的 skill：dota2-game-phases、dota2-model、dota2-runtime-dev、dota2-vfx。
 - 字面全量字段表为未完成工作，由两个 skill 内的 TODO(rare) 追踪。

@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-`prose-standard`、`trim-cot-leakage`、`translate-docs`、`archive-agent-notes`、`code-review` 不再内置。它们的全局版本为准，仓库内引用均为裸文本（"the global prose-standard skill"）。`doc-standards` 保持内置，因为它是 dota2-mcp 专属、没有全局对应。`dota2-game-phases` 与 `dota2-runtime-dev` 保持内置，因为 `scripts/test-mcp-offline.mjs` 与 `src/index.ts` 的卡相位指引钉住了它们；全局 `dota2-custom-game-dev` 覆盖 addon 开发，但不覆盖 MCP 相位推进 SOP 或运行时热重载模型。
+`prose-standard`、`trim-cot-leakage`、`translate-docs`、`archive-agent-notes`、`code-review` 不再内置。它们的全局版本为准，仓库内引用均为裸文本（"the global prose-standard skill"）。`doc-standards` 同样不内置（划定边界的同日移除）：维护类 skill 在维护者的全局 skill 目录。`skills/` 只随包发布运行时知识。`dota2-game-phases` 与 `dota2-runtime-dev` 保持内置，因为 `scripts/test-mcp-offline.mjs` 与 `src/index.ts` 的卡相位指引钉住了它们；全局 `dota2-custom-game-dev` 覆盖 addon 开发，但不覆盖 MCP 相位推进 SOP 或运行时热重载模型。
 
 ## Alternatives considered
 
@@ -20,6 +20,6 @@ Status: implemented
 
 ## Consequences
 
-- `dota2_skill` 暴露三个 skill，而非八个。
+- `dota2_skill` 暴露四个运行时 skill：dota2-game-phases、dota2-runtime-dev、dota2-vfx、dota2-model。
 - 对全局 skill 的裸文本引用存在于 `docs/AGENTS.md`、`skills/doc-standards/SKILL.md` 与 `.agents/notes/README.md`；全局目录位置在 `AGENTS.md` 陈述一次。
 - 全局 skill 与本仓库契约之间未来的漂移（例如翻译权威）由读者自行裁决，而非由内置副本兜底。

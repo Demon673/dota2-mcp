@@ -3,17 +3,17 @@ name: dota2-model
 description: Use when creating, editing, compiling, or validating Dota 2 model assets (.vmdl/.vmat/.vtex) — writing model/material sources with file_write/file_edit, compiling with dota_compile_asset, inspecting structure with asset_inspect, and checking reference integrity with asset_check_refs.
 ---
 
-# Dota 2 Model Assets — 模型资产
+# Dota 2 Model Assets — Model Assets
 
 This skill owns the model-asset workflow of the dota2-mcp toolchain: authoring `.vmdl` / `.vmat` / `.vtex` sources, compiling them, and validating structure and references. All structural facts below are verified against the official corpus (`dota2_skill` data='model-stats.json': 3,161 vmdl + 2,549 vmat decompiles, 100% success).
 
-## 核心心智模型：资产管线
+## Core mental model: asset pipeline
 
 Same split as particles (see dota2-vfx): sources live under `content/dota_addons/<addon>/` (`.vmdl` KV3-modeldoc, `.vmat` quoted-KeyValues), compiled outputs under `game/dota_addons/<addon>/` (`_c` suffix). The engine loads only the compiled side. Texture sources (`.tga`/`.psd`) compile into `.vtex_c`.
 
-## .vmdl 写作速查（modeldoc28）
+## .vmdl authoring quick reference (modeldoc28)
 
-**官方语料 100% 是 modeldoc 节点图，不是 m_meshList。** The root carries `rootNode`/`children` — never `m_meshList` / `m_material` / `m_refLODGroup` (those field names appear 0 times in 18,405 official models).
+**The official corpus is 100% modeldoc node graphs, not m_meshList.** The root carries `rootNode`/`children` — never `m_meshList` / `m_material` / `m_refLODGroup` (those field names appear 0 times in 18,405 official models).
 
 ```
 <!-- kv3 encoding:text:version{e21c7f3c-8a33-41c5-9977-a76d3a32aa0d} format:modeldoc28:version{...} -->
@@ -46,7 +46,7 @@ Same split as particles (see dota2-vfx): sources live under `content/dota_addons
 - **Materials are bound in the mesh, not the model** — the `.vmdl` carries no material assignment; style variants use `MaterialGroupList` → `BaseMaterialRemap { from, to }`.
 - Mesh count p50 = 2 (typical: base mesh + LOD1), max 58.
 
-## .vmat 写作速查（quoted KeyValues）
+## .vmat authoring quick reference (quoted KeyValues)
 
 **vmat is quoted KeyValues wrapped in "Layer0" { }, not KV3.** Fields: `shader` (not `m_shader`), `F_*` feature flags, `g_fl*`/`g_v*` numeric params, source `Texture*` refs, plus a "Compiled Textures" block of `g_t*` refs.
 
@@ -74,23 +74,23 @@ Same split as particles (see dota2-vfx): sources live under `content/dota_addons
 - **Canonical hero material** = `hero.vfx` + g_tColor + g_tNormal + g_tMasks1 + g_tMasks2 + F_MASKS_1 + F_MASKS_2 + F_USE_STATUS_EFFECTS_PROXY.
 - Param count p50 = 43 (p90 = 58). Flags: F_MASKS_2 83% / F_MASKS_1 81% / F_USE_STATUS_EFFECTS_PROXY 80% / F_ALPHA_TEST 54%; two-sided 4.4%, additive 4%, self-illum (TextureSelfIllumMask) 85%.
 
-## .vtex 纹理要点
+## .vtex texture notes
 
 Texture sources (`.tga`/`.psd`) compile to `.vtex_c`. `asset_inspect` on a compiled texture exports a PNG and reports its dimensions/format (mip count is not recoverable from the PNG export).
 
-## 完整字段参考（官方语料统计）
+## Complete field reference (official corpus statistics)
 
 Full statistics ship with the skill: `dota2_skill(name='dota2-model', data='model-stats.json')` (machine-readable) and `data='model-official-findings.md'` (readable report, 348 lines). Headline numbers: vmdl 100% modeldoc28; mesh import 100% via RenderMeshFile `.dmx`; LOD 61.6%; skeleton 92.7%; animation 48.3%; physics 1.8%. vmat: shader hero.vfx 88.9%; params p50=43; Texture* source refs vs g_t* compiled refs; F_* flag frequencies.
 
-## 工作流 SOP
+## Workflow SOP
 
-1. **写源文件** — `file_write` the `.vmdl` (modeldoc) / `.vmat` (quoted KeyValues) under content (offline).
-2. **编译** — `dota_compile_asset` each source; resourcecompiler emits the `_c` outputs under game/. Syntax errors surface as stderr with line info.
-3. **验证结构** — `asset_inspect` the compiled asset (offline): modeldoc node/mesh refs and LOD/skeleton for vmdl; shader + texture refs for vmat; PNG dimensions for vtex.
-4. **验证引用** — `asset_check_refs` on the model: every material/texture ref must land in `ok` (or `engine_refs` for engine assets); `broken`/`uncompiled` entries name the exact fix.
-5. **游戏内确认** — launch the map and read `console_output` (ResourceSystem/MaterialSystem) after loading: no material errors means the chain compiled and resolved. (There is no model preview tool by design — model validation is compile + inspect + refs + load errors.)
+1. **Write source file** — `file_write` the `.vmdl` (modeldoc) / `.vmat` (quoted KeyValues) under content (offline).
+2. **Compile** — `dota_compile_asset` each source; resourcecompiler emits the `_c` outputs under game/. Syntax errors surface as stderr with line info.
+3. **Verify structure** — `asset_inspect` the compiled asset (offline): modeldoc node/mesh refs and LOD/skeleton for vmdl; shader + texture refs for vmat; PNG dimensions for vtex.
+4. **Verify references** — `asset_check_refs` on the model: every material/texture ref must land in `ok` (or `engine_refs` for engine assets); `broken`/`uncompiled` entries name the exact fix.
+5. **Confirm in game** — launch the map and read `console_output` (ResourceSystem/MaterialSystem) after loading: no material errors means the chain compiled and resolved. (There is no model preview tool by design — model validation is compile + inspect + refs + load errors.)
 
-## 工具映射表
+## Tool mapping table
 
 | Step | Tool | Notes |
 |------|------|-------|
@@ -100,7 +100,7 @@ Full statistics ship with the skill: `dota2_skill(name='dota2-model', data='mode
 | Check reference integrity | `asset_check_refs` | offline; four buckets |
 | Load-error check | `console_output` | channels ResourceSystem / MaterialSystem |
 
-## 常见错误对照
+## Common errors reference
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
@@ -111,9 +111,9 @@ Full statistics ship with the skill: `dota2_skill(name='dota2-model', data='mode
 | `asset_check_refs` lists `uncompiled` | source exists, `_c` output missing | run dota_compile_asset on the source |
 | MaterialSystem error in console on map load | material ref chain broken at runtime | asset_check_refs the model; fix broken/uncompiled buckets |
 | `asset_inspect` reports `unknown` | extension not a known asset type | check the target path/extension |
-| addon never launches | empty addoninfo | declare maps/IsPlayable in addoninfo.txt (see dota2-vfx 常见错误) |
+| addon never launches | empty addoninfo | declare maps/IsPlayable in addoninfo.txt (see dota2-vfx Common errors reference) |
 
-## 最小模板
+## Minimal template
 
 A minimal single-mesh model + material pair (modeldoc + quoted KeyValues):
 

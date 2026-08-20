@@ -1,6 +1,6 @@
 # AGENTS.md — The documentation standard
 
-This file defines document structure, Markdown tiers, and writing rules for this repo. Use [doc-standards](../.agents/skills/doc-standards/SKILL.md) for placement and validation, and the global prose-standard skill for required coverage and editorial judgment.
+This file defines document structure, Markdown tiers, and writing rules for this repo. Use the global doc-standards skill for placement and validation, and the global prose-standard skill for required coverage and editorial judgment.
 
 ## Document structure
 
@@ -43,7 +43,7 @@ Placement: rationale → Agent Notes; procedures → skills or cookbook content;
 
 ## The slop checklist
 
-Hunt these in any document; [doc-standards](../.agents/skills/doc-standards/SKILL.md) runs this list as an audit:
+Hunt these in any document; the global doc-standards skill runs this list as an audit:
 
 - The same rule stated in more than one home. Grep a distinctive phrase; keep one home and link the rest.
 - Narrated history or war stories: "previously", "now", "no longer", "used to", "renamed", PRs, or commits. State the current fact; link an Agent Note when needed.
