@@ -68,21 +68,11 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 
 **Claude Code**
 
-- 方式一（推荐）：命令行运行 `claude mcp add dota2 -- npx -y dota2-mcp`
-- 方式二：编辑 `~/.claude.json`，在 `mcpServers` 中加入通用配置
-- 验证：会话内输入 `/mcp`，dota2 显示 connected
+- 命令行运行 `claude mcp add dota2 -- npx -y dota2-mcp`；完整配置与验证见 [Claude Code MCP 官方文档](https://docs.anthropic.com/en/docs/claude-code/mcp)
 
 **Claude Desktop**
 
-- 编辑配置文件：Windows `%APPDATA%\Claude\claude_desktop_config.json`；macOS `~/Library/Application Support/Claude/claude_desktop_config.json`，写入：
-  ```json
-  {
-    "mcpServers": {
-      "dota2": { "command": "npx", "args": ["-y", "dota2-mcp"] }
-    }
-  }
-  ```
-- 重启 Claude Desktop
+- 在 `mcpServers` 中加入通用配置后重启；完整步骤见 [Claude Desktop 官方 MCP 文档](https://modelcontextprotocol.io/quickstart/user)
 
 **Cursor**
 
