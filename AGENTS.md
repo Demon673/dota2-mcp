@@ -252,7 +252,7 @@ Relay/Client 实现了已针对 Dota 2 验证的 VConsole2 二进制帧格式：
 **技能**
 | 工具 | 说明 |
 |------|------|
-| `dota2_skill` | 暴露 dota2 运行时开发技能内容 |
+| `dota2_skill` | 暴露内置技能（name 全文 / section 分节 / outline 目录；含 `dota2-vfx` 粒子与 `dota2-model` 模型资产格式知识） |
 
 ## Conventions
 

@@ -490,11 +490,13 @@ Then call dota_status again.`;
 
   // Tool: 获取内置 skill — 教 agent 怎么用这套 MCP（Roblox skill 模式）
   server.tool("dota2_skill",
-    "Retrieve built-in skill / knowledge on how to develop a Dota 2 custom game with this MCP. Call with no argument to list available skills, or with a skill name to retrieve its content. Learn the runtime development model (long-lived process + hot reload, no map restarts for code edits) before testing or editing.",
+    "Retrieve built-in skill / knowledge on how to develop a Dota 2 custom game with this MCP. Call with no argument to list available skills, with a name to retrieve its full content, with name + section to retrieve one '##' section (large skills like dota2-vfx/dota2-model are several thousand lines — prefer section retrieval), or with name + outline to list its section headings. Learn the runtime development model (long-lived process + hot reload, no map restarts for code edits) before testing or editing.",
     {
       name: z.string().optional().describe("Skill name, e.g. 'dota2-runtime-dev'. Omit to list available skills."),
+      section: z.string().optional().describe("Exact '##' section heading to retrieve (without the leading ##). Requires name."),
+      outline: z.boolean().optional().describe("List the skill's section headings instead of content. Requires name."),
     },
-    async ({ name }) => {
+    async ({ name, section, outline }) => {
       const skills = loadSkills();
       if (skills.length === 0) {
         return { content: [{ type: "text", text: "No built-in skills found (skills/ directory missing)." }] };
@@ -506,6 +508,21 @@ Then call dota_status again.`;
       const skill = skills.find(s => s.name === name || s.name === `dota2-${name}`);
       if (!skill) {
         return { content: [{ type: "text", text: `Unknown skill '${name}'. Available: ${skills.map(s => s.name).join(", ")}` }] };
+      }
+      const headings = [...skill.body.matchAll(/^## (.+)$/gm)].map(m => m[1]);
+      if (outline) {
+        return { content: [{ type: "text", text: `Sections of ${skill.name}:\n${headings.map(h => "- " + h).join("\n")}` }] };
+      }
+      if (section) {
+        const idx = headings.indexOf(section);
+        if (idx === -1) {
+          return { content: [{ type: "text", text: `Unknown section '${section}'. Sections: ${headings.join(", ")}` }] };
+        }
+        const lines = skill.body.split(/\r?\n/);
+        const start = lines.findIndex(l => l.startsWith("## " + section));
+        const end = lines.findIndex((l, i) => i > start && /^## /.test(l));
+        const slice = lines.slice(start, end === -1 ? undefined : end).join("\n");
+        return { content: [{ type: "text", text: slice }] };
       }
       return { content: [{ type: "text", text: skill.body }] };
     }
