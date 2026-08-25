@@ -18,6 +18,9 @@ import { createRequire } from "module";
 import { VConRelay } from "./tools/vcon-relay.js";
 import { RelayClient } from "./relay-client.js";
 import * as consoleBridge from "./tools/console-bridge.js";
+import { ensureVrf } from "./tools/vrf-ensure.js";
+import { inspectAsset } from "./tools/asset-inspect.js";
+import { checkRefs } from "./tools/asset-check-refs.js";
 import * as daemon from "./daemon-utils.js";
 
 function getVersion(): string {
@@ -25,7 +28,7 @@ function getVersion(): string {
     const require = createRequire(import.meta.url);
     return require("../package.json").version;
   } catch {
-    return "1.5.1";
+    return "1.6.0";
   }
 }
 
@@ -240,7 +243,7 @@ async function main(): Promise<void> {
 
   /** vconsole 未打开的契约提示（控制台类工具需要 vconsole 旁观 agent 活动） */
   function vconsoleNotOpenText(): string {
-    const exe = dotaPath ? path.join(getDotaBinDir(dotaPath), getDotaExeName("vconsole2")) : "vconsole2.exe";
+    const exe = dotaPath ? consoleBridge.resolveDotaToolPath(dotaPath, "vconsole2") : "vconsole2.exe";
     return `vconsole 未打开。控制台类工具要求 vconsole 已打开并连接 127.0.0.1:29001（显式契约：vconsole 不开，relay 就不连 Dota——保证你能旁观 agent 的控制台活动）。
 正常情况下 relay 探测到 Dota 就绪后会自动打开 vconsole；看到此消息说明自动打开被禁用（DOTA2_VCON_AUTO_OPEN_VCONSOLE=0）或打开失败/被你手动关闭了。
 请二选一：
@@ -250,7 +253,7 @@ async function main(): Promise<void> {
 
   /** dota_status 的 vconsole 未开英文指引（与 requireConsole 的中文报错同源不同语，共享 exe 解析） */
   function vconsoleGuidanceEn(intro: string): string {
-    const exe = dotaPath ? path.join(getDotaBinDir(dotaPath), getDotaExeName("vconsole2")) : "vconsole2.exe";
+    const exe = dotaPath ? consoleBridge.resolveDotaToolPath(dotaPath, "vconsole2") : "vconsole2.exe";
     return `${intro}
 
 Open it: run ${exe} and connect to 127.0.0.1:29001 — the AssetBrowser vconsole button is disabled by the engine while this MCP holds port 29000 — or call dota_open_vconsole.
@@ -474,7 +477,7 @@ Then call dota_status again.`;
       const file = path.join(dir, e.name, "SKILL.md");
       try {
         const raw = fs.readFileSync(file, "utf-8");
-        const fm = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+        const fm = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
         const meta = fm ? fm[1] : "";
         const body = fm ? fm[2] : raw;
         const name = (meta.match(/^name:\s*(.+)$/m)?.[1] || e.name).trim();
@@ -487,11 +490,14 @@ Then call dota_status again.`;
 
   // Tool: 获取内置 skill — 教 agent 怎么用这套 MCP（Roblox skill 模式）
   server.tool("dota2_skill",
-    "Retrieve built-in skill / knowledge on how to develop a Dota 2 custom game with this MCP. Call with no argument to list available skills, or with a skill name to retrieve its content. Learn the runtime development model (long-lived process + hot reload, no map restarts for code edits) before testing or editing.",
+    "Retrieve built-in skill / knowledge on how to develop a Dota 2 custom game with this MCP. Call with no argument to list available skills, with a name to retrieve its full content, with name + section to retrieve one '##' section (large skills like dota2-vfx/dota2-model are several thousand lines — prefer section retrieval), with name + outline to list its section headings, or with name + data to read a machine-readable data file bundled with the skill (e.g. dota2-vfx ships the official particle corpus statistics as vpcf-stats.json). Learn the runtime development model (long-lived process + hot reload, no map restarts for code edits) before testing or editing.",
     {
       name: z.string().optional().describe("Skill name, e.g. 'dota2-runtime-dev'. Omit to list available skills."),
+      section: z.string().optional().describe("Exact '##' section heading to retrieve (without the leading ##). Requires name."),
+      outline: z.boolean().optional().describe("List the skill's section headings instead of content. Requires name."),
+      data: z.string().optional().describe("Name of a data file under skills/<name>/data/ to return verbatim (e.g. 'vpcf-stats.json'). Use data='list' to list available data files. Requires name."),
     },
-    async ({ name }) => {
+    async ({ name, section, outline, data }) => {
       const skills = loadSkills();
       if (skills.length === 0) {
         return { content: [{ type: "text", text: "No built-in skills found (skills/ directory missing)." }] };
@@ -503,6 +509,45 @@ Then call dota_status again.`;
       const skill = skills.find(s => s.name === name || s.name === `dota2-${name}`);
       if (!skill) {
         return { content: [{ type: "text", text: `Unknown skill '${name}'. Available: ${skills.map(s => s.name).join(", ")}` }] };
+      }
+      const headings = [...skill.body.matchAll(/^## (.+)$/gm)].map(m => m[1]);
+      if (outline) {
+        return { content: [{ type: "text", text: `Sections of ${skill.name}:\n${headings.map(h => "- " + h).join("\n")}` }] };
+      }
+      if (section) {
+        const idx = headings.indexOf(section);
+        if (idx === -1) {
+          return { content: [{ type: "text", text: `Unknown section '${section}'. Sections: ${headings.join(", ")}` }] };
+        }
+        const lines = skill.body.split(/\r?\n/);
+        const start = lines.findIndex(l => l.startsWith("## " + section));
+        const end = lines.findIndex((l, i) => i > start && /^## /.test(l));
+        const slice = lines.slice(start, end === -1 ? undefined : end).join("\n");
+        return { content: [{ type: "text", text: slice }] };
+      }
+      if (data) {
+        const dataDir = path.join(skillsDir(), skill.name, "data");
+        let dataFiles: string[] = [];
+        try {
+          dataFiles = fs.readdirSync(dataDir, { withFileTypes: true })
+            .filter(e => e.isFile())
+            .map(e => e.name);
+        } catch { dataFiles = []; }
+        if (data === "list") {
+          return { content: [{ type: "text", text: dataFiles.length > 0
+            ? `Data files of ${skill.name}:\n${dataFiles.map(f => "- " + f).join("\n")}`
+            : `No data files bundled with ${skill.name}.` }] };
+        }
+        const file = dataFiles.find(f => f === data || f === data + ".json" || f === data + ".md");
+        if (!file) {
+          return { content: [{ type: "text", text: `Unknown data file '${data}'. Available: ${dataFiles.join(", ") || "(none)"}` }] };
+        }
+        try {
+          const content = fs.readFileSync(path.join(dataDir, file), "utf-8");
+          return { content: [{ type: "text", text: content }] };
+        } catch (e) {
+          return { content: [{ type: "text", text: `Cannot read data file ${file}: ${(e as Error).message}` }] };
+        }
       }
       return { content: [{ type: "text", text: skill.body }] };
     }
@@ -682,7 +727,7 @@ Once connected, call dota_status again.` }] };
       if (consoleBridge.isProcessRunning(process.platform === "win32" ? "vconsole2.exe" : "vconsole2")) {
         return { content: [{ type: "text", text: "A vconsole2.exe instance is already running but not attached to 127.0.0.1:29001 (stale window — vconsole2 is single-instance, launching another just focuses it). Close it and call dota_open_vconsole again, or in that window use Devices → Connect to 127.0.0.1:29001." }] };
       }
-      const exe = path.join(getDotaBinDir(dotaPath), getDotaExeName("vconsole2"));
+      const exe = consoleBridge.resolveDotaToolPath(dotaPath, "vconsole2");
       if (!fs.existsSync(exe)) {
         throw new McpError(ErrorCode.InvalidRequest, `vconsole2.exe not found at ${exe}`);
       }
@@ -1157,9 +1202,8 @@ Once connected, call dota_status again.` }] };
   // Workshop Tools 集成 — 启动编辑器 / 编译资源
   // ═══════════════════════════════════════════════════════════════
 
-  /** 根据平台返回 Dota 2 工具二进制目录 / exe 后缀（共享实现见 console-bridge） */
-  const getDotaBinDir = consoleBridge.getDotaBinDir;
-  const getDotaExeName = consoleBridge.getDotaExeName;
+  /** Dota 2 工具完整路径解析（共享实现见 console-bridge） */
+  const resolveDotaToolPath = consoleBridge.resolveDotaToolPath;
 
   /** 执行 Dota 2 工具目录下的可执行文件。
    *
@@ -1169,9 +1213,12 @@ Once connected, call dota_status again.` }] };
    * 调用前需确保 dotaPath 非空（dota_compile_asset 已检查）。
    */
   function runDotaTool(exeBase: string, args: string[], waitForExit = false): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-    const exePath = path.join(getDotaBinDir(dotaPath!), getDotaExeName(exeBase));
+    const exePath = resolveDotaToolPath(dotaPath!, exeBase);
+    // WSL 下 win64 目录命中 = Windows 安装：参数里的 /mnt/ 路径必须转成 Windows 路径
+    const isWinTool = process.platform !== "win32" && path.basename(path.dirname(exePath)) === "win64";
+    const finalArgs = isWinTool ? args.map((a) => consoleBridge.toWindowsPath(a)) : args;
     return new Promise((resolve) => {
-      const proc = spawn(exePath, args, {
+      const proc = spawn(exePath, finalArgs, {
         detached: !waitForExit,
         windowsHide: false,
       });
@@ -1267,6 +1314,241 @@ Once connected, call dota_status again.` }] };
         ? `Compiled ${resolved}\n${result.stdout.slice(0, 2000)}`
         : `Compile failed: ${result.stderr}`
       }] };
+    }
+  );
+
+
+  // Tool: 确保 VRF CLI（Source2Viewer-CLI）可用（离线安全：仅缺失时联网下载）
+  server.tool("vrf_ensure",
+    "Ensure the ValveResourceFormat CLI (Source2Viewer-CLI) is available for asset inspection. Returns the cached path, or downloads the pinned release (default v20.0, self-contained, no .NET runtime needed), verifies its sha256, and caches under os.tmpdir()/dota2-mcp/vrf/. Offline-safe: touches the network only when the CLI is missing. Used automatically by asset_inspect and asset_check_refs.",
+    {
+      version: z.string().optional().describe("Pin a VRF release version. Default 20.0 (VRF_VERSION env overrides)."),
+    },
+    async ({ version }) => {
+      const info = await ensureVrf({ version });
+      return { content: [{ type: "text", text: info.message }] };
+    }
+  );
+
+
+  // Tool: 反编译 + 结构化摘要单个资产（VRF CLI，离线）
+  server.tool("asset_inspect",
+    "Decompile and structurally summarize a single Source 2 asset (offline; no game needed). Uses the VRF CLI (Source2Viewer-CLI, auto-installed by vrf_ensure). Returns a stable JSON summary keyed by asset type: vpcf (particle system/emitter/operator counts, child and material refs, max particles), vmdl (mesh count, material refs, LOD group, skeleton ref), vmat (shader, texture refs, param count), vtex (PNG dimensions). Unknown types pass through the decompiled text. raw_decompiled is omitted unless include_raw=true (then truncated to 4000 chars). Single-level references only: recursive reference walking is asset_check_refs' job.",
+    {
+      target: z.string().describe("Asset to inspect (absolute, or content/ / game/ prefixed, or addon-content relative)"),
+      addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
+      include_raw: z.boolean().optional().describe("Include the raw decompiled text (truncated to 4000 chars). Default false."),
+    },
+    async ({ target, addon, include_raw }) => {
+      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
+      const a = resolveAddon(addon);
+      if (!a) {
+        const addons = listAddonsFs();
+        throw new McpError(ErrorCode.InvalidRequest, addons.length > 1
+          ? `No addon detected. Please specify one of: ${addons.join(", ")}`
+          : "No addon detected. Load a project first or specify the addon name."
+        );
+      }
+      const resolved = resolveAssetPath(target, a);
+      const result = await inspectAsset(dotaPath, resolved, { includeRaw: include_raw ?? false });
+      return { content: [{ type: "text", text: result.text }], isError: !result.ok };
+    }
+  );
+
+
+  // Tool: 单资产递归引用完整性检查（VRF CLI，离线）
+  server.tool("asset_check_refs",
+    "Recursively check one asset's reference chain for integrity (offline; no game needed). Decompiles with the VRF CLI and walks asset refs (vmdl→vmat→vtex, vpcf→vmat→vtex) up to max_depth (default 3, visited-set cycle guard). Two-level resolution per ref: inside the addon (content source + compiled game output) → then game/dota (engine assets, reported as engine_refs). Reports four buckets: ok, uncompiled (source exists but compiled output missing — did you forget to compile?), engine_refs (legit engine assets, depth not walked), broken (not found anywhere).",
+    {
+      target: z.string().describe("Asset to check (absolute, or content/ / game/ prefixed, or addon-content relative)"),
+      addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
+      max_depth: z.number().int().min(0).max(10).optional().describe("Max reference chain depth. Default 3."),
+    },
+    async ({ target, addon, max_depth }) => {
+      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
+      const a = resolveAddon(addon);
+      if (!a) {
+        const addons = listAddonsFs();
+        throw new McpError(ErrorCode.InvalidRequest, addons.length > 1
+          ? `No addon detected. Please specify one of: ${addons.join(", ")}`
+          : "No addon detected. Load a project first or specify the addon name."
+        );
+      }
+      const resolved = resolveAssetPath(target, a);
+      const result = await checkRefs(dotaPath, a, resolved, { maxDepth: max_depth ?? 3 });
+      return { content: [{ type: "text", text: result.text }], isError: !result.ok };
+    }
+  );
+
+
+  // ===== VFX 预览：运行时粒子实例（继承 dota_run_lua 门控；资产创建/删除走 file_write/file_delete）=====
+
+  const PATTACH_NAMES = ["PATTACH_ABSORIGIN", "PATTACH_ABSORIGIN_FOLLOW", "PATTACH_CUSTOMORIGIN", "PATTACH_CUSTOMORIGIN_FOLLOW", "PATTACH_POINT", "PATTACH_POINT_FOLLOW", "PATTACH_EYES_FOLLOW", "PATTACH_OVERHEAD_FOLLOW", "PATTACH_WORLDORIGIN", "PATTACH_ROOTBONE_FOLLOW", "PATTACH_RENDERORIGIN_FOLLOW", "PATTACH_MAIN_VIEW", "PATTACH_WATERWAKE", "PATTACH_CENTER_FOLLOW", "PATTACH_CUSTOM_GAME_STATE_1", "PATTACH_HEALTHBAR"];
+
+  server.tool("vfx_preview",
+    "Spawn a particle effect in the running game to preview it (runtime instance, NOT an asset file — create/edit/delete .vpcf sources with file_write/file_edit/file_delete instead). Runs ParticleManager:CreateParticle via the dota_run_lua channel, so it needs a running game with an open vconsole. The returned particle id feeds vfx_preview_stop; a failed load prints engine errors in the Particles/ResourceSystem channels (read them with console_output) — do not trust the id alone.",
+    {
+      particle_path: z.string().describe("Particle path relative to content root, e.g. 'particles/basic_explosion/basic_explosion.vpcf'"),
+      attach: z.number().int().min(0).max(15).optional().describe("ParticleAttachment_t value. Default 8 (PATTACH_WORLDORIGIN)."),
+      position: z.array(z.number()).length(3).optional().describe("World position [x,y,z] for control point 0 (only meaningful with world-origin attaches)."),
+    },
+    async ({ particle_path, attach, position }) => {
+      requireConsole();
+      const attachIdx = attach ?? 8;
+      const attachName = PATTACH_NAMES[attachIdx] ?? "PATTACH_WORLDORIGIN";
+      const pathSafe = particle_path.replace(/'/g, "");
+      const posLua = position
+        ? " ParticleManager:SetParticleControl(pid, 0, Vector(" + position.join(",") + ")) "
+        : " ";
+      const luaBody = "print('[MCP-VFX] IsServer: ' .. tostring(IsServer())) local pid = ParticleManager:CreateParticle('" + pathSafe + "', " + attachName + ", nil)" + posLua + " print('[MCP-VFX] pid=' .. tostring(pid) .. ' attach=" + attachName + "')";
+      const safeCode = luaBody.replace(/"/g, "'");
+      const execOut = await collectOutput('ent_fire 0 RunScriptCode "' + safeCode + '"', { waitMs: 15000, settleMs: 400 });
+      const lines = execOut.filter((l) => l.includes("[MCP-VFX]") || /error|failed|missing/i.test(l));
+      return { content: [{ type: "text", text: lines.join("\n") || "Sent. Read console_output (channels Particles/ResourceSystem) for load errors." }] };
+    }
+  );
+
+  server.tool("vfx_preview_stop",
+    "Destroy a runtime particle instance spawned by vfx_preview (stops the on-screen preview). Give the particle id returned by vfx_preview. Needs a running game with an open vconsole.",
+    {
+      particle_id: z.number().int().min(0).describe("Particle id returned by vfx_preview"),
+    },
+    async ({ particle_id }) => {
+      requireConsole();
+      const luaBody = "print('[MCP-VFX] destroy pid=' .. tostring(" + particle_id + ")) local ok = ParticleManager:DestroyParticle(" + particle_id + ", false) print('[MCP-VFX] destroyed pid=" + particle_id + " ok=' .. tostring(ok))";
+      const safeCode = luaBody.replace(/"/g, "'");
+      const execOut = await collectOutput('ent_fire 0 RunScriptCode "' + safeCode + '"', { waitMs: 15000, settleMs: 400 });
+      const lines = execOut.filter((l) => l.includes("[MCP-VFX]") || /error|failed/i.test(l));
+      return { content: [{ type: "text", text: lines.join("\n") || "Sent. Check console_output for errors." }] };
+    }
+  );
+
+  // ===== FileOps：addon 内文件读写编辑删除（离线工具，不门控）=====
+
+  /** 解析 FileOps 目标路径并校验边界。
+   *  - content/ 或 game/ 开头：相对于 dotaPath
+   *  - 其他：默认 content/dota_addons/{addon}/...
+   *  - 解析结果必须落在 content/dota_addons/{addon}/ 或 game/dota_addons/{addon}/ 内（防 ../ 逃逸）
+   */
+  function resolveFileOpsPath(target: string, addon: string): string {
+    const lower = target.toLowerCase().replace(/\\/g, "/");
+    const resolved = (lower.startsWith("content/") || lower.startsWith("game/"))
+      ? path.join(dotaPath!, target)
+      : path.join(dotaPath!, "content", "dota_addons", addon, target);
+    const normalized = path.resolve(resolved);
+    const bases = [
+      path.resolve(dotaPath!, "content", "dota_addons", addon),
+      path.resolve(dotaPath!, "game", "dota_addons", addon),
+    ];
+    const inside = bases.some((b) => normalized === b || normalized.startsWith(b + path.sep));
+    if (!inside) {
+      throw new McpError(ErrorCode.InvalidRequest,
+        `Path outside addon '${addon}': ${target}. Allowed roots: content/dota_addons/${addon}/ and game/dota_addons/${addon}/ (start target with content/ or game/).`);
+    }
+    return normalized;
+  }
+
+  /** FileOps 的 addon 解析：显式参数 > relay 检测 > DOTA2_TEST_ADDON > 文件系统唯一推断 */
+  function resolveFileOpsAddon(addon?: string): string {
+    const fromEnv = process.env.DOTA2_TEST_ADDON;
+    const a = resolveAddon(addon) ?? (fromEnv ? fromEnv : null);
+    if (a) return a;
+    const addons = listAddonsFs();
+    throw new McpError(ErrorCode.InvalidRequest, addons.length > 1
+      ? `No addon detected. Specify the addon name or one of: ${addons.join(", ")}`
+      : "No addon detected. Load a project first or specify the addon name.");
+  }
+
+  const FILEOPS_MAX_BYTES = 5 * 1024 * 1024;
+
+  server.tool("file_read",
+    "Read a text file inside the current Dota 2 addon. Offline tool: no game or vconsole required. Target can start with content/ or game/ (relative to the Dota 2 install), or be relative to the addon content dir. Paths outside content/dota_addons/{addon}/ and game/dota_addons/{addon}/ are rejected.",
+    {
+      target: z.string().describe("File path inside the addon"),
+      addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
+    },
+    async ({ target, addon }) => {
+      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
+      const a = resolveFileOpsAddon(addon);
+      const resolved = resolveFileOpsPath(target, a);
+      try {
+        const stat = fs.statSync(resolved);
+        if (stat.size > FILEOPS_MAX_BYTES) {
+          throw new McpError(ErrorCode.InvalidRequest, `File too large (${stat.size} bytes, max ${FILEOPS_MAX_BYTES}). Use asset_inspect for binary assets.`);
+        }
+        const content = fs.readFileSync(resolved, "utf8");
+        return { content: [{ type: "text", text: content }] };
+      } catch (e) {
+        if (e instanceof McpError) throw e;
+        throw new McpError(ErrorCode.InvalidRequest, `Cannot read ${resolved}: ${(e as Error).message}`);
+      }
+    }
+  );
+
+  server.tool("file_write",
+    "Write (create or overwrite) a text file inside the current Dota 2 addon. Offline tool: no game or vconsole required. Same path rules as file_read; parent directories are created.",
+    {
+      target: z.string().describe("File path inside the addon"),
+      content: z.string().describe("Full UTF-8 content to write"),
+      addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
+    },
+    async ({ target, content, addon }) => {
+      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
+      const a = resolveFileOpsAddon(addon);
+      const resolved = resolveFileOpsPath(target, a);
+      try {
+        fs.mkdirSync(path.dirname(resolved), { recursive: true });
+        fs.writeFileSync(resolved, content, "utf8");
+        return { content: [{ type: "text", text: `Wrote ${resolved} (${Buffer.byteLength(content, "utf8")} bytes)` }] };
+      } catch (e) {
+        throw new McpError(ErrorCode.InvalidRequest, `Cannot write ${resolved}: ${(e as Error).message}`);
+      }
+    }
+  );
+
+  server.tool("file_edit",
+    "Replace one occurrence of old_string with new_string in a file inside the current Dota 2 addon. Offline tool. old_string must appear exactly once (report counts when not), so ambiguous edits fail loudly.",
+    {
+      target: z.string().describe("File path inside the addon"),
+      old_string: z.string().describe("Exact text to replace (must appear exactly once)"),
+      new_string: z.string().describe("Replacement text (may be empty to delete)"),
+      addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
+    },
+    async ({ target, old_string, new_string, addon }) => {
+      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
+      const a = resolveFileOpsAddon(addon);
+      const resolved = resolveFileOpsPath(target, a);
+      try {
+        const content = fs.readFileSync(resolved, "utf8");
+        const count = content.split(old_string).length - 1;
+        if (count === 0) throw new McpError(ErrorCode.InvalidRequest, `old_string not found in ${resolved}`);
+        if (count > 1) throw new McpError(ErrorCode.InvalidRequest, `old_string appears ${count} times in ${resolved}; make it unique before editing`);
+        fs.writeFileSync(resolved, content.replace(old_string, new_string), "utf8");
+        return { content: [{ type: "text", text: `Edited ${resolved} (1 replacement)` }] };
+      } catch (e) {
+        if (e instanceof McpError) throw e;
+        throw new McpError(ErrorCode.InvalidRequest, `Cannot edit ${resolved}: ${(e as Error).message}`);
+      }
+    }
+  );
+
+  server.tool("file_delete",
+    "Delete a file inside the current Dota 2 addon. Offline tool. Returns a short snapshot of the deleted content so the deletion is auditable.",
+    {
+      target: z.string().describe("File path inside the addon"),
+      addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
+    },
+    async ({ target, addon }) => {
+      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
+      const a = resolveFileOpsAddon(addon);
+      const resolved = resolveFileOpsPath(target, a);
+      try {
+        const snapshot = fs.readFileSync(resolved, "utf8").slice(0, 500);
+        fs.unlinkSync(resolved);
+        return { content: [{ type: "text", text: `Deleted ${resolved}\n--- snapshot (first 500 chars) ---\n${snapshot}` }] };
+      } catch (e) {
+        throw new McpError(ErrorCode.InvalidRequest, `Cannot delete ${resolved}: ${(e as Error).message}`);
+      }
     }
   );
 

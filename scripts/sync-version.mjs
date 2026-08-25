@@ -32,7 +32,13 @@ const targets = [
   },
   {
     file: "README.md",
-    desc: "README 版本号",
+    desc: "README 版本号（英文）",
+    find: /(Current version: `v)([^`]+)(`)/,
+    replace: (v) => `$1${v}$3`,
+  },
+  {
+    file: "README.md",
+    desc: "README 版本号（中文）",
     find: /(当前版本：`v)([^`]+)(`)/,
     replace: (v) => `$1${v}$3`,
   },

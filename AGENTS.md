@@ -1,290 +1,343 @@
-# dota2-mcp — DOTA2 自定义游戏全流程 MCP Server
+# dota2-mcp — DOTA2 custom game full-flow MCP Server
 
-> AI agent 辅助 DOTA2 自定义游戏开发：VCon 实时 Console 桥接、控制台 API 查询、游戏启动/重启/监控。
+> AI-agent-assisted DOTA2 custom game development: live VCon console bridging, console API lookup, and game launch/restart/monitoring.
 
 ## Project
 
-- **技术栈**：TypeScript (Node.js >= 18) + `@modelcontextprotocol/sdk`
-- **入口**：`src/index.ts` → `dist/index.js`（stdio MCP server，瘦客户端）
-- **守护进程**：`src/relay-main.ts` → `dist/relay-main.js`（detached relay，独占 Dota 2 :29000，生命周期独立于任何 MCP 会话）
-- **核心机制**：VConsole2 TCP 协议（端口 29000）→ VConRelay 透明代理（监听 29001 供 vconsole2 GUI 连接）
-- **依赖**：无外部二进制依赖，纯 Node.js + 原始 TCP socket
+- **Tech stack**: TypeScript (Node.js >= 18) + `@modelcontextprotocol/sdk`
+- **Entry point**: `src/index.ts` → `dist/index.js` (stdio MCP server, thin client)
+- **Daemon**: `src/relay-main.ts` → `dist/relay-main.js` (detached relay that exclusively holds Dota 2 :29000, with a lifecycle independent of any MCP session)
+- **Core mechanism**: VConsole2 TCP protocol (port 29000) → VConRelay transparent proxy (listens on 29001 for the vconsole2 GUI)
+- **Dependencies**: no external binary dependencies; pure Node.js + raw TCP sockets
 
 ## Commands
 
 ```bash
-npm install           # 安装依赖
-npm run build         # 同步版本号 + 编译 TypeScript → dist/
-npm run check         # 类型检查 + 版本号一致性检查
-npm run sync-version  # 以 package.json 为准同步各处版本号（--check 只校验不修改）
-npm run dev           # tsc --watch 监听编译
-npm run bundle        # esbuild → dist/bundle.cjs（打包前置步骤）
-npm run package       # bundle + Node SEA 单文件可执行程序（scripts/sea-package.mjs）
-node dist/index.js    # 启动 MCP server（通过 stdio）
+npm install           # Install dependencies
+npm run build         # Sync version numbers + compile TypeScript → dist/
+npm run check         # Type check + version-consistency check
+npm run sync-version  # Sync version numbers across the repo from package.json (--check validates without modifying)
+npm run dev           # tsc --watch incremental compilation
+npm run bundle        # esbuild → dist/bundle.cjs (pre-step before packaging)
+npm run package       # bundle + Node SEA single-file executable (scripts/sea-package.mjs)
+node dist/index.js    # Start the MCP server (over stdio)
 ```
 
-**版本号**：只改 `package.json` 的 `version`，其余位置（`src/index.ts` 的 `getVersion()` fallback、`README.md`）由 `npm run sync-version` 同步；`build`/`prepack` 会自动执行。
+**Versioning**: only change `version` in `package.json`; everything else (the `getVersion()` fallback in `src/index.ts`, `README.md`) is synced by `npm run sync-version`, which `build`/`prepack` run automatically.
 
-**测试**：没有 lint/format/test 框架，全部是 plain node 冒烟脚本（assert 风格）：
+**Testing**: no lint/format/test framework — everything is plain-node smoke scripts (assert style):
 
-| 脚本 | 类型 | 覆盖 |
+| Script | Type | Coverage |
 |------|------|------|
-| `scripts/test-relay.mjs` | 离线 | relay 传输层：初始化帧重放、活性探针（pong 保活/无 pong 判死/僵尸判死）、探针行过滤、GUI 状态广播。fake VCon server + 随机端口 + 注入小超时 |
-| `scripts/test-daemon.mjs` | 离线 | 守护进程链路：spawn/握手/token/多客户端/广播/空闲退出/会话内重拉 |
-| `scripts/test-mcp-offline.mjs` | 离线 | MCP stdio：工具清单、契约门控报错、dota_status 不抛异常、skill 加载 |
-| `scripts/test-mcp-live.mjs` | 活体 | vconsole 契约全链路：门控 → dota_open_vconsole → 解门控（自带环境重置杀 vconsole2） |
-| `scripts/test-launch-phases.mjs` | 活体 | 真实地图 launch：卡相位 stuck 报告 + 按指引 dota_run_lua 推进到 GAME_IN_PROGRESS |
-| `scripts/test-crash-recovery.mjs` | 活体 | 崩溃恢复：同一 MCP 会话杀 Dota → 检测 → 重启 → 自恢复（脚本自起自杀 Dota） |
-| `scripts/test-multi-session.mjs` | 活体 | 多会话共享 daemon：A 开 vconsole，B 同时解门控 |
-| `scripts/test-mcp-tools.mjs` | 活体 | 全工具冒烟（老脚本；需 Dota + **vconsole 已接入**，先跑 test-mcp-live.mjs 开门） |
-| `scripts/verify-phase-apis.mjs` | 活体 | 走 29002 协议验证控制台 API 名字（按需修改的一次性脚本） |
+| `scripts/test-relay.mjs` | offline | relay transport: init frame replay, liveness probes (pong keepalive / dead on missing pong / dead on zombie), probe-line filtering, GUI status broadcast. Fake VCon server + random port + injected short timeouts |
+| `scripts/test-daemon.mjs` | offline | daemon chain: spawn/handshake/token/multi-client/broadcast/idle exit/in-session respawn |
+| `scripts/test-mcp-offline.mjs` | offline | MCP stdio: tool list, contract-gating errors, dota_status doesn't throw, skill loading |
+| `scripts/test-fileops.mjs` | offline | the four FileOps: read/write/edit/delete round-trip + three out-of-bounds rejections |
+| `scripts/test-vrf-ensure.mjs` | offline | vrf_ensure: fake Release API + zip fixture, download/cache/sha256 tamper rejection |
+| `scripts/test-asset-inspect.mjs` | offline | asset_inspect: fake VRF CLI + five-type fixture, summary fields and raw truncation |
+| `scripts/test-asset-check-refs.mjs` | offline | asset_check_refs: temp asset-tree four-bucket assertions + cycle prevention |
+| `scripts/test-vfx-live.mjs` | live | vfx_preview: launch map → spawn particle (pid>0) → stop |
+| `scripts/drill-vfx-workflow.mjs` | drill | full real-usage chain: learn skill → write source → compile → inspect → check_refs → preview → diagnose → stop → iterate |
+| `scripts/test-mcp-live.mjs` | live | full vconsole contract chain: gating → dota_open_vconsole → ungate (resets the environment by killing vconsole2) |
+| `scripts/test-launch-phases.mjs` | live | real-map launch: stuck report on a stuck phase + following guidance to advance via dota_run_lua to GAME_IN_PROGRESS |
+| `scripts/test-crash-recovery.mjs` | live | crash recovery: kill Dota in the same MCP session → detect → restart → self-recover (the script starts and kills Dota itself) |
+| `scripts/test-multi-session.mjs` | live | multi-session shared daemon: A opens vconsole, B ungates at the same time |
+| `scripts/test-mcp-tools.mjs` | live | all-tools smoke (legacy script; needs Dota + **vconsole already connected** — run test-mcp-live.mjs first to open the gate) |
+| `scripts/verify-phase-apis.mjs` | live | verify console API names over the 29002 protocol (one-off script, edit as needed) |
 
-活体脚本不写死机器路径/项目名：Dota 路径走 `detectDotaPath()` 自动检测；addon/地图从运行中 daemon 的握手信息（hello-ok 的 addon/maps）自动推断，`DOTA2_TEST_ADDON` / `DOTA2_TEST_MAP` 可覆盖；推断不出来时报错并要求指定，不默默用默认值。启动参数因人/项目/地区而异（如 `-perfectworld`），test-crash-recovery 重拉 Dota 可用 `DOTA2_TEST_ARGS` 传完整参数。共享握手小助手：`scripts/lib-ctrl.mjs`。
+Live scripts don't hardcode machine paths or project names: the Dota path uses `detectDotaPath()` auto-detection; the addon/map is inferred from the running daemon's handshake info (the addon/maps in hello-ok), overridable via `DOTA2_TEST_ADDON` / `DOTA2_TEST_MAP`; when inference fails they error and require an explicit value rather than silently using a default. Launch args vary by person/project/region (e.g. `-perfectworld`); test-crash-recovery can pass full args via `DOTA2_TEST_ARGS` when re-launching Dota. Shared handshake helper: `scripts/lib-ctrl.mjs`.
 
-离线一键：`npm run check && node scripts/test-relay.mjs && node scripts/test-daemon.mjs && node scripts/test-mcp-offline.mjs`
-活体前置：Dota 2 运行中 + `node dist/relay-main.js` 拉起 daemon（MCP 会话会接入已有 daemon）。
+Offline one-liner: `npm run check && node scripts/test-relay.mjs && node scripts/test-daemon.mjs && node scripts/test-mcp-offline.mjs`
+Live prerequisites: Dota 2 running + `node dist/relay-main.js` to start the daemon (an MCP session attaches to an existing daemon).
 
-## 开发-验证工作流
+## Development–verification workflow
 
-新功能/修 BUG 的标准验证路径（2026-07 vconsole 生命周期一役沉淀）：
+The standard verification path for a new feature or bug fix:
 
-**0. 原则**
-- **能离线不活体**：传输层/协议层逻辑用 fake TCP server 离线钉死（test-relay.mjs 模式：env 覆盖端口 + 随机端口 + 构造函数注入小超时）。
-- **机械观测代替肉眼**：进程（tasklist）、端口（netstat）、daemon 日志即可验证一切；MCP 功能没有视觉成分，唯一需要人眼的是 vconsole 窗口内容本身。
-- **活体验证必须跑**：离线绿灯 ≠ 设计正确。本次活体抓出 4 个离线抓不到的错误（AINF 计时器开机误杀、GUI 状态不广播致契约全失效、open 超时过短、加载期 INIT 误报 stuck）。
+**0. Principles**
+- **Prefer offline over live**: pin transport/protocol-layer logic down offline with a fake TCP server (the test-relay.mjs pattern: env port override + random port + constructor-injected short timeouts).
+- **Mock only the boundary**: in offline scripts the fake VCon server replaces only the one uncontrollable boundary — the Dota engine — while relay/client/daemon all run real implementations. A hand-rolled stand-in only proves bytes cross the bridge, not that the real tool behaves per the assertions. See `docs/defensive-patterns.md`.
+- **Mechanical observation instead of eyeballing**: processes (tasklist), ports (netstat), and daemon logs verify everything; MCP functionality has no visual component, and the only thing a human eye needs is the vconsole window content itself.
+- **Live verification must run**: an offline green light ≠ correct design — live runs catch errors offline can't. See the Testing sections of the [architecture note](.agents/notes/implemented/architecture/2026-07-22-vconsole-lifecycle.md#testing) and [feature note](.agents/notes/implemented/feature/2026-07-22-vconsole-contract-and-phase-guidance.md#testing).
 
-**1. 离线先行**
-`npm run check` + 相关离线脚本。新增 relay 行为先扩展 `scripts/test-relay.mjs`（fake server 形态：accept 装死、发初始化帧后沉默、选择性应答探针）。
+**1. Offline first**
+`npm run check` + the relevant offline scripts. For new relay behavior, extend `scripts/test-relay.mjs` first (fake server shapes: accept and play dead, send init frames then go silent, selectively answer probes).
 
-**2. 活体环境**
-- Dota：直接命令行 `{dota2Path}/game/bin/win64/dota2.exe -addon <addon> -tools`（`{dota2Path}` 由 Steam appid 570 自动检测，因机器而异；`steam://rungameid/570` 不带启动参数，不可用）。
-- daemon：手动 `node dist/relay-main.js`（后台），日志直接可见、随时可杀。
-- 环境重置：`taskkill /F /IM vconsole2.exe` 清窗口；`taskkill /F /IM dota2.exe` 即模拟闪退。
-- **测试项目不确定时主动问开发者**要测哪个 addon/地图，再用 `DOTA2_TEST_ADDON`/`DOTA2_TEST_MAP` 传入——不要默默假设任何特定项目。
+**2. Live environment**
+- Dota: directly from the command line, `{dota2Path}/game/bin/win64/dota2.exe -addon <addon> -tools` (`{dota2Path}` is auto-detected from Steam appid 570 and varies by machine; `steam://rungameid/570` carries no launch args and can't be used).
+- daemon: manually `node dist/relay-main.js` (background) — logs are directly visible and it can be killed at any time.
+- Environment reset: `taskkill /F /IM vconsole2.exe` clears the window; `taskkill /F /IM dota2.exe` simulates a crash.
+- **When the test project is unclear, ask the developer** which addon/map to test, then pass it via `DOTA2_TEST_ADDON`/`DOTA2_TEST_MAP` — never silently assume any particular project.
 
-**3. 活体三层验证（按层定位问题）**
-- **控制台协议层**：29002 NDJSON 直连（`HELLO <token>` → `CMD:<cmd>` → `STREAM`/`TAIL`；token 在 `os.tmpdir()/dota2-mcp/relay.token`），绕过 MCP 工具层验证控制台命令本身，参照 `scripts/verify-phase-apis.mjs`。
-- **MCP 工具层**：stdio JSON-RPC 冒烟（initialize → tools/call），参照 `scripts/test-mcp-live.mjs` 的 call() 模式。
-- **系统状态层**：netstat 看 29000/29001/29002 谁连谁，tasklist 看进程生死，daemon 日志看 relay 视角。
-- **验证控制台 API 名字**（约定「验证过才写死」）：`script_help2 <名字>` 经 29002 **STREAM 实时全量收集**——relay prntBuffer 只存 500 行，全量 dump 会冲掉 TAIL 窗口；`GameRules` 等需地图已加载才注册，且 script_help2 的参数不过滤输出（总是全量 dump），收集后自行 grep。
+**3. Live three-layer verification (locate issues by layer)**
+- **Console protocol layer**: direct 29002 NDJSON (`HELLO <token>` → `CMD:<cmd>` → `STREAM`/`TAIL`; token in `os.tmpdir()/dota2-mcp/relay.token`), bypassing the MCP tool layer to verify the console commands themselves — see `scripts/verify-phase-apis.mjs`.
+- **MCP tool layer**: stdio JSON-RPC smoke (initialize → tools/call), following the call() pattern in `scripts/test-mcp-live.mjs`.
+- **System status layer**: netstat shows who connects to whom on 29000/29001/29002, tasklist shows process liveness, daemon logs show the relay's perspective.
+- **Verify console API names** (convention: hardcode only after verifying): collect `script_help2 <name>` over 29002 **fully via STREAM in real time** — the relay prntBuffer only holds 500 lines, so a full dump would flush the TAIL window. APIs like `GameRules` are only registered once the map is loaded, and script_help2's argument doesn't filter output (always a full dump), so grep the result yourself.
 
-**4. 场景矩阵（连接生命周期类改动必跑）**
-契约门控 → 开 vconsole（重放生效）→ 关 vconsole → 杀 Dota（检测）→ 重启（自恢复，vconsole 不动）→ 多会话共享。对应脚本：test-mcp-live / test-crash-recovery / test-multi-session。
+**4. Scenario matrix (mandatory for connection-lifecycle changes)**
+Contract gating → open vconsole (replay takes effect) → close vconsole → kill Dota (detection) → restart (self-recovery, vconsole untouched) → multi-session sharing. Matching scripts: test-mcp-live / test-crash-recovery / test-multi-session.
 
-## 环境变量
+## Environment variables
 
-通常**无需配置任何环境变量**。Dota 2 路径通过 Steam appid `570` 自动检测，addon 名称通过 VCon relay 实时获取或在 `content/dota_addons/` 下自动推断。
+Normally **no environment variables need to be set**. The Dota 2 path is auto-detected from Steam appid `570`, and the addon name is obtained live from the VCon relay or inferred under `content/dota_addons/`.
 
-可选高级配置：
+Optional advanced configuration:
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 |------|--------|------|
-| `DOTA2_VCON_DOTA_PORT` | `29000` | Dota 2 VConsole2 端口 |
-| `DOTA2_VCON_GUI_PORT` | `29001` | 转发给 vconsole2 GUI 的端口 |
-| `DOTA2_VCON_CTRL_PORT` | `29002` | MCP 控制端口（`STATUS/CMD/TAIL`） |
-| `DOTA2_VCON_AUTO_OPEN_VCONSOLE` | `1` | 探测到 Dota 就绪（上升沿）且无 vconsole2 进程时自动打开 vconsole2.exe；`0` 关闭 |
+| `DOTA2_VCON_DOTA_PORT` | `29000` | Dota 2 VConsole2 port |
+| `DOTA2_VCON_GUI_PORT` | `29001` | Port forwarded to the vconsole2 GUI |
+| `DOTA2_VCON_CTRL_PORT` | `29002` | MCP control port (`STATUS/CMD/TAIL`) |
+| `DOTA2_VCON_AUTO_OPEN_VCONSOLE` | `1` | Auto-open vconsole2.exe when Dota readiness is detected (rising edge) and no vconsole2 process exists; `0` disables |
 
-## 关键发现
+## Key findings
 
-- **VConsole2 协议**：12 字节帧头 `Type(4B)+Version(2B=212)+Length(4B)+Handle(2B)` + payload（详见下文「VConsole2 协议」）
-- **Dota 2 只允许 1 个 VCon 客户端**：Relay 抢占 29000，vconsole2 GUI 通过 relay 的 29001 端口共存。**已实测的副作用**：relay 持有 29000 期间引擎把 relay 当作已连接的 vconsole——AssetBrowser 的 vconsole 按钮/快捷键被禁用（不拉起进程）。默认无需手动打开（relay 探测到 Dota 就绪会自动拉起）；手动路径：直接运行 vconsole2.exe 或调用 dota_open_vconsole。窗口关闭后 29000 释放、按钮恢复可用
-- **API 全部走控制台**：零本地 JSON 依赖，引擎版本决定 API 内容
-- **已验证的控制台命令**：
-  - `script_help2` / `cl_script_help2` — Lua API（stub 格式）
-  - `cl_panorama_script_help_2` — Panorama JS 枚举
-  - `dump_panorama_css_properties` — CSS 属性
-  - `dump_panorama_events` — Panel 事件
-  - `dota_modifier_dump` / `cl_dump_modifier_list` — Modifier 列表
-  - `ent_script_dump` / `cl_ent_script_dump` — 实体脚本作用域
-  - `script_find` / `cl_script_find` — VM 搜索（需游戏运行）
-  - `script_dump_all` / `cl_script_dump_all` — VM 导出（需游戏运行）
+- **VConsole2 protocol**: 12-byte frame header `Type(4B)+Version(2B=212)+Length(4B)+Handle(2B)` + payload (see "VConsole2 protocol" below)
+- **Dota 2 allows only 1 VCon client**: the relay takes over 29000, and the vconsole2 GUI coexists through the relay's 29001 port. **A measured side effect**: while the relay holds 29000, the engine treats the relay as the connected vconsole — the AssetBrowser vconsole button/shortcut is disabled (it doesn't launch a process). By default no manual open is needed (the relay auto-launches when it detects Dota readiness); manual path: run vconsole2.exe directly or call dota_open_vconsole. Once the window closes, 29000 is released and the button works again
+- **All APIs go through the console**: zero local JSON dependency — the engine version determines the API content
+- **Verified console commands**:
+  - `script_help2` / `cl_script_help2` — Lua API (stub format)
+  - `cl_panorama_script_help_2` — Panorama JS enumeration
+  - `dump_panorama_css_properties` — CSS properties
+  - `dump_panorama_events` — Panel events
+  - `dota_modifier_dump` / `cl_dump_modifier_list` — Modifier list
+  - `ent_script_dump` / `cl_ent_script_dump` — entity script scope
+  - `script_find` / `cl_script_find` — VM search (requires the game to be running)
+  - `script_dump_all` / `cl_script_dump_all` — VM export (requires the game to be running)
 
 ## Architecture
 
-### 开发时运行服务器
+### Running the server during development
 
-服务器通过 stdio 与 MCP 客户端通信，通常由 MCP 客户端调用（例如配置了本地 MCP 的 AI agent）。手动调试可运行：
+The server talks to the MCP client over stdio and is normally invoked by the MCP client (e.g. an AI agent configured with a local MCP). For manual debugging you can run:
 
 ```bash
 npm run build
 npm run start
 ```
 
-### 守护进程架构（多实例共存）
+### Daemon architecture (multi-instance coexistence)
 
-relay 是一个**独立的 detached 后台进程**（`src/relay-main.ts`），生命周期独立于任何 MCP 会话。`src/index.ts` 只是瘦客户端。启动时 `createRelay()`（`src/index.ts`）按顺序：
+The relay is an **independent detached background process** (`src/relay-main.ts`) whose lifecycle is independent of any MCP session. `src/index.ts` is only a thin client. On startup `createRelay()` (`src/index.ts`) proceeds in order:
 
-1. 探测 `:29002` 已有守护进程 → 以 `RelayClient`（瘦客户端）接入；
-2. 没有 → `acquireLock()` 抢锁，抢到的人 `spawnRelayDaemon()` 拉起 detached daemon，自己也以瘦客户端接入；没抢到的等它就绪再接入；
-3. daemon 方案全部失败 → 退化为本地 `VConRelay`（单实例旧行为），保证工具至少可用。
+1. Probe `:29002` for an existing daemon → attach as a `RelayClient` (thin client);
+2. None → `acquireLock()` takes the lock; the winner `spawnRelayDaemon()`s a detached daemon and also attaches as a thin client; the loser waits for it to be ready and then attaches;
+3. The daemon path fails entirely → fall back to a local `VConRelay` (the legacy single-instance behavior) so the tools at least keep working.
 
-这样多个 MCP 客户端（多个 AI agent / 多个会话）能同时连同一个 relay，共享对 Dota 2 `:29000` 的独占连接。守护进程状态放在 `os.tmpdir()/dota2-mcp/`（失败时 fallback `~/.dota2-mcp/`）：`relay.lock`（原子抢锁）、`relay.pid`、`relay.token`（0600，瘦客户端 `HELLO` 时校验）、`relay.log`。无客户端连接、无 GUI 且 **Dota 进程不在运行**时，空闲 5 分钟后守护进程自动退出（Dota 在跑 = 用户在开发，29001/29002 常驻）。
+This way multiple MCP clients (multiple AI agents / sessions) can connect to the same relay at once and share its exclusive connection to Dota 2 `:29000`. Daemon state lives in `os.tmpdir()/dota2-mcp/` (fallback `~/.dota2-mcp/` on failure): `relay.lock` (atomic lock), `relay.pid`, `relay.token` (0600, checked when a thin client sends `HELLO`), `relay.log`. With no client connected, no GUI, and **the Dota process not running**, the daemon idles out after 5 minutes (Dota running = a developer at work, so 29001/29002 stay resident).
 
-**连接模型（vconsole 门控）**：vconsole 不开，relay 不连。无 GUI 时 relay 以 1s 间隔探测 `:29000` 就绪（TCP 连一下即断，不持有）；vconsole2 连上 `:29001` 后 relay 才连 `:29000`（断线每 2s 重连）；GUI 断开立即断开 `:29000`（AssetBrowser 按钮随之恢复可用）。探测到 Dota 就绪（上升沿）且无 vconsole2 进程时自动拉起 vconsole2.exe（`DOTA2_VCON_AUTO_OPEN_VCONSOLE=0` 关闭）。
+**Connection model (vconsole gating)**: no vconsole open, no relay connection. With no GUI, the relay probes `:29000` readiness every 1s (connect once and drop, without holding it); only after vconsole2 connects to `:29001` does the relay connect to `:29000` (reconnecting every 2s on disconnect); when the GUI disconnects it immediately drops `:29000` (the AssetBrowser button becomes usable again). When Dota readiness is detected (rising edge) and no vconsole2 process exists, it auto-launches vconsole2.exe (`DOTA2_VCON_AUTO_OPEN_VCONSOLE=0` disables).
 
-守护进程进程被杀（非空闲退出）时：瘦客户端无限退避重连（封顶 5s），连续失败约 5 次（≈5s）后 MCP 会话内自动重跑 `createRelay()` 拉起新守护进程并整体替换接入（`attachRelay`/`respawnRelay`，`src/index.ts`）。
+When the daemon process is killed (not an idle exit): the thin client backs off and reconnects indefinitely (capped at 5s), and after ~5 consecutive failures (≈5s) it re-runs `createRelay()` inside the MCP session to launch a new daemon and swap in the new connection wholesale (`attachRelay`/`respawnRelay`, `src/index.ts`).
 
-### 数据流
+### Data flow
 
 ```
-AI 代理（通过 stdio 的 MCP 客户端）
+AI agent (MCP client over stdio)
     ↓
-src/index.ts  — 注册全部 MCP 工具，瘦客户端
-    ↓  (控制端口 :29002，NDJSON 协议：HELLO/STATUS/CMD/TAIL/SETFILTERS/SETMCPSUPPRESS)
-src/relay-main.ts  — detached 守护进程
+src/index.ts  — registers all MCP tools; thin client
+    ↓  (control port :29002, NDJSON protocol: HELLO/STATUS/CMD/TAIL/SETFILTERS/SETMCPSUPPRESS)
+src/relay-main.ts  — detached daemon
     ↓
-src/tools/vcon-relay.ts  — VConRelay 透明代理
-    ├──→ src/tools/vcon-bridge.ts（VConClient）→ Dota 2 引擎 :29000
+src/tools/vcon-relay.ts  — VConRelay transparent proxy
+    ├──→ src/tools/vcon-bridge.ts (VConClient) → Dota 2 engine :29000
     └──→ vconsole2 GUI :29001
 ```
 
-Dota 2 在端口 `29000` 上只允许一个 VConsole2 客户端连接。Relay 在 vconsole2 接入期间独占该连接（无 GUI 时仅探测、不占用），并暴露第二个端口 `29001`，使官方 vconsole2 GUI 仍能透明连接。MCP 工具通过控制端口 `:29002` 注入命令并读取输出。
+Dota 2 allows only one VConsole2 client on port `29000`. While vconsole2 is attached, the relay exclusively holds that connection (with no GUI it only probes, without occupying it), and exposes a second port `29001` so the official vconsole2 GUI can still connect transparently. MCP tools inject commands and read output through the control port `:29002`.
 
-**vconsole 契约（门控）**：控制台类工具要求 vconsole2 已接入 `:29001`——vconsole 不开 relay 就不连 Dota（「没窗口 = 没连接 = 没工具」，状态物理为真，使用者不会误判为 BUG），工具报明确错误并区分「Dota 没在跑」与「只是没开 vconsole」。relay 给晚接入的 GUI 重放初始化帧（AINF/CHAN/CVRB/CFGV/ADON）；连接态有活性探测（静默发 `echo` 探针，超时判死，GUI 还在就重连）；Dota 进程在跑时守护进程不做空闲退出。
+**vconsole contract (gating)**: console-class tools require vconsole2 to be attached to `:29001` — if vconsole isn't open the relay doesn't connect to Dota ("no window = no connection = no tools", the state is physically true, so users won't mistake it for a bug). Tools report a clear error that distinguishes "Dota isn't running" from "vconsole just isn't open". The relay replays init frames (AINF/CHAN/CVRB/CFGV/ADON) to a late-attaching GUI; the connected state has a liveness probe (silently sends an `echo` probe, times out to declare dead, reconnects while the GUI is still there); and the daemon skips idle exit while the Dota process is running. See the [lifecycle note](.agents/notes/implemented/architecture/2026-07-22-vconsole-lifecycle.md) and [contract note](.agents/notes/implemented/feature/2026-07-22-vconsole-contract-and-phase-guidance.md) for the rationale and trade-offs.
 
-### MCP 输出与 vconsole2 GUI 的隔离
+### Isolation between MCP output and the vconsole2 GUI
 
-为避免 AI 高频调用 `status_json`、`script_help2` 等命令时把大量 JSON 输出刷到人类开发者的 vconsole2 GUI 上，relay 在发送 MCP 命令时会包装成：
+To avoid flooding the human developer's vconsole2 GUI with large JSON output when the AI calls `status_json`, `script_help2`, etc. at high frequency, the relay wraps MCP commands as:
 
 ```
 ai_disabled; <cmd>; ai_disabled
 ```
 
-Dota 2 会回显两条 `ai_disabled = false` / `ai_disabled = true` 标记行。relay 识别这两行标记：
+Dota 2 echoes two marker lines, `ai_disabled = false` / `ai_disabled = true`. The relay recognizes these two markers:
 
-- 标记行本身不进入 MCP 缓冲区，也不转发给 GUI；
-- 两条标记之间的所有 PRNT 输出仍会进入 MCP 缓冲区，但默认不转发到 GUI；
-- 可通过 `console_gui_filter` 工具关闭该行为，或在 vconsole2 GUI 里仍看到全部输出。
+- The marker lines themselves never enter the MCP buffer, nor are they forwarded to the GUI;
+- All PRNT output between the two markers still enters the MCP buffer, but by default is not forwarded to the GUI;
+- You can disable this behavior via the `console_gui_filter` tool, or still see all output in the vconsole2 GUI.
 
-这是一个**约定俗成的输出隔离特性**，不是控制台 cvar 的真实语义。
+This is a **conventional output-isolation feature**, not the real semantics of a console cvar.
 
-### 核心模块
+### Core modules
 
-| 文件 | 说明 |
+| File | Description |
 |------|------|
-| `src/index.ts` | MCP server 入口（瘦客户端）。注册全部工具；`createRelay()` 探测/拉起守护进程并以 `RelayClient` 接入，失败时退化为本地 `VConRelay` |
-| `src/relay-main.ts` | relay 守护进程入口（detached）。vconsole 接入期间独占 Dota 2 `:29000`（无 GUI 仅就绪探测），监听 `:29001`(GUI)/`:29002`(控制)，空闲 5 分钟自动退出（Dota 在跑不退） |
-| `src/relay-client.ts` | `RelayClient` 类。瘦客户端，实现 `VConRelay` 公共接口子集，通过 `:29002` 与守护进程通信；断线自动重连并补发缓冲命令 |
-| `src/daemon-utils.ts` | 守护进程协调：原子锁、PID、token(0600)、spawn/等待。状态目录 `os.tmpdir()/dota2-mcp` |
-| `src/tools/vcon-relay.ts` | `VConRelay` 类。vconsole2 GUI（`:29001`）与 Dota 2（`:29000`）之间的透明代理（门控：无 GUI 不连）；向各瘦客户端广播 PRNT/状态。GUI 在场时断开后自动重连 Dota 2，无 GUI 时就绪探测 |
-| `src/tools/vcon-bridge.ts` | `VConClient` 类。底层 VConsole2 TCP 协议实现：12 字节帧头解析、`PRNT`/`AINF`/`CHAN`/`ADON`/`CVRB`/`CFGV` 分发、`CMND` 命令发送 |
-| `src/tools/console-bridge.ts` | 自动检测 Dota 2 路径、cfg 文件写命令 + tail `game/dota/console.log` 降级方案 |
-| `src/tools/proxy-intercept.ts` | 独立协议分析工具。`npx tsx src/tools/proxy-intercept.ts direct` 或 `proxy` 运行，可抓取或 MITM 分析 VCon 流量 |
-| `skills/<name>/SKILL.md` | 内置技能目录。`dota2_skill` 工具从 `skills/` 读取带 frontmatter(name/description) 的 SKILL.md 并返回内容 |
+| `src/index.ts` | MCP server entry point (thin client). Registers all tools; `createRelay()` probes/launches the daemon and attaches as a `RelayClient`, falling back to a local `VConRelay` on failure |
+| `src/relay-main.ts` | relay daemon entry point (detached). Holds Dota 2 `:29000` exclusively while vconsole is attached (readiness probe only when no GUI), listens on `:29001`(GUI)/`:29002`(control), idles out after 5 minutes (not while Dota is running) |
+| `src/relay-client.ts` | The `RelayClient` class. A thin client implementing a subset of the `VConRelay` public interface, talking to the daemon over `:29002`; auto-reconnects on disconnect and resends buffered commands |
+| `src/daemon-utils.ts` | Daemon coordination: atomic lock, PID, token (0600), spawn/wait. State directory `os.tmpdir()/dota2-mcp` |
+| `src/tools/vcon-relay.ts` | The `VConRelay` class. Transparent proxy between the vconsole2 GUI (`:29001`) and Dota 2 (`:29000`) (gating: no GUI, no connection); broadcasts PRNT/status to each thin client. Auto-reconnects to Dota 2 after a disconnect while a GUI is present, readiness probe when there's no GUI |
+| `src/tools/vcon-bridge.ts` | The `VConClient` class. Low-level VConsole2 TCP protocol implementation: 12-byte frame-header parsing, dispatch of `PRNT`/`AINF`/`CHAN`/`ADON`/`CVRB`/`CFGV`, `CMND` command sending |
+| `src/tools/console-bridge.ts` | Auto-detects the Dota 2 path, writes commands to a cfg file + tails `game/dota/console.log` as a fallback |
+| `src/tools/proxy-intercept.ts` | Standalone protocol-analysis tool. Run `npx tsx src/tools/proxy-intercept.ts direct` or `proxy` to capture or MITM-analyze VCon traffic |
+| `skills/<name>/SKILL.md` | Built-in skill directory. The `dota2_skill` tool reads a SKILL.md with frontmatter (name/description) from `skills/` and returns its content |
 
-### VConsole2 协议
+### VConsole2 protocol
 
-Relay/Client 实现了已针对 Dota 2 验证的 VConsole2 二进制帧格式：
+Relay/Client implements the VConsole2 binary frame format, verified against Dota 2:
 
 ```
 [Type: 4B ASCII] [Version: 2B uint16 BE = 212] [Length: 4B uint32 BE] [Handle: 2B uint16 BE] [Payload]
 ```
 
-服务端 → 客户端消息类型：`AINF`、`ADON`、`CHAN`、`CVRB`、`PRNT`、`CFGV`。  
-客户端 → 服务端命令类型：`CMND`（以 null 结尾的 ASCII）。
+Server → client message types: `AINF`, `ADON`, `CHAN`, `CVRB`, `PRNT`, `CFGV`.
+Client → server command type: `CMND` (null-terminated ASCII).
 
-### 当前已实现的 22 个 MCP 工具
+### The 31 currently implemented MCP tools
 
-**游戏控制**
-| 工具 | 控制台命令 | 说明 |
+**Game control**
+| Tool | Console command | Description |
 |------|-----------|------|
-| `dota_status` | `status`/`status_json` + 文件扫描 | 入口/导航：连接、vconsole、addon/maps、实时状态、下一步指引（不抛异常） |
-| `dota_launch_game` | `dota_launch_custom_game` | 启动（自动补全 addon）；轮询到 GAME_IN_PROGRESS，卡相位返回推进指引 |
-| `dota_disconnect` | `disconnect` | 断开 |
-| `dota_restart` | `restart` | 重载地图 |
-| `dota_open_vconsole` | spawn vconsole2.exe | 打开 vconsole 窗口（AssetBrowser 按钮被引擎禁用时的显式路径） |
+| `dota_status` | `status`/`status_json` + file scan | Entry point/navigation: connection, vconsole, addon/maps, live status, next-step guidance (never throws) |
+| `dota_launch_game` | `dota_launch_custom_game` | Launch (auto-completes the addon); polls to GAME_IN_PROGRESS, returns advancement guidance on a stuck phase |
+| `dota_disconnect` | `disconnect` | Disconnect |
+| `dota_restart` | `restart` | Reload the map |
+| `dota_open_vconsole` | spawn vconsole2.exe | Open the vconsole window (the explicit path when the AssetBrowser button is disabled by the engine) |
 
-**Console 通信**
-| 工具 | 控制台命令 | 说明 |
+**Console communication**
+| Tool | Console command | Description |
 |------|-----------|------|
-| `console_send` | 任意 | 发送命令 |
-| `console_output` | VCon 流 | 读输出，支持 `level`（0=all,1=warn+,3=error）和 `filter` |
-| `console_channels` | VCon `CHAN` | 列出 VCon 通道 |
-| `console_find` | `find <kw>` | 搜索所有 5248 个控制台命令 |
-| `console_help` | `help <cmd>` | 查看单个命令帮助 |
-| `console_gui_filter` | relay 内部 | 开关 MCP 输出对 GUI 的隔离 |
+| `console_send` | arbitrary | Send a command |
+| `console_output` | VCon stream | Read output, supports `level` (0=all,1=warn+,3=error) and `filter` |
+| `console_channels` | VCon `CHAN` | List VCon channels |
+| `console_find` | `find <kw>` | Search all 5248 console commands |
+| `console_help` | `help <cmd>` | View a single command's help |
+| `console_gui_filter` | relay-internal | Toggle isolation of MCP output from the GUI |
 
-**API 文档（全部走控制台实时查询）**
-| 工具 | 控制台命令 | side |
+**API documentation (all live console queries)**
+| Tool | Console command | side |
 |------|-----------|:--:|
-| `dota_api_lua` | `script_help2` / `cl_script_help2` | 可选 |
+| `dota_api_lua` | `script_help2` / `cl_script_help2` | optional |
 | `dota_api_panorama_js` | `cl_panorama_script_help_2` | client |
 | `dota_api_css` | `dump_panorama_css_properties` | client |
 | `dota_api_events` | `dump_panorama_events` | client |
-| `dota_api_help` | 组合 | API 查询入口/导航 |
+| `dota_api_help` | combined | API lookup entry point/navigation |
 
-**调试**
-| 工具 | 控制台命令 | 说明 |
+**Debugging**
+| Tool | Console command | Description |
 |------|-----------|------|
-| `dota_dump_entities` | `ent_dump` 等 | 实体 dump |
-| `dota_dump_modifiers` | `dota_modifier_dump` / `cl_dump_modifier_list` | Modifier 列表 |
-| `dota_entity_inspect` | `ent_script_dump` / `cl_ent_script_dump` | 实体脚本作用域 |
-| `dota_run_lua` | `script_exec` 等 | 执行 Lua 片段 |
+| `dota_dump_entities` | `ent_dump` etc. | Entity dump |
+| `dota_dump_modifiers` | `dota_modifier_dump` / `cl_dump_modifier_list` | Modifier list |
+| `dota_entity_inspect` | `ent_script_dump` / `cl_ent_script_dump` | Entity script scope |
+| `dota_run_lua` | `script_exec` etc. | Execute a Lua snippet |
 
-**资源**
-| 工具 | 说明 |
+**Resources**
+| Tool | Description |
 |------|------|
-| `dota_compile_asset` | 调 resourcecompiler / Source2Viewer-CLI 编译资源 |
+| `dota_compile_asset` | Compiles assets via resourcecompiler / Source2Viewer-CLI |
+| `vrf_ensure` | Ensures the VRF CLI is available: detect / download the pinned version / sha256 verify / cache (offline-safe, only goes online when missing) |
+| `asset_inspect` | VRF decompile + structured summary (per-field for vpcf/vmdl/vmat/vtex; include_raw truncated at 4000) |
+| `asset_check_refs` | Single-asset recursive reference integrity: ok/uncompiled/engine_refs/broken four buckets + two-level resolution + cycle prevention |
 
-**技能**
-| 工具 | 说明 |
+**VFX preview (needs a running game + vconsole)**
+| Tool | Console command | Description |
+|------|-----------|------|
+| `vfx_preview` | `dota_run_lua` channel (ParticleManager:CreateParticle) | Spawn a particle preview in-game (runtime instance, not an asset file), returns pid |
+| `vfx_preview_stop` | `dota_run_lua` channel (ParticleManager:DestroyParticle) | Destroy preview particle instances |
+
+**File operations (offline, no game needed)**
+| Tool | Description |
 |------|------|
-| `dota2_skill` | 暴露 dota2 运行时开发技能内容 |
+| `file_read` | Read a text file inside the addon (5 MB cap; out-of-bounds paths rejected) |
+| `file_write` | Write/overwrite a file inside the addon (creates directories) |
+| `file_edit` | old_string→new_string replacement (exactly one match, otherwise fails loudly) |
+| `file_delete` | Delete a file inside the addon (returns a content snapshot) |
+
+**Skills**
+| Tool | Description |
+|------|------|
+| `dota2_skill` | Exposes built-in skills (name full text / section part / outline TOC / data machine-readable data file; `dota2-vfx` ships official particle-corpus stats `vpcf-stats.json` etc.) |
 
 ## Conventions
 
-- **API 数据源**：只走控制台实时查询，不使用本地 JSON 数据库（引擎版本决定 API 内容）
-- **信任边界**：Server Lua 权威，Panorama JS 客户端 UI 逻辑
-- **零硬编码**：addon/map 全部动态检测，不写死任何项目名。地图扫描路径 `{dota2Path}/content/dota_addons/{addon}/maps/*.vmap`
-- **可移植性（文档/脚本去硬编码）**：本仓是通用工具，文档、脚本、注释里禁止出现：
-  - 机器绝对路径（盘符 `X:\`/`X:/`）：文档用 `{dota2Path}` 占位，代码与脚本用 `detectDotaPath()` 自动检测；
-  - 具体 addon 项目名/地图名：测试项目从运行中 daemon 的 hello-ok（addon/maps）自动推断，`DOTA2_TEST_ADDON` / `DOTA2_TEST_MAP` / `DOTA2_TEST_ARGS` 环境变量覆盖，推断失败时报错要求指定，不默默用默认值；代码注释示例一律用 `my_addon` 类中性名；
-  - 写死的 Dota 启动参数：因人/项目/地区而异（如 `-perfectworld`），默认最小集 `-addon <addon> -tools`；
-  - 测试项目不确定时**主动问开发者**要测哪个 addon/地图，不默默假设。
-  自查：`Grep "[A-Za-z]:[\\/]"` 仅允许 URL/占位符命中；`Grep -i "<当期项目名>"` 应零残留（历史 spec/plan/CHANGELOG 除外）
-- **工具描述**：每个工具清晰标注对应的控制台命令，AI 可通过 `console_find` 自行发现
-- **TSTL/SolidJS 优先**：编辑 `.ts`/`.tsx` 源文件，不动生成的 `.lua`/`.js`
-- **文档分工**：`README.md` 是对外介绍文档（面向终端用户 / AI 客户端配置者），不写实现细节、代码层级或内部协议细节；这些写在 `AGENTS.md` 或代码注释里。公共信息的改动优先更新 `AGENTS.md`，不要在 `CLAUDE.md` 复制一份
+- **Act only on an explicit execution signal and confirmed scope; otherwise ask one clarifying question**
+- **API data source**: console live queries only, no local JSON database (the engine version determines the API content)
+- **Trust boundary**: server Lua is authoritative, Panorama JS is client UI logic
+- **Zero hardcoding**: addon/map are always dynamically detected, never hardcoded to any project name. Map scan path: `{dota2Path}/content/dota_addons/{addon}/maps/*.vmap`
+- **Portability (no hardcoding in docs/scripts)**: this repo is a general-purpose tool; the following are forbidden in docs, scripts, and comments:
+  - Machine absolute paths (drive letters `X:\`/`X:/`): docs use the `{dota2Path}` placeholder, code and scripts use `detectDotaPath()` auto-detection;
+  - Specific addon project/map names: the test project is inferred from the running daemon's hello-ok (addon/maps), overridable via the `DOTA2_TEST_ADDON` / `DOTA2_TEST_MAP` / `DOTA2_TEST_ARGS` env vars; when inference fails, error and require an explicit value rather than silently using a default. Code-comment examples always use a neutral name like `my_addon`;
+  - Hardcoded Dota launch args: they vary by person/project/region (e.g. `-perfectworld`); the default minimal set is `-addon <addon> -tools`;
+  - When the test project is unclear, **ask the developer** which addon/map to test — never silently assume.
+  Self-check: `Grep "[A-Za-z]:[\\/]"` may only match URLs/placeholders; `Grep -i "<current project name>"` should have zero hits (except historical spec/plan/CHANGELOG)
+- **Tool descriptions**: each tool clearly states its console command, so the AI can discover them on its own via `console_find`
+- **TSTL/SolidJS first**: edit `.ts`/`.tsx` source files, never the generated `.lua`/`.js`
+- **TODO marker semantics**: `FIXME` = release blocker; `TODO` = fix soon; `XXX` = fix someday. Choose by urgency, don't mix them
+- **Read `docs/defensive-patterns.md` before writing lifecycle/concurrency/subprocess/teardown code** (7 bug-class rules)
+- **Document ownership**: `README.md` is the public-facing document (for end users / AI client configurers) and must not contain implementation detail, code hierarchy, or internal protocol detail; that belongs in `AGENTS.md` or code comments. For public info, prefer updating `AGENTS.md` over duplicating it in `CLAUDE.md`
 
-## 已知问题 / 注意事项
+## Known issues
 
-- 守护进程占用端口 `29001`（GUI）和 `29002`（控制）；多个 MCP 会话通过瘦客户端共享同一个守护进程，不再互斥。仅在守护进程拉起失败退化为本地 relay 时，才受单实例限制
-- **vconsole 使用路径**：vconsole2 连接目标固定为 `127.0.0.1:29001`（relay 的 GUI 口）。默认无需手动开——relay 探测到 Dota 就绪会自动拉起（`DOTA2_VCON_AUTO_OPEN_VCONSOLE=0` 关闭）。AssetBrowser 的 vconsole 按钮只在 relay 持有 29000 时（即 vconsole 已接入期间）被引擎禁用；窗口关闭后 29000 释放、按钮恢复可用。晚接入的窗口会收到初始化帧重放，随开随用
-- Dota 2 必须带 `-vconsole` 参数启动（或已启用 vconsole2 监听器），relay 才能连上 `:29000`
-- 很多 API dump 工具需要地图已加载，调用过早可能返回空结果
+- The daemon occupies ports `29001` (GUI) and `29002` (control); multiple MCP sessions share one daemon through thin clients, no longer mutually exclusive. The single-instance limit applies only when the daemon fails to launch and it degrades to a local relay
+- **vconsole usage path**: vconsole2's connection target is fixed at `127.0.0.1:29001` (the relay's GUI port). By default no manual open is needed — the relay auto-launches when it detects Dota readiness (`DOTA2_VCON_AUTO_OPEN_VCONSOLE=0` disables). The AssetBrowser vconsole button is disabled by the engine only while the relay holds 29000 (i.e. while vconsole is attached); once the window closes, 29000 is released and the button works again. A late-attaching window receives an init frame replay and works as soon as it opens
+- Dota 2 must be launched with the `-vconsole` flag (or have the vconsole2 listener enabled) for the relay to connect to `:29000`
+- **WSL environment**: tool directories are probed by existence (a win64 hit means a Windows install), argument paths are auto-converted to Windows format, and the VRF CLI needs the invariant globalization env. When a leftover daemon causes port conflicts, kill the node/relay processes and clear the `os.tmpdir()/dota2-mcp/` state files; don't delete `relay.token` while the daemon is alive
+- Many API dump tools need the map to be loaded; calling them too early may return empty results
 
 ## References
 
-| 项目 | 路径/URL |
+| Item | Path/URL |
 |------|----------|
-| vscode-dota2-tools | https://github.com/BigCiba/vscode-dota2-tools（本地克隆路径因机器而异） |
+| vscode-dota2-tools | https://github.com/BigCiba/vscode-dota2-tools (local clone path varies by machine) |
 | VRF / Source 2 Viewer | https://github.com/ValveResourceFormat/ValveResourceFormat |
 | VConsole2.Client (C#) | https://github.com/yuijzeon/VConsole2.Client |
 | VConsoleLib.python | https://github.com/uilton-oliveira/VConsoleLib.python |
 | luaconsole2 (Lua) | https://github.com/eepycats/luaconsole2 |
-| Dota 2 路径 | 通过 Steam appid `570` 自动检测（文档内以 `{dota2Path}` 代称，不写绝对路径） |
-| console.log 路径 | `{dota2Path}/game/dota/console.log` |
-| VCon 端口 | 引擎监听 29000，relay 监听 29001（GUI）、29002（MCP 控制） |
+| Dota 2 path | Auto-detected via Steam appid `570` (referred to as `{dota2Path}` in docs; never an absolute path) |
+| console.log path | `{dota2Path}/game/dota/console.log` |
+| VCon ports | engine listens on 29000, relay listens on 29001 (GUI), 29002 (MCP control) |
 
 ## Agent skills
 
 ### Issue tracker
 
-Issues 追踪在 GitHub Issues（`gh` CLI）。见 `docs/agents/issue-tracker.md`。
+Issues are tracked in GitHub Issues (`gh` CLI). See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-使用默认五标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix。见 `docs/agents/triage-labels.md`。
+Use the default five labels: needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-Single-context：根目录 `CONTEXT.md` + `docs/adr/`（不存在时静默跳过）。见 `docs/agents/domain.md`。
+Single-context: decisions are recorded in `.agents/notes/` (Agent Notes). See `docs/agents/domain.md`.
 
-## TODO — 后续计划
+### Documentation standard
 
-- [ ] **FileOps** — 读写 KV/Lua/TS/JS/CSS/XML 源文件
-- [ ] **BuildTools** — npm/tstl/rollup 构建集成 + 脚手架生成
-- [ ] **AssetInspector** — VRF CLI 子进程调用，解析 .vmdl_c/.vmap_c/.vpcf_c 等
-- [ ] **Claude MCP 配置** — 写配置让 AI agent 直接调用
-- [ ] 验证 `script_find` / `script_dump_all` 在游戏运行时的实际输出
-- [ ] 测试 dota_launch_game 在各种 addon/map 组合下的表现
+Document hierarchy, tutorial/reference classification, writing rules, and the slop checklist live in `docs/AGENTS.md`; Agent Note lifecycle/class/format live in `.agents/notes/README.md`. Every non-trivial change ships an Agent Note (same commit).
+
+### Bilingual pairing
+
+`.agents/notes/**` and `docs/**` are the English-canonical + Chinese-counterpart + `.i18n.yaml` trio (excluding `docs/AGENTS.md`, `docs/i18n/terminology.md`, `.agents/notes/archived/**`); the contract is in `docs/i18n/README.md`, translation rules in `docs/i18n/translation-rules.md`, terminology in `docs/i18n/terminology.md`. Editing the English side requires updating the Chinese counterpart in the same commit and re-recording with `npm run verify-pairs -- --write <file>`; the `npm run verify-pairs` gate going red means a pair is out of sync.
+
+### Two kinds of skills (don't conflate them)
+
+**Project-shipped skills** (`skills/<name>/SKILL.md` + `data/`, exposed to all MCP users via the `dota2_skill` tool, distributed with the npm package) — runtime development knowledge only:
+
+| skill | Purpose |
+|------|------|
+| `dota2-vfx` | Particle effect format/recipes/official corpus stats |
+| `dota2-model` | Model asset format/official corpus stats |
+| `dota2-game-phases` | Game-phase advancement guidance |
+| `dota2-runtime-dev` | Runtime development model |
+
+**Skills for maintaining this repo** (not under `skills/`, not distributed with the package), in two places:
+
+| Location | skill | Description |
+|------|-------|------|
+| Global `~/.agents/skills/` (the maintainer's user-level directory) | `doc-standards`, `prose-standard`, `trim-cot-leakage`, `translate-docs`, `archive-agent-notes`, `code-review` | General maintenance skills; a bare reference in the repo to "the global X skill" points at this directory |
+
+## TODO — Roadmap
+
+- [x] **FileOps** — read/write KV/Lua/TS/JS/CSS/XML source files (`file_read/write/edit/delete` landed)
+- [ ] **BuildTools** — npm/tstl/rollup build integration + scaffolding generation
+- [x] **AssetInspector** — VRF CLI subprocess calls to parse .vmdl_c/.vmap_c/.vpcf_c etc. (`asset_inspect` landed)
+- [ ] **Claude MCP configuration** — write the config so an AI agent can call it directly
+- [ ] Verify the actual output of `script_find` / `script_dump_all` while the game is running
+- [ ] Test dota_launch_game across various addon/map combinations

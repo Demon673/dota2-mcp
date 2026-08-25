@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/feature/2026-08-20-asset-inspect.md
+2026-08-20-asset-inspect.md: d8ab7668b2a58571dd459a4cb8cf1a4f60cb448e
+2026-08-20-asset-inspect.zh.md: 20993935bf3ddde72adec06ebb8e5bd427b935bc

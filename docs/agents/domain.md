@@ -1,51 +1,47 @@
 # Domain Docs
 
+English | [中文](domain.zh.md)
+
 How the engineering skills should consume this repo's domain documentation when exploring the codebase.
 
 ## Before exploring, read these
 
-- **`CONTEXT.md`** at the repo root, or
-- **`CONTEXT-MAP.md`** at the repo root if it exists — it points at one `CONTEXT.md` per context. Read each one relevant to the topic.
-- **`docs/adr/`** — read ADRs that touch the area you're about to work in. In multi-context repos, also check `src/<context>/docs/adr/` for context-scoped decisions.
+- **`AGENTS.md`** at the repo root — standing orders and conventions.
+- **`.agents/notes/`** — the Agent Note corpus. Read the notes whose class (`architecture` / `feature` / `bug-fix` / `simplification` / `process` / `testing`) or topic touches the area you're about to work in. `implemented/` notes describe shipped reality in present tense; `proposed/` are under review; `rejected/` are frozen verdicts.
+- **`docs/i18n/terminology.md`** — this repo's domain glossary (English ↔ Chinese). Load it before naming domain concepts.
+- **`CONTEXT.md`** at the repo root, if it exists — a supplementary glossary. If absent, proceed silently.
 
-If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
+If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. In this repo, decision records live in `.agents/notes/`, not in `docs/adr/`, and terms live in `docs/i18n/terminology.md`, not in `CONTEXT.md`; the `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) records terms and decisions lazily into those two homes.
 
 ## File structure
 
-Single-context repo (this repo):
+Single-context repo. Agent Notes are path-encoded as `{lifecycle}/{class}/yyyy-mm-dd-topic-title.md` under `.agents/notes/`:
 
 ```
-/
-├── CONTEXT.md
-├── docs/adr/
-│   ├── 0001-event-sourced-orders.md
-│   └── 0002-postgres-for-write-model.md
-└── src/
+.agents/notes/
+├── README.md              ← format + lifecycle/classification rules
+├── proposed/
+│   └── <class>/…
+├── implemented/
+│   ├── architecture/…
+│   ├── feature/…
+│   └── …
+├── rejected/
+│   └── <class>/…
+└── archived/
+    └── <class>/…          ← frozen history, not current authority
 ```
 
-Multi-context repo (presence of `CONTEXT-MAP.md` at the root):
-
-```
-/
-├── CONTEXT-MAP.md
-├── docs/adr/                          ← system-wide decisions
-└── src/
-    ├── ordering/
-    │   ├── CONTEXT.md
-    │   └── docs/adr/                  ← context-specific decisions
-    └── billing/
-        ├── CONTEXT.md
-        └── docs/adr/
-```
+Read `.agents/notes/README.md` for the full format (header block, per-lifecycle skeleton, mandatory Alternatives-considered).
 
 ## Use the glossary's vocabulary
 
-When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `CONTEXT.md`. Don't drift to synonyms the glossary explicitly avoids.
+When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `docs/i18n/terminology.md` or `AGENTS.md`. Don't drift to synonyms the glossary explicitly avoids.
 
 If the concept you need isn't in the glossary yet, that's a signal — either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/domain-modeling`).
 
-## Flag ADR conflicts
+## Flag Agent Note conflicts
 
-If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
+If your output contradicts an existing Agent Note, surface it explicitly rather than silently overriding:
 
-> _Contradicts ADR-0007 (event-sourced orders) — but worth reopening because…_
+> _Contradicts `.agents/notes/implemented/feature/2026-07-22-vconsole-contract-and-phase-guidance.md` — but worth reopening because…_
