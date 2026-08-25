@@ -162,12 +162,14 @@ export class VConRelay extends EventEmitter {
   setGuiSuppressPatterns(patterns: string[]): void {
     this._guiSuppressPatterns = [...patterns];
     console.error("[relay] GUI suppress patterns:", this._guiSuppressPatterns.join(", ") || "(none)");
+    this._broadcast({ type: "suppress", mcpSuppress: this._mcpSuppressEnabled, guiPatterns: [...this._guiSuppressPatterns] });
   }
 
   /** 开关 MCP 命令输出的 GUI 屏蔽（默认开启） */
   setMcpSuppressEnabled(enabled: boolean): void {
     this._mcpSuppressEnabled = enabled;
     console.error("[relay] MCP output GUI suppress:", enabled ? "enabled" : "disabled");
+    this._broadcast({ type: "suppress", mcpSuppress: this._mcpSuppressEnabled, guiPatterns: [...this._guiSuppressPatterns] });
   }
 
   async start(): Promise<void> {
@@ -297,6 +299,8 @@ export class VConRelay extends EventEmitter {
         addon: this._addonName,
         maps: this._maps,
         allMaps: this._allMaps,
+        mcpSuppress: this._mcpSuppressEnabled,
+        guiPatterns: this._guiSuppressPatterns,
       }) + "\n");
       return;
     }

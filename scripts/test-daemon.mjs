@@ -36,6 +36,7 @@ function connectClient(name) {
     const sock = new net.Socket();
     const prnts = [];
     const raws = [];
+    const msgs = [];
     sock.connect(CTRL_PORT, "127.0.0.1", () => {
       sock.write(`HELLO ${token}\n`);
     });
@@ -48,9 +49,11 @@ function connectClient(name) {
         let msg; try { msg = JSON.parse(line); } catch { raws.push(line); continue; }
         if (msg.type === "hello-ok") {
           sock.write("STREAM\n");
-          resolve({ name, sock, prnts, raws });
+          resolve({ name, sock, prnts, raws, msgs, helloOk: msg });
         } else if (msg.type === "prnt") {
           prnts.push(msg.text);
+        } else {
+          msgs.push(msg);
         }
       }
     });
@@ -151,6 +154,17 @@ async function main() {
   await new Promise(r => setTimeout(r, 300));
   if (a.raws.includes("OK")) console.log("[test] PASS command round-trip (CMD:echo) on client A");
   else { console.log("[test] FAIL command round-trip (CMD:echo) on client A"); process.exitCode = 1; }
+
+  // 4b. 抑制状态单一真源：hello-ok 带初始值，B 改设置后 A（已订阅 STREAM）收到 suppress 广播
+  if (a.helloOk.mcpSuppress !== true || !Array.isArray(a.helloOk.guiPatterns)) {
+    console.log("[test] FAIL hello-ok should carry initial suppress state"); process.exitCode = 1;
+  }
+  b.sock.write("SETMCPSUPPRESS:0\n");
+  await new Promise(r => setTimeout(r, 300));
+  const sup = a.msgs.find(m => m.type === "suppress");
+  if (!sup || sup.mcpSuppress !== false) { console.log("[test] FAIL suppress state not broadcast to peer client"); process.exitCode = 1; }
+  else console.log("[test] PASS suppress state broadcast to peer client");
+  b.sock.write("SETMCPSUPPRESS:1\n");
 
   // 5. wrong token rejected
   const badSock = new net.Socket();

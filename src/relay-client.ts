@@ -111,6 +111,8 @@ export class RelayClient extends EventEmitter {
           this._dotaConnected = !!msg.dota;
           this._dotaReady = !!msg.ready;
           this._guiConnected = !!msg.gui;
+          this._mcpSuppressEnabled = msg.mcpSuppress ?? true;
+          this._guiSuppressPatterns = msg.guiPatterns ?? [];
           this.addonName = msg.addon || "";
           this.maps = msg.maps || [];
           this.allMaps = msg.allMaps || [];
@@ -181,6 +183,10 @@ export class RelayClient extends EventEmitter {
         this._dotaConnected = !!msg.dota;
         this._dotaReady = !!msg.ready;
         this._guiConnected = !!msg.gui;
+        break;
+      case "suppress":
+        this._mcpSuppressEnabled = !!msg.mcpSuppress;
+        this._guiSuppressPatterns = msg.guiPatterns || [];
         break;
       case "prnt":
         this.emit("prnt", { text: msg.text, verbosity: msg.verbosity ?? 0, channel: msg.channel ?? "" });

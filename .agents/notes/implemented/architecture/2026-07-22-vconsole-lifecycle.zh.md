@@ -18,11 +18,11 @@ relay 是 Dota 2 `:29000`、vconsole2 GUI `:29001`、MCP 控制口 `:29002` 之�
 relay 对 Dota 2 `:29000` **常持连接**，断线每 2s 重连；无租约、无引用计数、无按需连接。四项机制兜住生命周期（全部在 `src/tools/vcon-relay.ts`，守护进程与内嵌模式同生效）：
 
 - **初始化帧重放**：每次 Dota 连接按到达顺序缓存 `AINF/CHAN/CVRB/CFGV/ADON` 原始帧（新连接时清空重建）；GUI 连上 `:29001` 时先把缓存帧原样写入，再接管实时转发。Dota 重连时新初始化序列自然流经，已附着的 GUI 自动复活。
-- **活性探测**：以最后一个 `rawFrame` 时间戳为 `lastDataAt`。周期检查（默认 10s）：静默 >15s 经 `dotaClient.sendCommand` 发 `echo __mcp_ping__` 探针（不走 `ai_disabled` 包装）；探针发出后 20s 内仍无任何数据 → `close()` 掐断走现有重连。僵尸识别：`connected` 后 10s 内收不到 AINF → 掐断重连（僵尸只 accept 不说话，正常 Dota 一连上就发 AINF）。探针回显行 `__mcp_ping__` 在 prnt 处理器与 rawPrntEditor 中精确匹配丢弃：不进 MCP 缓冲、不广播瘦客户端、不转发 GUI。
+- **活性探测**：以最后一个 `rawFrame` 时间戳为 `lastDataAt`。周期检查（默认 10s）：静默 >15s 经 `dotaClient.sendCommand` 发 `echo __mcp_ping__` 探针（不走 `ai_disabled` 包装）；探针发出后 20s 内仍无任何数据 → `close()` 掐断走现有重连。僵尸识别统一走同一探针路径：僵尸 accept 了 TCP 握手但从不发数据，因此静默 → 发探针 → 无 pong → 判死（与挂起连接同一路径）。探针回显行 `__mcp_ping__` 在 prnt 处理器与 rawPrntEditor 中精确匹配丢弃：不进 MCP 缓冲、不广播瘦客户端、不转发 GUI。
 - **重连去重**：单一 `_scheduleReconnect()` timer，error/close/catch 多路触发只排一次。
 - **空闲退出守卫**：退出条件加「且无 dota2.exe 进程」——`clients.size === 0 && !guiConnected && !isDotaProcessRunning()`。`isDotaProcessRunning()` 在 `console-bridge.ts`（win32: `tasklist /FI "IMAGENAME eq dota2.exe"`；其他平台 `pgrep -x dota2`；检查失败保守返回 true 即不退）。Dota 在跑 = 用户在开发 = 守护进程常驻保 `29001/29002`。
 
-超时参数做成 `VConRelay` 构造函数可选注入（`{probeIntervalMs, silenceMs, pongTimeoutMs, ainfTimeoutMs}`），供离线测试用小值。
+超时参数做成 `VConRelay` 构造函数可选注入（`{probeIntervalMs, silenceMs, pongTimeoutMs, readyProbeIntervalMs}`），供离线测试用小值。
 
 ## Alternatives considered
 
@@ -33,9 +33,9 @@ relay 对 Dota 2 `:29000` **常持连接**，断线每 2s 重连；无租约、�
 ## Consequences
 
 - **买到**：relay 在有界时间内判定死/挂起的 Dota 并重连；晚接入的 GUI 收到完整初始化序列（随开随用）；开发期间守护进程不退出，`29001/29002` 常驻。
-- **付出**：活性探测给引擎增加一条低频 `echo __mcp_ping__` 命令（双向过滤，不可见）；僵尸阈值可能误判极慢的地图加载（AINF 超时取 10s + 探针行过滤缓解）。
+- **付出**：活性探测给引擎增加一条低频 `echo __mcp_ping__` 命令（双向过滤，不可见）；探针对可能把极慢的地图加载误判为死亡（探针行过滤 + 20s pong 窗口缓解）。
 - **快速失败**：判死走现有 close 路径，向所有瘦客户端广播 `{type:"status", dota:false}`，所有 agent 同步快速失败。
 
 ## Testing
 
-`scripts/test-relay.mjs` 离线四场景覆盖（fake VCon server + 随机端口 + 注入小超时）：僵尸 accept 不发言判死重连、初始化帧重放、探针 pong 保活 + 探针行过滤、无 pong 判死。`scripts/test-daemon.mjs` 覆盖守护进程空闲退出（Dota 在跑不退）。活体矩阵见 `AGENTS.md` 的开发-验证工作流。活体抓到两个离线抓不到的错误：AINF 计时器在启动期对健康连接误杀，以及 GUI 连接状态不广播（悄悄让整个契约失效）。
+`scripts/test-relay.mjs` 离线四场景覆盖（fake VCon server + 随机端口 + 注入小超时）：静默 accept（僵尸）判死重连、初始化帧重放、探针 pong 保活 + 探针行过滤、无 pong 判死。`scripts/test-daemon.mjs` 覆盖守护进程空闲退出（Dota 在跑不退）。活体矩阵见 `AGENTS.md` 的开发-验证工作流。活体抓到离线抓不到的错误：GUI 连接状态不广播（悄悄让整个契约失效）。
