@@ -1,46 +1,17 @@
 // test-multi-session.mjs — 多 agent 共享 daemon：A 打开 vconsole，B 同时解门控
 // 需要：Dota 2 运行 + daemon 已拉起
-import { spawn, execSync } from "node:child_process";
+import { execSync } from "node:child_process";
+import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
 
 function mcpClient(name) {
-  const server = spawn("node", ["dist/index.js"], { stdio: ["pipe", "pipe", "pipe"] });
-  let buf = "";
-  const responses = new Map();
-  server.stdout.on("data", (d) => {
-    buf += d;
-    let i;
-    while ((i = buf.indexOf("\n")) !== -1) {
-      const line = buf.slice(0, i).trim();
-      buf = buf.slice(i + 1);
-      if (!line) continue;
-      try { const msg = JSON.parse(line); if (msg.id !== undefined) responses.set(msg.id, msg); } catch { /* 非 JSON */ }
-    }
-  });
-  server.stderr.on("data", () => {});
-  let nextId = 1;
-  const call = (method, params, timeoutMs = 40000) => {
-    const id = nextId++;
-    server.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
-    return new Promise((resolve, reject) => {
-      const t0 = Date.now();
-      const timer = setInterval(() => {
-        if (responses.has(id)) { clearInterval(timer); resolve(responses.get(id)); }
-        else if (Date.now() - t0 > timeoutMs) { clearInterval(timer); reject(new Error(`timeout: ${name}/${method}`)); }
-      }, 50);
-    });
-  };
+  const mcp = spawnMcpServer({ timeoutMs: 40000 });
   return {
     name,
-    call,
-    notify: (method, params) => server.stdin.write(JSON.stringify({ jsonrpc: "2.0", method, params }) + "\n"),
-    tool: (n, a, t) => call("tools/call", { name: n, arguments: a }, t),
-    kill: () => server.kill(),
+    call: mcp.call,
+    notify: mcp.notify,
+    tool: (n, a, t) => mcp.call("tools/call", { name: n, arguments: a }, t),
+    kill: mcp.kill,
   };
-}
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-function assert(cond, msg) {
-  if (!cond) { console.error("FAIL:", msg); process.exit(1); }
-  console.log("ok -", msg);
 }
 
 // 环境重置：无 vconsole

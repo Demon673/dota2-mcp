@@ -15,8 +15,13 @@ import * as net from "net";
 import * as crypto from "crypto";
 import { spawn } from "child_process";
 
-// TODO(hoist-parse-port): 无 NaN 防护，与 vcon-relay.parsePort 语义不一致——提取共享 parsePort
-const CTRL_PORT = parseInt(process.env.DOTA2_VCON_CTRL_PORT || "29002", 10);
+/** 解析端口环境变量；缺失或非法值回退默认。 */
+export function parsePort(value: string | undefined, fallback: number): number {
+  const n = parseInt(value || "", 10);
+  return Number.isNaN(n) ? fallback : n;
+}
+
+const CTRL_PORT = parsePort(process.env.DOTA2_VCON_CTRL_PORT, 29002);
 
 function stateDir(): string {
   const tmp = path.join(os.tmpdir(), "dota2-mcp");
@@ -31,11 +36,10 @@ function stateDir(): string {
   }
 }
 
-// TODO(drop-export): lockPath/tokenPath/logPath 无外部调用者，可去掉 export（pidPath 被 vcon-relay 使用，保留）
-export function lockPath(): string { return path.join(stateDir(), "relay.lock"); }
+function lockPath(): string { return path.join(stateDir(), "relay.lock"); }
 export function pidPath(): string { return path.join(stateDir(), "relay.pid"); }
-export function tokenPath(): string { return path.join(stateDir(), "relay.token"); }
-export function logPath(): string { return path.join(stateDir(), "relay.log"); }
+function tokenPath(): string { return path.join(stateDir(), "relay.token"); }
+function logPath(): string { return path.join(stateDir(), "relay.log"); }
 
 /** 原子抢锁。返回 true = 抢到，false = 已有别人持有。 */
 export function acquireLock(): boolean {

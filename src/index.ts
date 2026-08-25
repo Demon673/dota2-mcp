@@ -15,6 +15,8 @@ import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
 import { VConRelay } from "./tools/vcon-relay.js";
 import { RelayClient } from "./relay-client.js";
 import * as consoleBridge from "./tools/console-bridge.js";
@@ -24,9 +26,7 @@ import { checkRefs } from "./tools/asset-check-refs.js";
 import * as daemon from "./daemon-utils.js";
 
 function getVersion(): string {
-  // TODO(hoist-require): createRequire(import.meta.url) 在本文件出现 3 处（getVersion/createRelay/skillsDir），提到模块级一处即可
   try {
-    const require = createRequire(import.meta.url);
     return require("../package.json").version;
   } catch {
     return "1.6.0";
@@ -64,28 +64,36 @@ async function main(): Promise<void> {
   type RelayLike = VConRelay | RelayClient;
 
   async function createRelay(dotaPath: string | null): Promise<RelayLike> {
-    // TODO(hoist-parse-port): 无 NaN 防护，与 vcon-relay.parsePort 语义不一致——提取共享 parsePort
-    const CTRL_PORT = parseInt(process.env.DOTA2_VCON_CTRL_PORT || "29002", 10);
+    const CTRL_PORT = daemon.parsePort(process.env.DOTA2_VCON_CTRL_PORT, 29002);
 
-    // 1) 已有守护进程在跑 → 瘦客户端接入
-    // TODO(extract-attach): 三处 readToken → new RelayClient → connect → destroy 形状相同，提取 attachThinClient 辅助函数
-    if (await daemon.probeRelay()) {
+    /** 读 token → 连 :29002 握手；失败销毁 client 并触发 onFail，返回 null。 */
+    async function attachThinClient(label: string, onFail?: () => void): Promise<RelayClient | null> {
       const token = daemon.readToken();
       const client = new RelayClient({ port: CTRL_PORT, token });
       try {
         await client.connect();
-        console.error("[relay] connected to existing daemon (thin client mode)");
+        console.error(`[relay] connected to ${label} (thin client mode)`);
         return client;
       } catch (e: any) {
-        console.error("[relay] daemon handshake failed:", e.message);
+        console.error(`[relay] ${label} handshake failed:`, e.message);
         client.destroy();
-        // 握手失败（token 不对/协议不兼容）→ 走下方重新拉起 daemon
+        onFail?.();
+        return null;
       }
+    }
+
+    // 1) 已有守护进程在跑 → 瘦客户端接入
+    if (await daemon.probeRelay()) {
+      const client = await attachThinClient("existing daemon");
+      if (client) return client;
+      // 握手失败（token 不对/协议不兼容）→ 走下方重新拉起 daemon
     }
 
     // 2) 没有可用 daemon → 抢锁，抢到的人 spawn detached daemon，
     //    自己也以瘦客户端身份接入。这样 relay 生命周期独立于任何 MCP 会话。
-    const require = createRequire(import.meta.url);
+    // 自愈陈旧锁：上次 daemon 崩溃留下的 relay.pid/relay.lock 由 livePid 清理，
+    // 否则 acquireLock 永远 EEXIST，会话永久降级到本地 relay（此前需手动清状态文件）
+    daemon.livePid();
     const relayMainPath = require.resolve("./relay-main.js");
     if (daemon.acquireLock()) {
       try {
@@ -94,20 +102,12 @@ async function main(): Promise<void> {
         // 30s：守护进程冷启动 = node 冷启动 + detectDotaPath（注册表/Steam 库扫描），
         // Windows 上叠加 Defender 实时扫描可能远超 10s，超时太短会误入本地降级
         if (await daemon.waitForRelay(30000)) {
-          const token = daemon.readToken();
-          const client = new RelayClient({ port: CTRL_PORT, token });
-          try {
-            await client.connect();
-            console.error("[relay] connected to spawned daemon (thin client mode)");
-            return client;
-          } catch (e: any) {
+          const client = await attachThinClient("spawned daemon", () => {
             // 守护进程秒崩/握手被拒：不能让异常逃出 createRelay（respawn 路径会让
-            // 会话永久卡死在被 destroy 的旧客户端上）。销毁泄漏的 client、杀掉刚
-            // spawn 的守护进程，走下方本地降级
-            console.error("[relay] spawned daemon handshake failed:", e.message);
-            client.destroy();
+            // 会话永久卡死在被 destroy 的旧客户端上）。杀掉刚 spawn 的守护进程，走下方本地降级
             try { process.kill(pid); } catch { /* ignore */ }
-          }
+          });
+          if (client) return client;
         }
         console.error("[relay] daemon did not become ready in 30s");
         // 超时放弃前杀掉自己 spawn 的慢守护进程，否则它启动完成后会去绑
@@ -120,16 +120,8 @@ async function main(): Promise<void> {
       // 别人正在 spawn，等它就绪
       console.error("[relay] another instance is spawning daemon, waiting...");
       if (await daemon.waitForRelay(30000)) {
-        const token = daemon.readToken();
-        const client = new RelayClient({ port: CTRL_PORT, token });
-        try {
-          await client.connect();
-          console.error("[relay] connected to daemon spawned by peer (thin client mode)");
-          return client;
-        } catch (e: any) {
-          console.error("[relay] peer daemon handshake failed:", e.message);
-          client.destroy();
-        }
+        const client = await attachThinClient("daemon spawned by peer");
+        if (client) return client;
       }
     }
 
@@ -152,9 +144,8 @@ async function main(): Promise<void> {
   let currentMaps: string[] = [];
   let currentAllMaps: string[] = [];
 
-  // 结构化存 console 输出（含 verbosity 级别和 channel 来源）+ 文本缓冲（兼容旧代码）
+  // 结构化存 console 输出（含 verbosity 级别和 channel 来源）
   let prntLog: { text: string; verbosity: number; channel: string }[] = [];
-  let prntBuffer: string[] = [];
 
   /** 当前接入的 relay（瘦客户端或本地）。守护进程被杀时由 respawnRelay 整体替换 */
   let relay: RelayLike;
@@ -164,38 +155,22 @@ async function main(): Promise<void> {
     relay = r;
     // 从 relay 读初始 addon/maps（瘦客户端连上已运行的 daemon 时 ADON 帧早已收过；
     // 本地 relay 启动即主动连 Dota，ADON 也可能在 handler 挂载前到达。
-    // 两种情况 adon 事件都不会再发，必须从当前状态读，否则 currentAddon 永远 "(detecting...)"）
-    // TODO(collapse-dual-path): 给 VConRelay 加 addonName/maps/allMaps 公开 getter 后，去掉 instanceof + (r as any) + adon 处理器里的 setTimeout
-    if (r instanceof RelayClient) {
-      currentAddon = r.addonName || "";
+    // 两种情况 adon 事件都不会再发，必须从当前状态读，否则 currentAddon 永远 "(detecting...)"）。
+    // 两侧统一走公开 getter：VConRelay 的 _scanMaps 在 emit("adon") 前同步完成，无需等待。
+    currentAddon = r.addonName || "";
+    currentMaps = r.maps || [];
+    currentAllMaps = r.allMaps || [];
+
+    r.on("adon", () => {
+      currentAddon = r.addonName || currentAddon;
       currentMaps = r.maps || [];
       currentAllMaps = r.allMaps || [];
-    } else {
-      currentAddon = (r as any)._addonName || "";
-      currentMaps = (r as any)._maps || [];
-      currentAllMaps = (r as any)._allMaps || [];
-    }
-
-    r.on("adon", (a: any) => {
-      currentAddon = a.addonName || currentAddon;
-      // 本地 relay：跟一份私有字段扫描结果；瘦客户端：用广播里带的 maps
-      if (r instanceof RelayClient) {
-        currentMaps = r.maps || [];
-        currentAllMaps = r.allMaps || [];
-      } else {
-        setTimeout(() => {
-          currentMaps = (r as any)._maps || [];
-          currentAllMaps = (r as any)._allMaps || [];
-        }, 1000);
-      }
     });
     // 事件驱动：relay 收到 PRNT 时立即同步到本地缓冲
     r.on("prnt", (msg: any) => {
       prntLog.push({ text: msg.text, verbosity: msg.verbosity, channel: msg.channel || "" });
-      prntBuffer.push(msg.text);
       if (prntLog.length > 10000) {
         prntLog.shift();
-        prntBuffer.shift();
       }
     });
     r.on("close", onRelayClose);
@@ -237,13 +212,12 @@ async function main(): Promise<void> {
   attachRelay(await createRelay(dotaPath));
 
   /** 统一的未连接提示 */
-  // TODO(drop-param): extra 调用方从不传值（恒为空串），可删除参数与拼接尾部
-  function notConnectedText(extra = ""): string {
+  function notConnectedText(): string {
     // 守护进程模式下端口被别的实例占用：报错指向真实原因
     if ((relay as VConRelay).portInUse) {
       return `另一个 dota2-mcp 实例已占用端口 29001/29002（多实例冲突）。请关闭其他实例。`;
     }
-    return `未连接到 Dota 2（VConsole2 端口 29000）。Dota 2 可能未启动、已崩溃或正在重启；relay 会持续自动重连，稍后重试即可。若刚重启 Dota 2 仍持续出现：旧 dota2.exe 可能没退干净并仍占用 29000——在任务管理器彻底结束所有 dota2.exe 后再启动。${extra}`;
+    return `未连接到 Dota 2（VConsole2 端口 29000）。Dota 2 可能未启动、已崩溃或正在重启；relay 会持续自动重连，稍后重试即可。若刚重启 Dota 2 仍持续出现：旧 dota2.exe 可能没退干净并仍占用 29000——在任务管理器彻底结束所有 dota2.exe 后再启动。`;
   }
 
   /** vconsole 未打开的契约提示（控制台类工具需要 vconsole 旁观 agent 活动） */
@@ -469,7 +443,6 @@ Then call dota_status again.`;
 
   // 内置 skill 目录：skills/<name>/SKILL.md，frontmatter 带 name/description
   function skillsDir(): string {
-    const require = createRequire(import.meta.url);
     return path.join(path.dirname(require.resolve("../package.json")), "skills");
   }
   function loadSkills(): { name: string; description: string; body: string }[] {
@@ -495,7 +468,7 @@ Then call dota_status again.`;
 
   // Tool: 获取内置 skill — 教 agent 怎么用这套 MCP（Roblox skill 模式）
   server.tool("dota2_skill",
-    "Retrieve built-in skill / knowledge on how to develop a Dota 2 custom game with this MCP. Call with no argument to list available skills, with a name to retrieve its full content, with name + section to retrieve one '##' section (large skills like dota2-vfx/dota2-model are several thousand lines — prefer section retrieval), with name + outline to list its section headings, or with name + data to read a machine-readable data file bundled with the skill (e.g. dota2-vfx ships the official particle corpus statistics as vpcf-stats.json). Learn the runtime development model (long-lived process + hot reload, no map restarts for code edits) before testing or editing.",
+    "Retrieve built-in skill / knowledge on how to develop a Dota 2 custom game with this MCP. Call with no argument to list available skills, with a name to retrieve its full content, with name + section to retrieve one '##' section (large skills like dota2-vfx/dota2-model bundle multi-megabyte machine-readable data files — prefer section retrieval for the prose body), with name + outline to list its section headings, or with name + data to read a machine-readable data file bundled with the skill (e.g. dota2-vfx ships the official particle corpus statistics as vpcf-stats.json). Learn the runtime development model (long-lived process + hot reload, no map restarts for code edits) before testing or editing.",
     {
       name: z.string().optional().describe("Skill name, e.g. 'dota2-runtime-dev'. Omit to list available skills."),
       section: z.string().optional().describe("Exact '##' section heading to retrieve (without the leading ##). Requires name."),
@@ -1207,9 +1180,7 @@ Once connected, call dota_status again.` }] };
   // Workshop Tools 集成 — 启动编辑器 / 编译资源
   // ═══════════════════════════════════════════════════════════════
 
-  // TODO(drop-alias): 仅 1216 一处使用，可直接调用 consoleBridge.resolveDotaToolPath
-  /** Dota 2 工具完整路径解析（共享实现见 console-bridge） */
-  const resolveDotaToolPath = consoleBridge.resolveDotaToolPath;
+  /** Dota 2 工具完整路径解析（共享实现见 console-bridge，直接调用） */
 
   /** 执行 Dota 2 工具目录下的可执行文件。
    *
@@ -1219,7 +1190,7 @@ Once connected, call dota_status again.` }] };
    * 调用前需确保 dotaPath 非空（dota_compile_asset 已检查）。
    */
   function runDotaTool(exeBase: string, args: string[], waitForExit = false): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-    const exePath = resolveDotaToolPath(dotaPath!, exeBase);
+    const exePath = consoleBridge.resolveDotaToolPath(dotaPath!, exeBase);
     // WSL 下 win64 目录命中 = Windows 安装：参数里的 /mnt/ 路径必须转成 Windows 路径
     const isWinTool = process.platform !== "win32" && path.basename(path.dirname(exePath)) === "win64";
     const finalArgs = isWinTool ? args.map((a) => consoleBridge.toWindowsPath(a)) : args;

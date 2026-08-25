@@ -15,11 +15,11 @@ Status: implemented
 ## Alternatives considered
 
 - **六个全部保持内置。** 否决：重复全局维护，且副本已漂移——例如全局 `translate-docs` 视两种语言同权，而本仓库的配对契约是英文 canonical。
-- **`doc-standards` 一并删除。** 否决：它是唯一 dota2-mcp 专属的文档 skill，没有全局对应。
+- **`doc-standards` 一并删除。** 起初否决：它是唯一 dota2-mcp 专属的文档 skill，没有全局对应。划定边界的同日最终仍将其移除（见 Decision）。
 - **把两个 Dota skill 并入全局 `dota2-custom-game-dev`。** 否决：相位 SOP 与运行时模型经 `dota2_skill` 工具被任何 MCP 客户端消费，且离线冒烟测试钉住它们。
 
 ## Consequences
 
 - `dota2_skill` 暴露四个运行时 skill：dota2-game-phases、dota2-runtime-dev、dota2-vfx、dota2-model。
-- 对全局 skill 的裸文本引用存在于 `docs/AGENTS.md`、`skills/doc-standards/SKILL.md` 与 `.agents/notes/README.md`；全局目录位置在 `AGENTS.md` 陈述一次。
+- 对全局 skill 的裸文本引用存在于 `docs/AGENTS.md` 与 `.agents/notes/README.md`；全局目录位置在 `AGENTS.md` 陈述一次。
 - 全局 skill 与本仓库契约之间未来的漂移（例如翻译权威）由读者自行裁决，而非由内置副本兜底。

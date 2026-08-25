@@ -1,7 +1,7 @@
 /**
  * Relay 客户端 — 瘦客户端模式下的 relay 代理。
  *
- * 实现 VConRelay 的公共接口子集（sendCommand / getRecentOutput / getChannels /
+ * 实现 VConRelay 的公共接口子集（sendCommand / getChannels /
  * setGuiSuppressPatterns / setMcpSuppressEnabled / dotaConnected / guiConnected /
  * guiSuppressPatterns / mcpSuppressEnabled），通过 :29002 控制端口与真正的 relay
  * 守护进程通信。index.ts 无需改动即可在守护进程模式下工作。
@@ -30,7 +30,6 @@ export class RelayClient extends EventEmitter {
   private _mcpSuppressEnabled = true;
   private _guiSuppressPatterns: string[] = [];
   private channels: string[] = [];
-  private prntBuffer: string[] = [];
   private port: number;
   private token: string | null;
   private reconnectTimer: NodeJS.Timeout | null = null;
@@ -184,8 +183,6 @@ export class RelayClient extends EventEmitter {
         this._guiConnected = !!msg.gui;
         break;
       case "prnt":
-        this.prntBuffer.push(msg.text);
-        if (this.prntBuffer.length > 10000) this.prntBuffer.shift();
         this.emit("prnt", { text: msg.text, verbosity: msg.verbosity ?? 0, channel: msg.channel ?? "" });
         break;
       case "adon":
@@ -208,10 +205,6 @@ export class RelayClient extends EventEmitter {
       this.pendingCommands.push(cmd);
       if (this.pendingCommands.length > 100) this.pendingCommands.shift();
     }
-  }
-
-  getRecentOutput(n = 50): string[] {
-    return this.prntBuffer.slice(-n);
   }
 
   getChannels(): string[] {

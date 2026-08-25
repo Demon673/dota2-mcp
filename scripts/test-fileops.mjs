@@ -1,6 +1,6 @@
 // 离线 FileOps 冒烟：file_read/write/edit/delete + 路径边界（不依赖 Dota 进程）
 // 用真实 Dota 目录 + DOTA2_TEST_ADDON=dota2mcptest（addon 目录须存在；daemon 不必运行）
-import { spawn } from "node:child_process";
+import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
 
 const BASE = 20000 + Math.floor(Math.random() * 20000);
 const env = {
@@ -10,41 +10,7 @@ const env = {
   DOTA2_VCON_CTRL_PORT: String(BASE + 2),
   DOTA2_TEST_ADDON: process.env.DOTA2_TEST_ADDON || "dota2mcptest",
 };
-const server = spawn("node", ["dist/index.js"], { stdio: ["pipe", "pipe", "pipe"], env });
-let buf = "";
-const responses = new Map();
-server.stdout.on("data", (d) => {
-  buf += d;
-  let i;
-  while ((i = buf.indexOf("\n")) !== -1) {
-    const line = buf.slice(0, i).trim();
-    buf = buf.slice(i + 1);
-    if (!line) continue;
-    try {
-      const msg = JSON.parse(line);
-      if (msg.id !== undefined) responses.set(msg.id, msg);
-    } catch { /* 非 JSON 行 */ }
-  }
-});
-server.stderr.on("data", () => {});
-
-let nextId = 1;
-function call(method, params) {
-  const id = nextId++;
-  server.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
-  return new Promise((resolve, reject) => {
-    const t0 = Date.now();
-    const timer = setInterval(() => {
-      if (responses.has(id)) { clearInterval(timer); resolve(responses.get(id)); }
-      else if (Date.now() - t0 > 45000) { clearInterval(timer); reject(new Error("timeout: " + method)); }
-    }, 50);
-  });
-}
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-function assert(cond, msg) {
-  if (!cond) { console.error("FAIL:", msg); process.exit(1); }
-  console.log("ok -", msg);
-}
+const { call, notify } = spawnMcpServer({ timeoutMs: 45000, env });
 function callText(result) {
   if (result.error) throw new Error("tool error: " + JSON.stringify(result.error).slice(0, 400));
   return result.result.content.map((c) => c.text).join("");
@@ -61,7 +27,7 @@ const ADDON = env.DOTA2_TEST_ADDON;
 const TEST_TARGET = "game/dota_addons/" + ADDON + "/_fileops_test.txt";
 
 await call("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "fileops", version: "0" } });
-server.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+notify("notifications/initialized");
 await sleep(12000);
 
 const tools = await call("tools/list", {});

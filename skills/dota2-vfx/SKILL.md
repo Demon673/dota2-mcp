@@ -116,16 +116,13 @@ Typical parameters (official quantiles): `m_nMaxParticles` 20 (p90=128), `m_flEm
 
 ### Full class field reference (263 classes, field-level documentation)
 
-The complete field tables ship with the skill, read via the `dota2_skill` data parameter:
-
-- **Machine-readable**: `data='vpcf-class-fields.json'` (1.6MB: type/default value/source/corpus count and Top values for each field of the 263 classes)
-- **Human-readable volumes**: `data='class-ref/operators.md'`, `class-ref/initializers.md`, `class-ref/renderers.md`, `class-ref/emitters.md`, `class-ref/forces.md`, `class-ref/constraints.md`, `class-ref/preemission.md`, `class-ref/enums.md`, `class-ref/base-classes.md` (read `class-ref/README.md` first)
+The complete field tables are research artifacts, kept out of the npm package (see the owning Agent Note): machine-readable `vpcf-class-fields.json` (type/default value/source/corpus count and Top values for each field of the 263 classes) plus nine human-readable volumes, under [`research/vpcf-field-reference/`](../../research/vpcf-field-reference/class-ref/README.md) in this repo — read the class-ref README first; 143 schema classes are never used by official content (the appendix there).
 
 Source: GameTracking-Dota2 engine schema (507 header files, cross-validated against the 13,553 official corpus samples with 0 deviations). Three iron rules of use:
 
 1. **"Corpus set %" is the proportion covered by defaults, not the usage rate** — VRF only outputs fields that differ from the class defaults. If 80% of files omit a field, it usually means 80% want the default (e.g. `RenderSprites.m_nOrientationType` defaults to screen-aligned).
 2. **12 in-use classes have been removed from the engine schema** (including rank #10 `C_INIT_CreateWithinSphere`) — successors use `CParticleTransformInput` instead of raw CP indices (`C_INIT_CreateWithinSphereTransform`, etc.). Prefer the new classes when hand-writing.
-3. **18 schema classes carry legacy fields** (official assets still write them but the schema removed them, e.g. `C_OP_PositionLock.m_nControlPointNumber` appears 1,418 times) — **it is unsafe to copy decompiled-output field names directly into hand-written sources**; the full legacy table is in `class-ref/README.md`.
+3. **18 schema classes carry legacy fields** (official assets still write them but the schema removed them, e.g. `C_OP_PositionLock.m_nControlPointNumber` appears 1,418 times) — **it is unsafe to copy decompiled-output field names directly into hand-written sources**; the full legacy table is in `research/vpcf-field-reference/class-ref/README.md`.
 
 ### Pitfalls (all verified)
 

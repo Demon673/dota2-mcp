@@ -7,8 +7,8 @@ const lines = [];
 sock.on("data", (d) => { buf += d; let i; while ((i = buf.indexOf("\n")) !== -1) { lines.push(buf.slice(0, i)); buf = buf.slice(i + 1); } });
 sock.on("connect", () => {
   sock.write(`HELLO ${readToken()}\n`);
+  sock.write("STREAM\n");
   setTimeout(() => sock.write("CMD:script_help2 GameRules\n"), 300);
-  setTimeout(() => sock.write("TAIL:500\n"), 4000);
   setTimeout(() => {
     const text = lines.join("\n");
     let missing = 0;

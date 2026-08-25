@@ -27,9 +27,8 @@ const REPO = "ValveResourceFormat/ValveResourceFormat";
 const DEFAULT_VERSION = "20.0";
 const EXE_BASE = process.platform === "win32" ? "Source2Viewer-CLI.exe" : "Source2Viewer-CLI";
 
-// TODO(drop-export): 仅 ensureVrf 内部使用，可去掉 export
 /** 本机平台 → VRF release 资产名（cli-{os}-{arch}.zip）。 */
-export function platformAssetName(): string {
+function platformAssetName(): string {
   const os = process.platform === "win32" ? "windows"
     : process.platform === "darwin" ? "macos" : "linux";
   const arch = process.arch === "x64" ? "x64"

@@ -1,11 +1,10 @@
 // asset_check_refs：单资产递归引用完整性检查（wayfinder #10 契约）
 // 两级解析：addon（content 源 + game 产物）→ game/dota（引擎资产）；编译状态单列 uncompiled。
-import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ensureVrf } from "./vrf-ensure.js";
-import { extractRefs } from "./asset-inspect.js";
+import { extractRefs, sortKeys, decompileToText } from "./asset-inspect.js";
 
 export interface RefReport {
   ref: string;
@@ -54,30 +53,11 @@ function resolveOneRef(dotaPath: string, addon: string, ref: string, from: strin
   return { report: { ref: clean, from, resolved: null, issue: "not_found" }, kind: "broken", nextSource: null };
 }
 
-// TODO(share-sortKeys): 与 asset-inspect.ts 的 sortKeys 重复，改从那里导入
-function sortKeys<T>(v: T): T {
-  if (Array.isArray(v)) return v.map(sortKeys) as T;
-  if (v && typeof v === "object") {
-    const out: Record<string, unknown> = {};
-    for (const k of Object.keys(v as object).sort()) out[k] = sortKeys((v as Record<string, unknown>)[k]);
-    return out as T;
-  }
-  return v;
-}
-
-// TODO(share-decompile): 与 asset-inspect 的反编译调用重复（-o 临时文件 + invariant 环境 + 64MB），提取共享 decompileToText（保留两侧不同的错误语义）
-/** 反编译一个资产（文本；vtex 跳过——纹理无引用）。 */
+/** 反编译一个资产（文本；vtex 跳过——纹理无引用）。失败返回空串（调用方按未编译处理）。 */
 function decompileText(exe: string, p: string): string {
   try {
-    // 反编译文本走 -o 文件（stdout 是分析摘要）；.NET 无 libicu 时需 invariant 全球化
     const tmp = path.join(tmpdir(), "dota2-mcp", "checkrefs", path.basename(p) + "." + process.pid + ".txt");
-    mkdirSync(path.dirname(tmp), { recursive: true });
-    execFileSync(exe, ["-i", p, "-o", tmp], {
-      encoding: "utf-8",
-      maxBuffer: 64 * 1024 * 1024,
-      env: { ...process.env, DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1" },
-    });
-    const text = readFileSync(tmp, "utf-8");
+    const text = decompileToText(exe, p, tmp);
     rmSync(tmp, { force: true });
     return text;
   } catch { return ""; }

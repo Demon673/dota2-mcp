@@ -1,50 +1,20 @@
 // 活体 vfx_preview 冒烟：launch addon 地图 → spawn 粒子 → stop
 // 前置：Dota 2 运行 + vconsole 已接入（relay 自动拉起）；DOTA2_TEST_ADDON=dota2mcptest
-import { spawn } from "node:child_process";
+import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
 
 const env = {
   ...process.env,
   DOTA2_TEST_ADDON: process.env.DOTA2_TEST_ADDON || "dota2mcptest",
   DOTA2_TEST_MAP: process.env.DOTA2_TEST_MAP || "template_map",
 };
-const server = spawn("node", ["dist/index.js"], { stdio: ["pipe", "pipe", "pipe"], env });
-let buf = "";
-const responses = new Map();
-server.stdout.on("data", (d) => {
-  buf += d;
-  let i;
-  while ((i = buf.indexOf("\n")) !== -1) {
-    const line = buf.slice(0, i).trim();
-    buf = buf.slice(i + 1);
-    if (!line) continue;
-    try { const msg = JSON.parse(line); if (msg.id !== undefined) responses.set(msg.id, msg); } catch {}
-  }
-});
-server.stderr.on("data", () => {});
-let nextId = 1;
-function call(method, params) {
-  const id = nextId++;
-  server.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
-  return new Promise((resolve, reject) => {
-    const t0 = Date.now();
-    const timer = setInterval(() => {
-      if (responses.has(id)) { clearInterval(timer); resolve(responses.get(id)); }
-      else if (Date.now() - t0 > 180000) { clearInterval(timer); reject(new Error("timeout: " + method)); }
-    }, 100);
-  });
-}
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-function assert(cond, msg) {
-  if (!cond) { console.error("FAIL:", msg); process.exit(1); }
-  console.log("ok -", msg);
-}
+const { call, notify, kill } = spawnMcpServer({ timeoutMs: 180000, env });
 function callText(result) {
   if (result.result && result.result.isError) throw new Error("tool error: " + result.result.content.map((c) => c.text).join("").slice(0, 400));
   return result.result.content.map((c) => c.text).join("");
 }
 
 await call("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "vfx-live", version: "0" } });
-server.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+notify("notifications/initialized");
 await sleep(15000);
 
 // 1. 状态
@@ -107,5 +77,5 @@ console.log(stopText.slice(0, 300));
 assert(stopText.includes("destroyed") || stopText.includes("pid"), "stop reports destruction");
 
 console.log("PASS");
-server.kill();
+kill();
 process.exit(0);

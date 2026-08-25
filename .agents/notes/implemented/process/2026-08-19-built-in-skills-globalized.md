@@ -15,11 +15,11 @@ The repo shipped six documentation/review skills under `skills/` (`prose-standar
 ## Alternatives considered
 
 - **Keep all six built in.** Rejected: it duplicates global maintenance, and the copies had already drifted — e.g. the global `translate-docs` treats both languages as equal authority while this repo's pairing contract is English-canonical.
-- **Remove `doc-standards` too.** Rejected: it is the only dota2-mcp-specific documentation skill, with no global counterpart.
+- **Remove `doc-standards` too.** Rejected at first: it is the only dota2-mcp-specific documentation skill, with no global counterpart. The boundary settled the same day into removing it anyway (see Decision).
 - **Fold the two Dota skills into the global `dota2-custom-game-dev`.** Rejected: the phase SOP and runtime model are consumed through the `dota2_skill` tool by any MCP client, and the offline smoke test pins them.
 
 ## Consequences
 
 - `dota2_skill` exposes four runtime skills: dota2-game-phases, dota2-runtime-dev, dota2-vfx, dota2-model.
-- Bare-text references to global skills exist in `docs/AGENTS.md`, `skills/doc-standards/SKILL.md`, and `.agents/notes/README.md`; the global directory is stated once in `AGENTS.md`.
+- Bare-text references to global skills exist in `docs/AGENTS.md` and `.agents/notes/README.md`; the global directory is stated once in `AGENTS.md`.
 - A future drift between a global skill and this repo's contracts (e.g. translation authority) is resolved by the reader, not by a built-in copy.

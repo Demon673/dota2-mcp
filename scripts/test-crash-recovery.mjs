@@ -5,6 +5,7 @@
 import { spawn, execSync } from "node:child_process";
 import path from "node:path";
 import { helloOk } from "./lib-ctrl.mjs";
+import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
 
 const { detectDotaPath } = await import("../dist/tools/console-bridge.js");
 const dotaPath = await detectDotaPath();
@@ -17,46 +18,15 @@ const DOTA_EXE = path.join(dotaPath, "game", "bin", process.platform === "win32"
 const DOTA_ARGS = process.env.DOTA2_TEST_ARGS ? process.env.DOTA2_TEST_ARGS.split(/\s+/) : ["-addon", ADDON, "-tools"];
 console.log("addon:", ADDON, "| dota:", DOTA_EXE);
 
-const server = spawn("node", ["dist/index.js"], { stdio: ["pipe", "pipe", "pipe"] });
-let buf = "";
-const responses = new Map();
-server.stdout.on("data", (d) => {
-  buf += d;
-  let i;
-  while ((i = buf.indexOf("\n")) !== -1) {
-    const line = buf.slice(0, i).trim();
-    buf = buf.slice(i + 1);
-    if (!line) continue;
-    try { const msg = JSON.parse(line); if (msg.id !== undefined) responses.set(msg.id, msg); } catch { /* 非 JSON */ }
-  }
-});
-server.stderr.on("data", () => {});
-
-let nextId = 1;
-function call(method, params, timeoutMs = 30000) {
-  const id = nextId++;
-  server.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
-  return new Promise((resolve, reject) => {
-    const t0 = Date.now();
-    const timer = setInterval(() => {
-      if (responses.has(id)) { clearInterval(timer); resolve(responses.get(id)); }
-      else if (Date.now() - t0 > timeoutMs) { clearInterval(timer); reject(new Error("timeout: " + method)); }
-    }, 50);
-  });
-}
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const { call, notify, kill } = spawnMcpServer({ timeoutMs: 30000 });
 const tool = (name, args, t) => call("tools/call", { name, arguments: args }, t);
-function assert(cond, msg) {
-  if (!cond) { console.error("FAIL:", msg); process.exit(1); }
-  console.log("ok -", msg);
-}
 const vconsoleAlive = () => {
   try { return execSync('tasklist /FI "IMAGENAME eq vconsole2.exe" /NH', { encoding: "utf-8" }).includes("vconsole2.exe"); }
   catch { return false; }
 };
 
 await call("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "crash-test", version: "0" } });
-server.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+notify("notifications/initialized");
 await sleep(8000);
 
 // 1. 前置：游戏在跑，console_send 可用
@@ -96,6 +66,6 @@ const st = await tool("dota_status", {}, 45000);
 const txt = st.result.content[0].text;
 assert(txt.includes('"vconsole": true') && txt.includes(`"addon": "${ADDON}"`), "dota_status fully recovered (vconsole:true, addon re-detected)");
 
-server.kill();
+kill();
 console.log("PASS");
 process.exit(0);

@@ -15,8 +15,7 @@ export interface InspectResult {
   text: string;  // 给 MCP 的完整文本输出
 }
 
-// TODO(share-sortKeys): 与 asset-check-refs.ts 的 sortKeys 逐字节相同，此处 export 后由对方导入
-function sortKeys<T>(v: T): T {
+export function sortKeys<T>(v: T): T {
   if (Array.isArray(v)) return v.map(sortKeys) as T;
   if (v && typeof v === "object") {
     const out: Record<string, unknown> = {};
@@ -24,6 +23,17 @@ function sortKeys<T>(v: T): T {
     return out as T;
   }
   return v;
+}
+
+/** 反编译一个资产到临时文件并读回文本（VRF CLI 共享调用；vtex 走 PNG 分支）。 */
+export function decompileToText(exe: string, resolvedPath: string, outFile: string): string {
+  mkdirSync(path.dirname(outFile), { recursive: true });
+  execFileSync(exe, ["-i", resolvedPath, "-o", outFile], {
+    encoding: "utf-8",
+    maxBuffer: 64 * 1024 * 1024,
+    env: { ...process.env, DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1" },
+  });
+  return readFileSync(outFile, "utf-8");
 }
 
 /** 提取 KV3 resource 引用与裸 materials/ 路径（去重排序）。 */
@@ -120,9 +130,7 @@ export async function inspectAsset(dotaPath: string, resolvedPath: string, opts:
     } else {
       // 反编译文本走 -o 文件（stdout 是分析摘要不是文本）；vtex 输出 PNG
       tmpOut = path.join(tmpdir(), "dota2-mcp", "inspect", path.basename(resolvedPath) + ".txt");
-      mkdirSync(path.dirname(tmpOut), { recursive: true });
-      execFileSync(vrf.executable, ["-i", resolvedPath, "-o", tmpOut], { encoding: "utf-8", maxBuffer: 64 * 1024 * 1024, env: cliEnv });
-      stdout = readFileSync(tmpOut, "utf-8");
+      stdout = decompileToText(vrf.executable, resolvedPath, tmpOut);
     }
   } catch (e) {
     const err = e as { stdout?: string; stderr?: string; message?: string };

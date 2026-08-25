@@ -21,5 +21,5 @@ Two built-in skills ship under `skills/`: `dota2-vfx` (particles: KV3 structure 
 
 ## Consequences
 
-- Skills exposed by dota2_skill: doc-standards, dota2-game-phases, dota2-model, dota2-runtime-dev, dota2-vfx.
+- Skills exposed by dota2_skill: dota2-game-phases, dota2-model, dota2-runtime-dev, dota2-vfx.
 - The word-for-word field tables (字面全量) remain open work tracked by TODO(rare) inside the two skills.

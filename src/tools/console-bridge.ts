@@ -1,14 +1,11 @@
 /**
- * ConsoleBridge — Dota 2 Console 双向通信（实用方案）
+ * Dota 2 环境探测与工具执行辅助。
  *
- * 写命令：生成 .cfg 文件 → Dota 2 exec 执行
- * 读输出：tail console.log（-condebug 模式）
- *
- * ## 已验证
- * - console.log 路径: {dota 2 beta}/game/dota/console.log
- * - 格式: MM/DD HH:MM:SS [Module] Message
- * - 实时写入: ✅ （实测 862 行含 478 条错误）
- * - 内容: ResourceSystem/MaterialSystem/Lua 错误全部捕获
+ * - detectDotaPath：Steam appid 570 自动检测（find-steam-app → 注册表 → 库扫描 → 默认位置），
+ *   非 win32 平台自动映射到 /mnt/<drive> 挂载（WSL 兼容）。
+ * - resolveDotaToolPath / toWindowsPath / isProcessRunning / spawnVconsole：
+ *   Dota 2 工具目录按存在性探测，spawn 参数在 WSL 下转换为 Windows 路径。
+ * 控制台 I/O 走 VConRelay（29000/29001/29002），本文件不再提供 console.log 回退。
  */
 
 import * as fs from "fs";
@@ -16,123 +13,11 @@ import * as path from "path";
 import { execSync, spawn } from "child_process";
 import { findSteamAppById } from "find-steam-app";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export interface ConsoleBridgeConfig {
-  /** Dota 2 beta 根目录，如 "D:/SteamLibrary/steamapps/common/dota 2 beta" */
-  dotaPath: string;
-  /** addon 名称，如 "my_addon" */
-  addonName: string;
-}
-
-export interface ConsoleLogEntry {
-  timestamp: string;   // "MM/DD HH:MM:SS"
-  module: string;      // "[ResourceSystem]"
-  message: string;     // 实际消息内容
-  raw: string;         // 原始行
-  isError: boolean;    // 是否为错误
-}
-
-// ---------------------------------------------------------------------------
-// Log parsing
-// ---------------------------------------------------------------------------
-
-const LOG_LINE_RE = /^(\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2})\s+(\[[^\]]+\])\s+(.+)$/;
-const ERROR_PATTERNS = [
-  /Failed loading resource/i,
-  /Error creating/i,
-  /Parse error/i,
-  /ERROR_FILEOPEN/i,
-  /Unknown Morph/i,
-  /can't solve quadratic/i,
-];
-
-function parseLogLine(line: string): ConsoleLogEntry | null {
-  const m = line.match(LOG_LINE_RE);
-  if (!m) return null;
-
-  const message = m[3];
-  const isError = ERROR_PATTERNS.some((re) => re.test(message));
-
-  return {
-    timestamp: m[1],
-    module: m[2],
-    message,
-    raw: line,
-    isError,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Console output reading
-// ---------------------------------------------------------------------------
-
-export function getConsoleLogPath(config: ConsoleBridgeConfig): string {
-  return path.join(config.dotaPath, "game", "dota", "console.log");
-}
-
-/** 读取 console.log 尾部 N 行 */
-export function tailConsoleLog(
-  config: ConsoleBridgeConfig,
-  lines: number = 50
-): ConsoleLogEntry[] {
-  const logPath = getConsoleLogPath(config);
-  if (!fs.existsSync(logPath)) return [];
-
-  const content = fs.readFileSync(logPath, "utf-8");
-  const allLines = content.split(/\r?\n/).filter(Boolean);
-  const tail = allLines.slice(-lines);
-
-  return tail.map(parseLogLine).filter((e): e is ConsoleLogEntry => e !== null);
-}
-
-/** 读取 console.log 中匹配模式的行 */
-export function grepConsoleLog(
-  config: ConsoleBridgeConfig,
-  pattern: RegExp,
-  maxResults: number = 50
-): ConsoleLogEntry[] {
-  const logPath = getConsoleLogPath(config);
-  if (!fs.existsSync(logPath)) return [];
-
-  const content = fs.readFileSync(logPath, "utf-8");
-  const results: ConsoleLogEntry[] = [];
-
-  for (const line of content.split(/\r?\n/)) {
-    if (!line) continue;
-    if (pattern.test(line)) {
-      const entry = parseLogLine(line);
-      if (entry) results.push(entry);
-      if (results.length >= maxResults) break;
-    }
-  }
-
-  return results;
-}
-
-/** 只读错误行 */
-export function readErrors(
-  config: ConsoleBridgeConfig,
-  maxResults: number = 50
-): ConsoleLogEntry[] {
-  return grepConsoleLog(
-    config,
-    /Failed loading|Error creating|Parse error|ERROR_FILEOPEN|Unknown Morph|can't solve quadratic/i,
-    maxResults
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Default config (auto-detected)
-// ---------------------------------------------------------------------------
-
 /** 非 win32 平台（WSL 等）把 Windows 盘符路径映射到 /mnt/<drive>/ 挂载，使 fs 可访问；win32 原样返回。 */
 function toHostPath(p: string | null): string | null {
   if (!p) return null;
   if (process.platform === "win32") return p;
-  const m = p.match(/^([A-Za-z]):[\/\\]?(.*)$/);
+  const m = p.match(/^([A-Za-z]):[/\\]?(.*)$/);
   if (!m) return p; // 已是 host 路径（如 /mnt/d/...）
   return "/mnt/" + m[1].toLowerCase() + "/" + m[2];
 }
@@ -178,7 +63,7 @@ function parseLibraryFolders(vdfPath: string): string[] {
   try {
     const content = fs.readFileSync(vdfPath, "utf-8");
     const libPaths: string[] = [];
-    // 匹配 "path"		"D:\\SteamLibrary"（新格式）或 "0"		"D:\\SteamLibrary"（旧格式）
+    // 匹配 "path"		"D:\SteamLibrary"（新格式）或 "0"		"D:\SteamLibrary"（旧格式）
     for (const m of content.matchAll(/"(?:path|\d+)"\s+"([^"]+)"/g)) {
       libPaths.push(m[1].replace(/\\\\/g, "/"));
     }
@@ -258,7 +143,7 @@ export function isDotaProcessRunning(): boolean {
 /** Dota 2 工具二进制目录（index.ts 与 relay 共用）。
  *  按目录存在性探测而非 platform：WSL 里 process.platform 是 linux，但 Dota 是
  *  Windows 安装（只有 win64）；原生 Linux/Windows 安装各自命中自己的目录。 */
-export function getDotaBinDir(dotaRoot: string): string {
+function getDotaBinDir(dotaRoot: string): string {
   const candidates = process.platform === "darwin"
     ? ["osx64", "win64", "linuxsteamrt64"]
     : process.platform === "linux"
@@ -269,13 +154,6 @@ export function getDotaBinDir(dotaRoot: string): string {
     if (fs.existsSync(path.join(base, d))) return path.join(base, d);
   }
   return path.join(base, candidates[0]);
-}
-
-/** 工具可执行文件名。WSL 下若命中 win64 目录（Windows 安装）则带 .exe
- *  （WSL interop 执行 PE 需要 .exe 后缀的完整路径）。 */
-export function getDotaExeName(baseName: string): string {
-  if (process.platform === "win32") return `${baseName}.exe`;
-  return baseName;
 }
 
 /** WSL 下 /mnt/<drive>/... → <Drive>:\...（spawn Windows 工具时参数必须是 Windows 路径）。 */

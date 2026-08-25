@@ -70,10 +70,10 @@ The standard verification path for a new feature or bug fix:
 - **When the test project is unclear, ask the developer** which addon/map to test, then pass it via `DOTA2_TEST_ADDON`/`DOTA2_TEST_MAP` — never silently assume any particular project.
 
 **3. Live three-layer verification (locate issues by layer)**
-- **Console protocol layer**: direct 29002 NDJSON (`HELLO <token>` → `CMD:<cmd>` → `STREAM`/`TAIL`; token in `os.tmpdir()/dota2-mcp/relay.token`), bypassing the MCP tool layer to verify the console commands themselves — see `scripts/verify-phase-apis.mjs`.
+- **Console protocol layer**: direct 29002 NDJSON (`HELLO <token>` → `CMD:<cmd>` → `STREAM` output; token in `os.tmpdir()/dota2-mcp/relay.token`), bypassing the MCP tool layer to verify the console commands themselves — see `scripts/verify-phase-apis.mjs`.
 - **MCP tool layer**: stdio JSON-RPC smoke (initialize → tools/call), following the call() pattern in `scripts/test-mcp-live.mjs`.
 - **System status layer**: netstat shows who connects to whom on 29000/29001/29002, tasklist shows process liveness, daemon logs show the relay's perspective.
-- **Verify console API names** (convention: hardcode only after verifying): collect `script_help2 <name>` over 29002 **fully via STREAM in real time** — the relay prntBuffer only holds 500 lines, so a full dump would flush the TAIL window. APIs like `GameRules` are only registered once the map is loaded, and script_help2's argument doesn't filter output (always a full dump), so grep the result yourself.
+- **Verify console API names** (convention: hardcode only after verifying): collect `script_help2 <name>` over 29002 **fully via STREAM in real time** (the control protocol's only output channel). APIs like `GameRules` are only registered once the map is loaded, and script_help2's argument doesn't filter output (always a full dump), so grep the result yourself.
 
 **4. Scenario matrix (mandatory for connection-lifecycle changes)**
 Contract gating → open vconsole (replay takes effect) → close vconsole → kill Dota (detection) → restart (self-recovery, vconsole untouched) → multi-session sharing. Matching scripts: test-mcp-live / test-crash-recovery / test-multi-session.
@@ -88,7 +88,7 @@ Optional advanced configuration:
 |------|--------|------|
 | `DOTA2_VCON_DOTA_PORT` | `29000` | Dota 2 VConsole2 port |
 | `DOTA2_VCON_GUI_PORT` | `29001` | Port forwarded to the vconsole2 GUI |
-| `DOTA2_VCON_CTRL_PORT` | `29002` | MCP control port (`STATUS/CMD/TAIL`) |
+| `DOTA2_VCON_CTRL_PORT` | `29002` | MCP control port (NDJSON: `HELLO`/`CMD`/`STREAM`/`SETFILTERS`/`SETMCPSUPPRESS`) |
 | `DOTA2_VCON_AUTO_OPEN_VCONSOLE` | `1` | Auto-open vconsole2.exe when Dota readiness is detected (rising edge) and no vconsole2 process exists; `0` disables |
 
 ## Key findings
@@ -137,7 +137,7 @@ When the daemon process is killed (not an idle exit): the thin client backs off 
 AI agent (MCP client over stdio)
     ↓
 src/index.ts  — registers all MCP tools; thin client
-    ↓  (control port :29002, NDJSON protocol: HELLO/STATUS/CMD/TAIL/SETFILTERS/SETMCPSUPPRESS)
+    ↓  (control port :29002, NDJSON protocol: HELLO/CMD/STREAM/SETFILTERS/SETMCPSUPPRESS)
 src/relay-main.ts  — detached daemon
     ↓
 src/tools/vcon-relay.ts  — VConRelay transparent proxy
@@ -175,7 +175,7 @@ This is a **conventional output-isolation feature**, not the real semantics of a
 | `src/daemon-utils.ts` | Daemon coordination: atomic lock, PID, token (0600), spawn/wait. State directory `os.tmpdir()/dota2-mcp` |
 | `src/tools/vcon-relay.ts` | The `VConRelay` class. Transparent proxy between the vconsole2 GUI (`:29001`) and Dota 2 (`:29000`) (gating: no GUI, no connection); broadcasts PRNT/status to each thin client. Auto-reconnects to Dota 2 after a disconnect while a GUI is present, readiness probe when there's no GUI |
 | `src/tools/vcon-bridge.ts` | The `VConClient` class. Low-level VConsole2 TCP protocol implementation: 12-byte frame-header parsing, dispatch of `PRNT`/`AINF`/`CHAN`/`ADON`/`CVRB`/`CFGV`, `CMND` command sending |
-| `src/tools/console-bridge.ts` | Auto-detects the Dota 2 path, writes commands to a cfg file + tails `game/dota/console.log` as a fallback |
+| `src/tools/console-bridge.ts` | Auto-detects the Dota 2 path (Steam appid 570 + WSL mount mapping), resolves Dota tool paths by directory probing, and spawns vconsole2 |
 | `src/tools/proxy-intercept.ts` | Standalone protocol-analysis tool. Run `npx tsx src/tools/proxy-intercept.ts direct` or `proxy` to capture or MITM-analyze VCon traffic |
 | `skills/<name>/SKILL.md` | Built-in skill directory. The `dota2_skill` tool reads a SKILL.md with frontmatter (name/description) from `skills/` and returns its content |
 
@@ -278,7 +278,7 @@ Client → server command type: `CMND` (null-terminated ASCII).
 - The daemon occupies ports `29001` (GUI) and `29002` (control); multiple MCP sessions share one daemon through thin clients, no longer mutually exclusive. The single-instance limit applies only when the daemon fails to launch and it degrades to a local relay
 - **vconsole usage path**: vconsole2's connection target is fixed at `127.0.0.1:29001` (the relay's GUI port). By default no manual open is needed — the relay auto-launches when it detects Dota readiness (`DOTA2_VCON_AUTO_OPEN_VCONSOLE=0` disables). The AssetBrowser vconsole button is disabled by the engine only while the relay holds 29000 (i.e. while vconsole is attached); once the window closes, 29000 is released and the button works again. A late-attaching window receives an init frame replay and works as soon as it opens
 - Dota 2 must be launched with the `-vconsole` flag (or have the vconsole2 listener enabled) for the relay to connect to `:29000`
-- **WSL environment**: tool directories are probed by existence (a win64 hit means a Windows install), argument paths are auto-converted to Windows format, and the VRF CLI needs the invariant globalization env. When a leftover daemon causes port conflicts, kill the node/relay processes and clear the `os.tmpdir()/dota2-mcp/` state files; don't delete `relay.token` while the daemon is alive
+- **WSL environment**: tool directories are probed by existence (a win64 hit means a Windows install), argument paths are auto-converted to Windows format, and the VRF CLI needs the invariant globalization env. When a leftover daemon causes port conflicts, kill the node/relay processes — the next session's startup self-heals stale lock/pid state (`livePid`); don't delete `relay.token` while the daemon is alive
 - Many API dump tools need the map to be loaded; calling them too early may return empty results
 
 ## References
@@ -291,7 +291,6 @@ Client → server command type: `CMND` (null-terminated ASCII).
 | VConsoleLib.python | https://github.com/uilton-oliveira/VConsoleLib.python |
 | luaconsole2 (Lua) | https://github.com/eepycats/luaconsole2 |
 | Dota 2 path | Auto-detected via Steam appid `570` (referred to as `{dota2Path}` in docs; never an absolute path) |
-| console.log path | `{dota2Path}/game/dota/console.log` |
 | VCon ports | engine listens on 29000, relay listens on 29001 (GUI), 29002 (MCP control) |
 
 ## Agent skills
@@ -338,6 +337,5 @@ Document hierarchy, tutorial/reference classification, writing rules, and the sl
 - [x] **FileOps** — read/write KV/Lua/TS/JS/CSS/XML source files (`file_read/write/edit/delete` landed)
 - [ ] **BuildTools** — npm/tstl/rollup build integration + scaffolding generation
 - [x] **AssetInspector** — VRF CLI subprocess calls to parse .vmdl_c/.vmap_c/.vpcf_c etc. (`asset_inspect` landed)
-- [ ] **Claude MCP configuration** — write the config so an AI agent can call it directly
 - [ ] Verify the actual output of `script_find` / `script_dump_all` while the game is running
 - [ ] Test dota_launch_game across various addon/map combinations

@@ -35,6 +35,7 @@ function connectClient(name) {
     const token = fs.readFileSync(tokenPath, "utf-8").trim();
     const sock = new net.Socket();
     const prnts = [];
+    const raws = [];
     sock.connect(CTRL_PORT, "127.0.0.1", () => {
       sock.write(`HELLO ${token}\n`);
     });
@@ -44,10 +45,10 @@ function connectClient(name) {
       let i;
       while ((i = buf.indexOf("\n")) !== -1) {
         const line = buf.slice(0, i); buf = buf.slice(i + 1);
-        let msg; try { msg = JSON.parse(line); } catch { continue; }
+        let msg; try { msg = JSON.parse(line); } catch { raws.push(line); continue; }
         if (msg.type === "hello-ok") {
           sock.write("STREAM\n");
-          resolve({ name, sock, prnts });
+          resolve({ name, sock, prnts, raws });
         } else if (msg.type === "prnt") {
           prnts.push(msg.text);
         }
@@ -142,16 +143,14 @@ async function main() {
   const b = await connectClient("B");
   console.log("[test] PASS client B handshake (multi-instance)");
 
-  // 4. send a command via A, relay wraps it and (would) forward to Dota.
-  //    No Dota here, so instead verify relay broadcasts PRNT by injecting
-  //    through the GUI path: connect a fake vconsole2 GUI to :29001 which
-  //    triggers _connectDota → fails (no Dota) — but we can at least verify
-  //    both clients receive a broadcast when we send a raw line via ctrl.
-  //    Simplest observable: TAIL through both, and confirm both got hello-ok
-  //    with same addon/maps (empty here).
-  a.sock.write("TAIL:5\n");
+  // 4. 多客户端往返：A、B 都已 hello-ok 并订阅 STREAM（connectClient 发 STREAM）。
+  //    无 Dota 故没有 PRNT 广播可断言；用 CMD:echo 验证控制口命令往返——
+  //    中继对已握手客户端的 CMD 回 "OK" 确认（有 Dota 时命令输出会经 STREAM 广播回显）。
+  const token = `rt-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  a.sock.write(`CMD:echo ${token}\n`);
   await new Promise(r => setTimeout(r, 300));
-  console.log("[test] PASS command round-trip (TAIL) on client A");
+  if (a.raws.includes("OK")) console.log("[test] PASS command round-trip (CMD:echo) on client A");
+  else { console.log("[test] FAIL command round-trip (CMD:echo) on client A"); process.exitCode = 1; }
 
   // 5. wrong token rejected
   const badSock = new net.Socket();
@@ -428,6 +427,24 @@ async function main() {
     }
     try { process.kill(child5.pid); } catch {}
     await new Promise(r => setTimeout(r, 300));
+  }
+
+  // 6. stale-lock 自愈：createRelay 启动前调用 livePid() 清理崩溃遗留的 relay.pid/relay.lock
+  {
+    const du = await import("../dist/daemon-utils.js");
+    const deadPid = 999999; // 高 PID 几乎不可能存活
+    fs.writeFileSync(pidPath, String(deadPid));
+    fs.writeFileSync(path.join(stateDir, "relay.lock"), "stale");
+    const live = du.livePid();
+    if (live !== null) {
+      console.log("[test] FAIL livePid should return null for a dead pid");
+      process.exitCode = 1;
+    } else if (fs.existsSync(pidPath) || fs.existsSync(path.join(stateDir, "relay.lock"))) {
+      console.log("[test] FAIL livePid should clean stale pid+lock files");
+      process.exitCode = 1;
+    } else {
+      console.log("[test] PASS livePid self-heals stale pid/lock");
+    }
   }
 
   cleanup();

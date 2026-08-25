@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/simplification/2026-08-25-dead-29002-protocol-surface.md
+2026-08-25-dead-29002-protocol-surface.md: 7a67e7deebe4a44dbbf7b04ebb17f0f4f1f5ea53
+2026-08-25-dead-29002-protocol-surface.zh.md: 101b3fada6bf9a46fd6d0fdb369023a824d36113

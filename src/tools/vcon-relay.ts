@@ -99,8 +99,6 @@ export class VConRelay extends EventEmitter {
   private guiServer!: net.Server;
   private ctrlServer!: net.Server;
   private guiSocket: net.Socket | null = null;
-  private prntBuffer: string[] = [];
-  _prntLog: { text: string; verbosity: number; channel: string }[] = [];
   private _dotaConnected = false;
   /** 就绪探测结果（Dota 在但不一定连着；strict 模型下无 GUI 不持有连接） */
   private _dotaReady = false;
@@ -154,6 +152,9 @@ export class VConRelay extends EventEmitter {
   get guiConnected() { return this._guiConnected; }
   get guiSuppressPatterns(): string[] { return [...this._guiSuppressPatterns]; }
   get mcpSuppressEnabled(): boolean { return this._mcpSuppressEnabled; }
+  get addonName(): string { return this._addonName; }
+  get maps(): string[] { return [...this._maps]; }
+  get allMaps(): string[] { return [...this._allMaps]; }
   /** 端口被占用（守护进程模式下另一个实例在跑） */
   get portInUse(): boolean { return this.portConflict; }
 
@@ -211,10 +212,6 @@ export class VConRelay extends EventEmitter {
     } else {
       this.dotaClient?.sendCommand(cmd);
     }
-  }
-
-  getRecentOutput(n = 50): string[] {
-    return this.prntBuffer.slice(-n);
   }
 
   /** 返回当前已注册的 VConsole2 通道名列表 */
@@ -311,23 +308,9 @@ export class VConRelay extends EventEmitter {
       return;
     }
 
-    // 以下命令要求已完成握手（在 clients 集合中）或旧协议直通
-    if (text === "STATUS") {
-      conn.sock.write(JSON.stringify({
-        dota: this._dotaConnected,
-        ready: this._dotaReady,
-        gui: this._guiConnected,
-        addon: this._addonName,
-        maps: this._maps,
-        allMaps: this._allMaps,
-      }) + "\n");
-    } else if (text === "STREAM") {
+    // 以下命令要求已完成握手（在 clients 集合中）
+    if (text === "STREAM") {
       conn.streaming = true;
-    } else if (text === "SHUTDOWN") {
-      if (this.clients.size === 0) {
-        console.error("[relay] SHUTDOWN requested, exiting");
-        process.exit(0);
-      }
     } else if (text.startsWith("SETMCPSUPPRESS:")) {
       this.setMcpSuppressEnabled(text.slice(15) === "1");
     } else if (text.startsWith("CMD:")) {
@@ -345,11 +328,6 @@ export class VConRelay extends EventEmitter {
       }
       this.sendCommand(cmd);
       conn.sock.write("OK\n");
-    } else if (text.startsWith("TAIL:")) {
-      const n = parseInt(text.slice(5)) || 20;
-      conn.sock.write(this.getRecentOutput(n).join("\n") + "\n");
-    } else if (text === "FILTERS") {
-      conn.sock.write(JSON.stringify({ patterns: this._guiSuppressPatterns }) + "\n");
     } else if (text.startsWith("SETFILTERS:")) {
       try {
         const patterns = JSON.parse(text.slice(11));
@@ -575,9 +553,6 @@ export class VConRelay extends EventEmitter {
 
       const channelName = this._channels.get(msg.channelCRC) || "";
       const enhanced = { ...msg, channel: channelName };
-      this.prntBuffer.push(msg.text);
-      this._prntLog.push({ text: msg.text, verbosity: msg.verbosity, channel: channelName });
-      if (this.prntBuffer.length > 500) { this.prntBuffer.shift(); this._prntLog.shift(); }
       // 转发给 MCP server，实现事件驱动（包括被 GUI 屏蔽的 MCP 命令输出）
       this.emit("prnt", enhanced);
       // 广播给瘦客户端

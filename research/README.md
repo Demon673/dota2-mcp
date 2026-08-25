@@ -5,5 +5,6 @@ One-off investigations whose findings are not yet (or never will be) absorbed in
 - `vpcf-structure/` — template-source deep-dive (18 sources + 7 decompiles); cited by the dota2-vfx skill body.
 
 Superseded research deliveries (official corpus stats, class field reference, model corpus) live under:
-- `skills/dota2-vfx/data/` — vpcf-stats.json, vpcf-official-findings.md, vpcf-class-fields.json, class-ref/*.md
+- `skills/dota2-vfx/data/` — vpcf-stats.json, vpcf-official-findings.md (small; shipped with the npm package)
 - `skills/dota2-model/data/` — model-stats.json, model-official-findings.md
+- `vpcf-field-reference/` — vpcf-class-fields.json + class-ref/*.md (263-class field tables; kept out of the npm package, regenerate per its class-ref/README.md)

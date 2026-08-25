@@ -264,6 +264,16 @@ Installation has two paths; pick whichever you prefer:
 | `dota_dump_modifiers` | List modifiers. |
 | `dota_entity_inspect` | Inspect an entity's Lua scope. |
 | `dota_compile_asset` | Compile Source 2 assets. |
+| `vrf_ensure` | Ensure the VRF CLI is available (detect / download / sha256 verify / cache; offline-safe). |
+| `asset_inspect` | Decompile an asset and return a structured summary. |
+| `asset_check_refs` | Check a single asset's recursive reference integrity. |
+| `vfx_preview` | Spawn a particle preview in-game (returns its pid). |
+| `vfx_preview_stop` | Destroy preview particle instances. |
+| `file_read` | Read a text file inside the addon. |
+| `file_write` | Write a file inside the addon. |
+| `file_edit` | Replace old_string→new_string in an addon file (exactly one match). |
+| `file_delete` | Delete a file inside the addon. |
+| `dota2_skill` | Retrieve built-in development skills (vfx/model formats, game phases, runtime dev). |
 
 | 工具 | 用途 |
 |------|------|
@@ -288,6 +298,16 @@ Installation has two paths; pick whichever you prefer:
 | `dota_dump_modifiers` | 列出修饰器。 |
 | `dota_entity_inspect` | 查看实体 Lua 作用域。 |
 | `dota_compile_asset` | 编译 Source 2 资源。 |
+| `vrf_ensure` | 确保 VRF CLI 可用（检测 / 下载 / sha256 校验 / 缓存，离线安全）。 |
+| `asset_inspect` | 反编译资产并返回结构化摘要。 |
+| `asset_check_refs` | 检查单个资产的递归引用完整性。 |
+| `vfx_preview` | 在游戏内生成粒子预览（返回 pid）。 |
+| `vfx_preview_stop` | 销毁预览粒子实例。 |
+| `file_read` | 读取 addon 内的文本文件。 |
+| `file_write` | 在 addon 内写文件。 |
+| `file_edit` | 在 addon 文件内做 old_string→new_string 替换（恰好一次匹配）。 |
+| `file_delete` | 删除 addon 内的文件。 |
+| `dota2_skill` | 获取内置开发 skill（特效/模型格式、游戏相位、运行时开发）。 |
 
 ## FAQ
 ## 常见问题

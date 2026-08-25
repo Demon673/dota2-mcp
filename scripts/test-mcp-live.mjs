@@ -1,50 +1,16 @@
 // 一次性活体 MCP 验证：契约门控 → dota_open_vconsole → 解门控（需要 Dota 2 运行 + daemon 已拉起）
 // 自带环境重置：先杀掉已有 vconsole2，保证门控前置条件确定性；addon 从 daemon 握手信息取
-import { spawn, execSync } from "node:child_process";
+import { execSync } from "node:child_process";
 import { helloOk } from "./lib-ctrl.mjs";
+import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
 
 try { execSync("taskkill /F /IM vconsole2.exe", { stdio: "pipe" }); } catch { /* 没有在跑，正常 */ }
 await new Promise((r) => setTimeout(r, 1500));
 const hello = await helloOk();
 
-const server = spawn("node", ["dist/index.js"], { stdio: ["pipe", "pipe", "pipe"] });
-let buf = "";
-const responses = new Map();
-server.stdout.on("data", (d) => {
-  buf += d;
-  let i;
-  while ((i = buf.indexOf("\n")) !== -1) {
-    const line = buf.slice(0, i).trim();
-    buf = buf.slice(i + 1);
-    if (!line) continue;
-    try {
-      const msg = JSON.parse(line);
-      if (msg.id !== undefined) responses.set(msg.id, msg);
-    } catch { /* 非 JSON 行 */ }
-  }
-});
-server.stderr.on("data", () => {});
-
-let nextId = 1;
-function call(method, params) {
-  const id = nextId++;
-  server.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
-  return new Promise((resolve, reject) => {
-    const t0 = Date.now();
-    const timer = setInterval(() => {
-      if (responses.has(id)) { clearInterval(timer); resolve(responses.get(id)); }
-      else if (Date.now() - t0 > 60000) { clearInterval(timer); reject(new Error("timeout: " + method)); }
-    }, 50);
-  });
-}
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-function assert(cond, msg) {
-  if (!cond) { console.error("FAIL:", msg); process.exit(1); }
-  console.log("ok -", msg);
-}
-
+const { call, notify, kill } = spawnMcpServer({ timeoutMs: 60000 });
 await call("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "smoke", version: "0" } });
-server.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+notify("notifications/initialized");
 await sleep(8000); // 等接入已有 daemon
 
 // 1. Dota 连着但无 vconsole：dota_status 给指引（不抛），console_send 契约报错
@@ -65,6 +31,6 @@ const s2 = await call("tools/call", { name: "dota_status", arguments: {} });
 const txt = s2.result.content[0].text;
 assert(!s2.result.isError && txt.includes('"vconsole": true') && txt.includes(`"addon": "${hello.addon}"`), "dota_status full JSON (vconsole:true, addon detected)");
 
-server.kill();
+kill();
 console.log("PASS");
 process.exit(0);

@@ -1,14 +1,9 @@
 // 离线 asset_inspect 冒烟：fake VRF CLI（按 -i 扩展名输出 fixture）+ 最小 PNG
 // 断言五类型摘要字段、include_raw 截断、unknown 透传。
-import { spawn } from "node:child_process";
+import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
 import { mkdtempSync, writeFileSync, chmodSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-
-function assert(cond, msg) {
-  if (!cond) { console.error("FAIL:", msg); process.exit(1); }
-  console.log("ok -", msg);
-}
 
 // fake VRF CLI：Node 脚本，按 -i 参数扩展名选择 fixture；vtex 写 PNG 到 -o
 const vpcfFixture = `
@@ -87,36 +82,9 @@ const env = {
   VRF_CACHE_DIR: cache,
   VRF_VERSION: "9.9.9",
 };
-const server = spawn("node", ["dist/index.js"], { stdio: ["pipe", "pipe", "pipe"], env });
-let buf = "";
-const responses = new Map();
-server.stdout.on("data", (d) => {
-  buf += d;
-  let i;
-  while ((i = buf.indexOf("\n")) !== -1) {
-    const line = buf.slice(0, i).trim();
-    buf = buf.slice(i + 1);
-    if (!line) continue;
-    try { const msg = JSON.parse(line); if (msg.id !== undefined) responses.set(msg.id, msg); } catch {}
-  }
-});
-server.stderr.on("data", () => {});
-let nextId = 1;
-function call(method, params) {
-  const id = nextId++;
-  server.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
-  return new Promise((resolve, reject) => {
-    const t0 = Date.now();
-    const timer = setInterval(() => {
-      if (responses.has(id)) { clearInterval(timer); resolve(responses.get(id)); }
-      else if (Date.now() - t0 > 45000) { clearInterval(timer); reject(new Error("timeout: " + method)); }
-    }, 50);
-  });
-}
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
+const { call, notify, kill } = spawnMcpServer({ timeoutMs: 45000, env });
 await call("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "inspect", version: "0" } });
-server.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+notify("notifications/initialized");
 await sleep(12000);
 
 const ADDON = env.DOTA2_TEST_ADDON;
@@ -170,5 +138,5 @@ assert(typeof raw.raw_decompiled === "string" && raw.raw_decompiled.length > 0, 
 
 console.log("PASS");
 rmSync(cache, { recursive: true, force: true });
-server.kill();
+kill();
 process.exit(0);

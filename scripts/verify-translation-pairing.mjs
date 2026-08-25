@@ -10,7 +10,7 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { gitBlobHash, storeGitBlob } from './lib/git.mjs'
+import { gitBlobHash } from './lib/git.mjs'
 import {
   parseTranslationPairingRecord,
   renderTranslationPairingRecord,
@@ -193,8 +193,8 @@ if (request.mode === 'write') {
       continue
     }
     const record = renderTranslationPairingRecord(paths, {
-      sourceHash: storeGitBlob(root, readRepositoryFile(source)),
-      zhHash: storeGitBlob(root, readRepositoryFile(paths.zh)),
+      sourceHash: gitBlobHash(readRepositoryFile(source)),
+      zhHash: gitBlobHash(readRepositoryFile(paths.zh)),
     })
     if (existsSync(join(root, paths.meta)) && readFileSync(join(root, paths.meta), 'utf8') === record) continue
     writeFileSync(join(root, paths.meta), record)

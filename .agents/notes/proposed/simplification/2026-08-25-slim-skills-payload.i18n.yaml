@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   node scripts/verify-translation-pairing.mjs --write .agents/notes/proposed/simplification/2026-08-25-slim-skills-payload.md
-2026-08-25-slim-skills-payload.md: 273d2cfd01e36b4f958d8f2e5cce7b173f04b802
-2026-08-25-slim-skills-payload.zh.md: ab5f2785e5e18b41fd2d13f80b57421078a889d0
