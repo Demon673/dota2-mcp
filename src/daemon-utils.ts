@@ -15,6 +15,7 @@ import * as net from "net";
 import * as crypto from "crypto";
 import { spawn } from "child_process";
 
+// TODO(hoist-parse-port): 无 NaN 防护，与 vcon-relay.parsePort 语义不一致——提取共享 parsePort
 const CTRL_PORT = parseInt(process.env.DOTA2_VCON_CTRL_PORT || "29002", 10);
 
 function stateDir(): string {
@@ -30,6 +31,7 @@ function stateDir(): string {
   }
 }
 
+// TODO(drop-export): lockPath/tokenPath/logPath 无外部调用者，可去掉 export（pidPath 被 vcon-relay 使用，保留）
 export function lockPath(): string { return path.join(stateDir(), "relay.lock"); }
 export function pidPath(): string { return path.join(stateDir(), "relay.pid"); }
 export function tokenPath(): string { return path.join(stateDir(), "relay.token"); }

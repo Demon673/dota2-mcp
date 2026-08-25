@@ -15,6 +15,7 @@ export interface InspectResult {
   text: string;  // 给 MCP 的完整文本输出
 }
 
+// TODO(share-sortKeys): 与 asset-check-refs.ts 的 sortKeys 逐字节相同，此处 export 后由对方导入
 function sortKeys<T>(v: T): T {
   if (Array.isArray(v)) return v.map(sortKeys) as T;
   if (v && typeof v === "object") {

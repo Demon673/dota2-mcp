@@ -24,6 +24,7 @@ import { checkRefs } from "./tools/asset-check-refs.js";
 import * as daemon from "./daemon-utils.js";
 
 function getVersion(): string {
+  // TODO(hoist-require): createRequire(import.meta.url) 在本文件出现 3 处（getVersion/createRelay/skillsDir），提到模块级一处即可
   try {
     const require = createRequire(import.meta.url);
     return require("../package.json").version;
@@ -63,9 +64,11 @@ async function main(): Promise<void> {
   type RelayLike = VConRelay | RelayClient;
 
   async function createRelay(dotaPath: string | null): Promise<RelayLike> {
+    // TODO(hoist-parse-port): 无 NaN 防护，与 vcon-relay.parsePort 语义不一致——提取共享 parsePort
     const CTRL_PORT = parseInt(process.env.DOTA2_VCON_CTRL_PORT || "29002", 10);
 
     // 1) 已有守护进程在跑 → 瘦客户端接入
+    // TODO(extract-attach): 三处 readToken → new RelayClient → connect → destroy 形状相同，提取 attachThinClient 辅助函数
     if (await daemon.probeRelay()) {
       const token = daemon.readToken();
       const client = new RelayClient({ port: CTRL_PORT, token });
@@ -162,6 +165,7 @@ async function main(): Promise<void> {
     // 从 relay 读初始 addon/maps（瘦客户端连上已运行的 daemon 时 ADON 帧早已收过；
     // 本地 relay 启动即主动连 Dota，ADON 也可能在 handler 挂载前到达。
     // 两种情况 adon 事件都不会再发，必须从当前状态读，否则 currentAddon 永远 "(detecting...)"）
+    // TODO(collapse-dual-path): 给 VConRelay 加 addonName/maps/allMaps 公开 getter 后，去掉 instanceof + (r as any) + adon 处理器里的 setTimeout
     if (r instanceof RelayClient) {
       currentAddon = r.addonName || "";
       currentMaps = r.maps || [];
@@ -233,6 +237,7 @@ async function main(): Promise<void> {
   attachRelay(await createRelay(dotaPath));
 
   /** 统一的未连接提示 */
+  // TODO(drop-param): extra 调用方从不传值（恒为空串），可删除参数与拼接尾部
   function notConnectedText(extra = ""): string {
     // 守护进程模式下端口被别的实例占用：报错指向真实原因
     if ((relay as VConRelay).portInUse) {
@@ -1202,6 +1207,7 @@ Once connected, call dota_status again.` }] };
   // Workshop Tools 集成 — 启动编辑器 / 编译资源
   // ═══════════════════════════════════════════════════════════════
 
+  // TODO(drop-alias): 仅 1216 一处使用，可直接调用 consoleBridge.resolveDotaToolPath
   /** Dota 2 工具完整路径解析（共享实现见 console-bridge） */
   const resolveDotaToolPath = consoleBridge.resolveDotaToolPath;
 

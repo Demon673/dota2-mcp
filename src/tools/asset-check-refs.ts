@@ -54,6 +54,7 @@ function resolveOneRef(dotaPath: string, addon: string, ref: string, from: strin
   return { report: { ref: clean, from, resolved: null, issue: "not_found" }, kind: "broken", nextSource: null };
 }
 
+// TODO(share-sortKeys): 与 asset-inspect.ts 的 sortKeys 重复，改从那里导入
 function sortKeys<T>(v: T): T {
   if (Array.isArray(v)) return v.map(sortKeys) as T;
   if (v && typeof v === "object") {
@@ -64,6 +65,7 @@ function sortKeys<T>(v: T): T {
   return v;
 }
 
+// TODO(share-decompile): 与 asset-inspect 的反编译调用重复（-o 临时文件 + invariant 环境 + 64MB），提取共享 decompileToText（保留两侧不同的错误语义）
 /** 反编译一个资产（文本；vtex 跳过——纹理无引用）。 */
 function decompileText(exe: string, p: string): string {
   try {
