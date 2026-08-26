@@ -7,7 +7,7 @@ This repo maintains a small bilingual corpus: **English is the canonical (author
 ## The pairing contract
 
 - **English is canonical.** A document is authored and reviewed in English; the Chinese counterpart is a translation of it. A change never lands one language without the other two files.
-- **A pair is three sibling files.** The English `foo.md`, the Chinese `foo.zh.md`, and a consistency record `foo.i18n.yaml`, all in the same directory. No locale directories, no interleaved bilingual files — the one sanctioned exception is the in-file bilingual root `README.md`/`CHANGELOG.md` (see Scope and exclusions).
+- **A pair is three sibling files.** The English `foo.md`, the Chinese `foo.zh.md`, and a consistency record `foo.i18n.yaml`, all in the same directory — two languages as sibling files, never split into per-language folders like `en/`/`zh-CN/`, and never interleaved inside one file. The one sanctioned exception to "one language per file" is the in-file bilingual root `README.md`/`CHANGELOG.md` (see Scope and exclusions).
 - **The consistency record.** `foo.i18n.yaml` holds the git blob hash of each side as of the last time the two were confirmed to say the same thing:
 
   ```yaml
