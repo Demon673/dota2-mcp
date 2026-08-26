@@ -313,7 +313,7 @@ Document hierarchy, tutorial/reference classification, writing rules, and the sl
 
 ### Bilingual pairing
 
-`.agents/notes/**` and `docs/**` are the English-canonical + Chinese-counterpart + `.i18n.yaml` trio (excluding `docs/AGENTS.md`, `docs/i18n/terminology.md`, `.agents/notes/archived/**`); the contract is in `docs/i18n/README.md`, translation rules in `docs/i18n/translation-rules.md`, terminology in `docs/i18n/terminology.md`. Editing the English side requires updating the Chinese counterpart in the same commit and re-recording with `npm run verify-pairs -- --write <file>`; the `npm run verify-pairs` gate going red means a pair is out of sync.
+`.agents/notes/**` and `docs/**` are the English-canonical + Chinese-counterpart + `.i18n.yaml` trio (excluding `docs/AGENTS.md`, `docs/i18n/terminology.md`, `.agents/notes/archived/**`); the contract is in `docs/i18n/README.md`, translation rules in `docs/i18n/translation-rules.md`, terminology in `docs/i18n/terminology.md`. Editing the English side requires updating the Chinese counterpart in the same commit and re-recording with `npm run verify-pairs -- --write <file>`; the `npm run verify-pairs` gate going red means a pair is out of sync. Root `README.md`/`CHANGELOG.md` are in-file bilingual (English-first) and stay outside the trio scope.
 
 ### Two kinds of skills (don't conflate them)
 
