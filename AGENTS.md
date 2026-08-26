@@ -337,5 +337,6 @@ Document hierarchy, tutorial/reference classification, writing rules, and the sl
 - [x] **FileOps** — read/write KV/Lua/TS/JS/CSS/XML source files (`file_read/write/edit/delete` landed)
 - [ ] **BuildTools** — npm/tstl/rollup build integration + scaffolding generation
 - [x] **AssetInspector** — VRF CLI subprocess calls to parse .vmdl_c/.vmap_c/.vpcf_c etc. (`asset_inspect` landed)
+- [ ] **dota_map_error** — tstl 源行静态映射工具（proposal: `.agents/notes/proposed/feature/2026-08-05-dota-map-error-tool.md`）
 - [ ] Verify the actual output of `script_find` / `script_dump_all` while the game is running
 - [ ] Test dota_launch_game across various addon/map combinations
