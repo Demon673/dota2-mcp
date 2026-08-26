@@ -7,7 +7,7 @@ This repo maintains a small bilingual corpus: **English is the canonical (author
 ## The pairing contract
 
 - **English is canonical.** A document is authored and reviewed in English; the Chinese counterpart is a translation of it. A change never lands one language without the other two files.
-- **A pair is three sibling files.** The English `foo.md`, the Chinese `foo.zh.md`, and a consistency record `foo.i18n.yaml`, all in the same directory — two languages as sibling files, never split into per-language folders like `en/`/`zh-CN/`, and never interleaved inside one file. The one sanctioned exception to "one language per file" is the in-file bilingual root `README.md`/`CHANGELOG.md` (see Scope and exclusions).
+- **A pair is three sibling files.** The English `foo.md`, the Chinese `foo.zh.md`, and a consistency record `foo.i18n.yaml`, all in the same directory — two languages as sibling files, never split into per-language folders like `en/`/`zh-CN/`, and never interleaved inside one file.
 - **The consistency record.** `foo.i18n.yaml` holds the git blob hash of each side as of the last time the two were confirmed to say the same thing:
 
   ```yaml
@@ -35,12 +35,11 @@ The gate's limit, stated plainly: **a green gate means the pair was confirmed co
 
 ## Scope and exclusions
 
-**Scope** (paired): every active `.md` under `.agents/notes/**` (the Agent Notes and their README) and under `docs/**`, per [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json).
+**Scope** (paired): every active `.md` under `.agents/notes/**` (the Agent Notes and their README), under `docs/**`, plus root `README.md` and `CHANGELOG.md`, per [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json).
 
-**Out of scope** (not the trio):
+**Out of scope** (single-language):
 
 - Root `AGENTS.md`, `CLAUDE.md` — standing orders, English only.
-- Root `README.md`, `CHANGELOG.md` — **in-file bilingual** (English first, Chinese follows per section/entry), the sanctioned exception to "no interleaved bilingual files" for the public surface: one file per document, no `.zh.md`/`.i18n.yaml`, the gate does not cover them. `npm run sync-version` keeps the version marker in both languages inside `README.md`.
 - `docs/AGENTS.md` — the documentation standard is an agent instruction, maintained in English only like root `AGENTS.md`.
 - `skills/**` — agent-facing workflows and knowledge, English only, shipped to npm.
 - `docs/i18n/terminology.md` — the terminology table is bilingual by construction.

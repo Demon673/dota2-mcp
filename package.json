@@ -15,6 +15,7 @@
     "dist/tools/**/*",
     "skills/**/*",
     "README.md",
+    "README.zh.md",
     "CLAUDE.md",
     "LICENSE",
     "package.json"

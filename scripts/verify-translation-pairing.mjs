@@ -46,6 +46,7 @@ function isExcluded(file, excluded) {
 }
 
 function isScopeFile(file) {
+  if (file === 'README.md' || file === 'CHANGELOG.md') return true
   return (file.startsWith('.agents/notes/') || file.startsWith('docs/'))
     && !file.startsWith('.agents/notes/archived/')
 }
@@ -74,6 +75,9 @@ function discoverCorpus() {
       const rel = relative(root, full).split(sep).join('/')
       if (isScopeFile(rel)) files.add(rel)
     }
+  }
+  for (const rootFile of ['README.md', 'CHANGELOG.md']) {
+    if (isScopeFile(rootFile)) files.add(rootFile)
   }
   return [...files]
 }

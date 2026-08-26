@@ -37,7 +37,7 @@ const targets = [
     replace: (v) => `$1${v}$3`,
   },
   {
-    file: "README.md",
+    file: "README.zh.md",
     desc: "README 版本号（中文）",
     find: /(当前版本：`v)([^`]+)(`)/,
     replace: (v) => `$1${v}$3`,
