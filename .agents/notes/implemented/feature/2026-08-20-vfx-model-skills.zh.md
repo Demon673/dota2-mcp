@@ -10,7 +10,7 @@ Agent 需要特效/模型工具链的内置格式知识（地图 #9）：怎么�
 
 ## Decision
 
-`skills/` 下内置两个 skill：`dota2-vfx`（粒子：KV3 结构经真实 basic 模板 addon 验证、C_OP_*/C_INIT_* 词汇、管线心智模型、SOP、工具映射、错误表、最小模板）与 `dota2-model`（vmdl/vmat/vtex，同构；模型验证 = 编译 + inspect + 引用 + 加载错误——按设计无预览工具，地图 #7）。共享管线/SOP 章节按 #9 决议各自带一份（自包含优先于 DRY）。「完整字段参考」章节带 TODO(rare) 标记：日常作业已覆盖，Valve wiki 全字段表由后续切片补全。
+`skills/` 下内置两个 skill：`dota2-vfx`（粒子：KV3 结构经真实 basic 模板 addon 验证、C_OP_*/C_INIT_* 词汇、管线心智模型、SOP、工具映射、错误表、最小模板）与 `dota2-model`（vmdl/vmat/vtex，同构；模型验证 = 编译 + inspect + 引用 + 加载错误——按设计无预览工具，地图 #7）。共享管线/SOP 章节按 #9 决议各自带一份（自包含优先于 DRY）。字段级完整参考在 `research/vpcf-field-reference/`，不随 npm 包发布（见 [slim-skills-payload 笔记](../simplification/2026-08-25-slim-skills-payload.md)）。
 
 `dota2_skill` 增加 `section`（返回单个 `##` 章节）与 `outline`（列出标题）参数；小 skill 的全文返回保持默认。
 
@@ -22,4 +22,4 @@ Agent 需要特效/模型工具链的内置格式知识（地图 #9）：怎么�
 ## Consequences
 
 - dota2_skill 暴露的 skill：dota2-game-phases、dota2-model、dota2-runtime-dev、dota2-vfx。
-- 字面全量字段表为未完成工作，由两个 skill 内的 TODO(rare) 追踪。
+- 字段级参考表在 `research/vpcf-field-reference/`，不随 npm 包发布（见 [slim-skills-payload 笔记](../simplification/2026-08-25-slim-skills-payload.md)）。

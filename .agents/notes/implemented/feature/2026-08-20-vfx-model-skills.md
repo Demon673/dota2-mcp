@@ -10,7 +10,7 @@ Agents needed built-in format knowledge for the vfx/model toolchain (map #9): ho
 
 ## Decision
 
-Two built-in skills ship under `skills/`: `dota2-vfx` (particles: KV3 structure verified against a real basic-template addon, C_OP_*/C_INIT_* vocabulary, pipeline mental model, SOP, tool map, error table, minimal template) and `dota2-model` (vmdl/vmat/vtex, same shape; model validation is compile + inspect + refs + load errors — no preview tool by design, map #7). Shared pipeline/SOP sections are duplicated per skill by the #9 resolution (self-containment over DRY). The 完整字段参考 sections carry TODO(rare) markers: everyday work is covered, the full Valve-wiki field tables are filled in later slices.
+Two built-in skills ship under `skills/`: `dota2-vfx` (particles: KV3 structure verified against a real basic-template addon, C_OP_*/C_INIT_* vocabulary, pipeline mental model, SOP, tool map, error table, minimal template) and `dota2-model` (vmdl/vmat/vtex, same shape; model validation is compile + inspect + refs + load errors — no preview tool by design, map #7). Shared pipeline/SOP sections are duplicated per skill by the #9 resolution (self-containment over DRY). The full field-level reference lives in `research/vpcf-field-reference/`, kept out of the npm package (see the [slim-skills-payload note](../simplification/2026-08-25-slim-skills-payload.md)).
 
 `dota2_skill` gains `section` (return one `##` section) and `outline` (list headings) parameters; the full body remains the default for small skills.
 
@@ -22,4 +22,4 @@ Two built-in skills ship under `skills/`: `dota2-vfx` (particles: KV3 structure 
 ## Consequences
 
 - Skills exposed by dota2_skill: dota2-game-phases, dota2-model, dota2-runtime-dev, dota2-vfx.
-- The word-for-word field tables (字面全量) remain open work tracked by TODO(rare) inside the two skills.
+- The field-level reference tables live in `research/vpcf-field-reference/`, kept out of the npm package (see the [slim-skills-payload note](../simplification/2026-08-25-slim-skills-payload.md)).

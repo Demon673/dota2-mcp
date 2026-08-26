@@ -42,7 +42,7 @@ node dist/index.js    # Start the MCP server (over stdio)
 | `scripts/test-launch-phases.mjs` | live | real-map launch: stuck report on a stuck phase + following guidance to advance via dota_run_lua to GAME_IN_PROGRESS |
 | `scripts/test-crash-recovery.mjs` | live | crash recovery: kill Dota in the same MCP session → detect → restart → self-recover (the script starts and kills Dota itself) |
 | `scripts/test-multi-session.mjs` | live | multi-session shared daemon: A opens vconsole, B ungates at the same time |
-| `scripts/test-mcp-tools.mjs` | live | all-tools smoke (legacy script; needs Dota + **vconsole already connected** — run test-mcp-live.mjs first to open the gate) |
+| `scripts/test-mcp-tools.mjs` | live | the 11 API/dump/console live smokes on the shared stdio helper (needs Dota + **vconsole already connected** — run test-mcp-live.mjs first to open the gate) |
 | `scripts/verify-phase-apis.mjs` | live | verify console API names over the 29002 protocol (one-off script, edit as needed) |
 
 Live scripts don't hardcode machine paths or project names: the Dota path uses `detectDotaPath()` auto-detection; the addon/map is inferred from the running daemon's handshake info (the addon/maps in hello-ok), overridable via `DOTA2_TEST_ADDON` / `DOTA2_TEST_MAP`; when inference fails they error and require an explicit value rather than silently using a default. Launch args vary by person/project/region (e.g. `-perfectworld`); test-crash-recovery can pass full args via `DOTA2_TEST_ARGS` when re-launching Dota. Shared handshake helper: `scripts/lib-ctrl.mjs`.

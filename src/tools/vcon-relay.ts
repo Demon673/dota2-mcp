@@ -108,7 +108,6 @@ export class VConRelay extends EventEmitter {
   private _addonName = "";
   private _maps: string[] = [];      // addoninfo.txt 中的官方地图
   private _allMaps: string[] = [];   // maps/ 目录下所有 .vmap
-  private _ainf: any = null;
   private _dotaPath: string | null = null;
   private _channels = new Map<number, string>(); // channelId (from CHAN.id / PRNT.channelCRC) -> name
   /** 当前 Dota 连接的初始化帧缓存（每次新连接重建），重放给晚接入的 GUI */
@@ -576,14 +575,11 @@ export class VConRelay extends EventEmitter {
         this._channels.set(c.id, c.name);
       }
       console.error("[relay] Channels:", channels.map(c => `${c.id}:${c.name}`).join(", "));
-      this.emit("chan", channels);
       this._broadcast({ type: "chan", channels: this.getChannels() });
     });
 
     this.dotaClient.on("ainf", (a) => {
-      this._ainf = a;
       console.error("[relay] Game:", a.productName, "CmdLine:", a.commandLine);
-      this.emit("ainf", a);
     });
 
     this.dotaClient.on("close", () => {
