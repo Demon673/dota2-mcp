@@ -1,0 +1,20 @@
+# Git hooks (lefthook). Keep these local checkpoints fast; the full
+# repository-wide gate matrix is run explicitly per change.
+# Adapted for this repo: the pairing job runs the repo's own gate in
+# scoped-check mode (file args = pair check); there is no archive verifier
+# script here (the archive freeze is a review convention per notes README),
+# so the archive job is absent; the budget gate covers AGENTS.md.
+pre-commit:
+  jobs:
+    - name: translation pairing (staged records)
+      glob: '*.i18n.yaml'
+      exclude:
+        - '.agents/notes/archived/**'
+      run: node scripts/verify-translation-pairing.mjs {staged_files}
+
+    - name: doc budgets (staged AGENTS.md)
+      glob: 'AGENTS.md'
+      run: node scripts/verify-doc-budgets.mjs
+
+    - name: whitespace (staged)
+      run: git diff --cached --check

@@ -258,6 +258,9 @@ Client → server command type: `CMND` (null-terminated ASCII).
 ## Conventions
 
 - **Act only on an explicit execution signal and confirmed scope; otherwise ask one clarifying question**
+- **A red check blocks the commit**: fix it or explain it in the same turn, and name every failed check in the final report
+- **Inspect a file before editing or describing it**; never present content as read or work as done that you have not verified
+- **Destructive or irreversible actions** (deletions, history rewrites, force-push) require an explicit, named confirmation
 - **API data source**: console live queries only, no local JSON database (the engine version determines the API content)
 - **Trust boundary**: server Lua is authoritative, Panorama JS is client UI logic
 - **Zero hardcoding**: addon/map are always dynamically detected, never hardcoded to any project name. Map scan path: `{dota2Path}/content/dota_addons/{addon}/maps/*.vmap`

@@ -38,6 +38,8 @@
     "check": "tsc --noEmit && node scripts/sync-version.mjs --check",
     "sync-version": "node scripts/sync-version.mjs",
     "verify-pairs": "node scripts/verify-translation-pairing.mjs",
+    "install-lefthook": "node scripts/install-lefthook.mjs",
+    "verify-doc-budgets": "node scripts/verify-doc-budgets.mjs",
     "prepack": "npm run sync-version"
   },
   "dependencies": {

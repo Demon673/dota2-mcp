@@ -54,4 +54,4 @@ Hunt these in any document; the global doc-standards skill runs this list as an 
 - Emphasis inflation: bold, CAPS, or "critically" everywhere means nothing stands out. Reserve emphasis for the clause that changes behavior.
 - Spec-speak in `implemented/` Agent Notes: "should", migration plans, acceptance checklists. An implemented Agent Note describes what is.
 
-This repo has no word-budget gate; keep documents lean by relocation and condensation, not by a script.
+The word-budget gate (`node scripts/verify-doc-budgets.mjs`) enforces ceilings on always-loaded docs via `scripts/doc-budgets.manifest.json`; keep documents lean by relocation and condensation, and update the manifest in the same change when a rename justifies it.
