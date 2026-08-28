@@ -6,8 +6,8 @@
 # so the archive job is absent; the budget gate covers AGENTS.md.
 pre-commit:
   jobs:
-    - name: translation pairing (staged records)
-      glob: '*.i18n.yaml'
+    - name: translation pairing (staged docs)
+      glob: '{*.md,*.i18n.yaml}'
       exclude:
         - '.agents/notes/archived/**'
       run: node scripts/verify-translation-pairing.mjs {staged_files}

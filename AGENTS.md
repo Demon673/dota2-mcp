@@ -17,13 +17,16 @@ npm install           # Install dependencies
 npm run build         # Sync version numbers + compile TypeScript → dist/
 npm run check         # Type check + version-consistency check
 npm run sync-version  # Sync version numbers across the repo from package.json (--check validates without modifying)
+npm run verify-pairs  # Bilingual pairing gate (--write re-records pairs)
+npm run verify-doc-budgets  # Doc word-budget gate (manifest ceilings)
+npm run install-lefthook    # Register pre-commit jobs
 npm run dev           # tsc --watch incremental compilation
 npm run bundle        # esbuild → dist/bundle.cjs (pre-step before packaging)
 npm run package       # bundle + Node SEA single-file executable (scripts/sea-package.mjs)
 node dist/index.js    # Start the MCP server (over stdio)
 ```
 
-**Versioning**: only change `version` in `package.json`; everything else (the `getVersion()` fallback in `src/index.ts`, `README.md`) is synced by `npm run sync-version`, which `build`/`prepack` run automatically.
+**Versioning**: only change `version` in `package.json`; everything else (the `getVersion()` fallback in `src/index.ts`, `README.md` and `README.zh.md`) is synced by `npm run sync-version`, which `build`/`prepack` run automatically.
 
 **Testing**: no lint/format/test framework — everything is plain-node smoke scripts (assert style):
 
@@ -173,7 +176,7 @@ This is a **conventional output-isolation feature**, not the real semantics of a
 | `src/relay-main.ts` | relay daemon entry point (detached). Holds Dota 2 `:29000` exclusively while vconsole is attached (readiness probe only when no GUI), listens on `:29001`(GUI)/`:29002`(control), idles out after 5 minutes (not while Dota is running) |
 | `src/relay-client.ts` | The `RelayClient` class. A thin client implementing a subset of the `VConRelay` public interface, talking to the daemon over `:29002`; auto-reconnects on disconnect and resends buffered commands |
 | `src/daemon-utils.ts` | Daemon coordination: atomic lock, PID, token (0600), spawn/wait. State directory `os.tmpdir()/dota2-mcp` |
-| `src/tools/vcon-relay.ts` | The `VConRelay` class. Transparent proxy between the vconsole2 GUI (`:29001`) and Dota 2 (`:29000`) (gating: no GUI, no connection); broadcasts PRNT/status to each thin client. Auto-reconnects to Dota 2 after a disconnect while a GUI is present, readiness probe when there's no GUI |
+| `src/tools/vcon-relay.ts` | The `VConRelay` class. Transparent proxy between the vconsole2 GUI (`:29001`) and Dota 2 (`:29000`) (gating: no GUI, no connection); broadcasts `status`/`prnt`/`adon`/`chan`/`suppress` to each thin client. Auto-reconnects to Dota 2 after a disconnect while a GUI is present, readiness probe when there's no GUI |
 | `src/tools/vcon-bridge.ts` | The `VConClient` class. Low-level VConsole2 TCP protocol implementation: 12-byte frame-header parsing, dispatch of `PRNT`/`AINF`/`CHAN`/`ADON`/`CVRB`/`CFGV`, `CMND` command sending |
 | `src/tools/console-bridge.ts` | Auto-detects the Dota 2 path (Steam appid 570 + WSL mount mapping), resolves Dota tool paths by directory probing, and spawns vconsole2 |
 | `src/tools/proxy-intercept.ts` | Standalone protocol-analysis tool. Run `npx tsx src/tools/proxy-intercept.ts direct` or `proxy` to capture or MITM-analyze VCon traffic |
@@ -259,7 +262,7 @@ Client → server command type: `CMND` (null-terminated ASCII).
 
 - **Act only on an explicit execution signal and confirmed scope; otherwise ask one clarifying question**
 - **A red check blocks the commit**: fix it or explain it in the same turn, and name every failed check in the final report
-- **Inspect a file before editing or describing it**; never present content as read or work as done that you have not verified
+- **Inspect a file before editing or describing it**; never claim read or done work you have not verified
 - **Destructive or irreversible actions** (deletions, history rewrites, force-push) require an explicit, named confirmation
 - **API data source**: console live queries only, no local JSON database (the engine version determines the API content)
 - **Trust boundary**: server Lua is authoritative, Panorama JS is client UI logic
@@ -316,7 +319,7 @@ Document hierarchy, tutorial/reference classification, writing rules, and the sl
 
 ### Bilingual pairing
 
-`.agents/notes/**` and `docs/**` are the English-canonical + Chinese-counterpart + `.i18n.yaml` trio (excluding `docs/AGENTS.md`, `docs/i18n/terminology.md`, `.agents/notes/archived/**`); the contract is in `docs/i18n/README.md`, translation rules in `docs/i18n/translation-rules.md`, terminology in `docs/i18n/terminology.md`. Editing the English side requires updating the Chinese counterpart in the same commit and re-recording with `npm run verify-pairs -- --write <file>`; the `npm run verify-pairs` gate going red means a pair is out of sync. Root `README.md`/`CHANGELOG.md` are paired trios in scope; only root `AGENTS.md`/`CLAUDE.md` stay English-only.
+`.agents/notes/**` and `docs/**` are the English-canonical + Chinese-counterpart + `.i18n.yaml` trio (excluding `docs/AGENTS.md`, `docs/i18n/terminology.md`, `.agents/notes/archived/**`); the contract is in `docs/i18n/README.md`, translation rules in `docs/i18n/translation-rules.md`, terminology in `docs/i18n/terminology.md`. Editing the English side requires updating the Chinese counterpart in the same commit and re-recording with `npm run verify-pairs -- --write <file>`; the `npm run verify-pairs` gate going red means a pair is out of sync. Root `README.md`/`CHANGELOG.md` are in-scope trios; root `AGENTS.md`/`CLAUDE.md` stay English-only.
 
 ### Two kinds of skills (don't conflate them)
 

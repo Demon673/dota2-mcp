@@ -167,8 +167,11 @@ const files = new Set()
 if (request.scope === 'pairs') {
   for (const anchor of request.anchors) {
     if (!isScopeFile(anchor) || isExcluded(anchor, manifest.excluded)) {
-      console.error(`verify-translation-pairing: ${anchor} is not an in-scope pair (excluded or outside the documentation corpus; see docs/i18n/README.md)`)
-      process.exit(2)
+      if (request.mode === 'write') {
+        console.error(`verify-translation-pairing: ${anchor} is not an in-scope pair (excluded or outside the documentation corpus; see docs/i18n/README.md)`)
+        process.exit(2)
+      }
+      continue // check mode: staged docs may include single-language files (AGENTS.md etc.) — skip them
     }
     const { source, zh, meta } = translationPairPaths(anchor)
     for (const file of [source, zh, meta]) {

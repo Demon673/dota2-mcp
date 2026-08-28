@@ -42,7 +42,7 @@ To avoid switching ports manually every time, you can set it to auto-connect to 
 1. Select `Localhost:29001`, click **Devices → Properties** in the menu bar, and enable **Auto connect at startup**.
 2. Switch back to the default `Localhost` (`29000`) and, also under **Devices → Properties**, disable **Auto connect at startup**.
 
-The next time vconsole2 starts it connects to `29001` automatically and no longer tries to occupy `29000`.
+The next time vconsole2 starts it connects to `29001` automatically and leaves `29000` alone.
 
 If you want to use vconsole2 without MCP (connecting straight to `29000`): close Dota 2 and exit all MCP sessions; the daemon idles out after about 5 minutes and releases `29000` (the daemon does not exit while Dota 2 is running, though you can kill it manually). For everyday use, keep the GUI on `29001` to use it alongside MCP without disconnecting.
 
