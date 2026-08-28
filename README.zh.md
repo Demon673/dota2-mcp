@@ -68,20 +68,44 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 - **让 AI 装（推荐）**：把本 README（或上面的「通用配置」）发给你常用的 AI 助手，告诉它「安装 dota2-mcp 到我的客户端」。AI 会读本节指引，自己执行安装命令（如 `claude mcp add ...`）或写入对应配置文件。本工具面向 AI，这条路径最顺，也不用自己看下文。
 - **人类手动装**：按下方对应客户端的小节自己操作——有「方式一」的是运行一条命令，没有的（或方式二）是编辑配置文件。
 
+**Claude Code**
+
 - 命令行运行 `claude mcp add dota2 -- npx -y dota2-mcp`；完整配置与验证见 [Claude Code MCP 官方文档](https://docs.anthropic.com/en/docs/claude-code/mcp)
+
+**Claude Desktop**
 
 - 在 `mcpServers` 中加入通用配置后重启；完整步骤见 [Claude Desktop 官方 MCP 文档](https://modelcontextprotocol.io/quickstart/user)
 
+**Cursor**
+
 - Settings → MCP → Add new MCP server；或编辑 `~/.cursor/mcp.json`，加入通用配置
 
+**VS Code（GitHub Copilot）**
+
 - 用户 `settings.json` 或工作区 `.vscode/mcp.json`，写入：
+  ```json
+  {
+    "mcp": {
+      "servers": {
+        "dota2": { "command": "npx", "args": ["-y", "dota2-mcp"] }
+      }
+    }
+  }
+  ```
 
 **Cline（VS Code 扩展）**
 
 - Cline 面板 → MCP Servers → Configure MCP Servers，在打开的 `cline_mcp_settings.json` 的 `mcpServers` 中加入通用配置
 
+**Codex CLI**
+
 - 方式一（推荐）：命令行运行 `codex mcp add dota2 -- npx -y dota2-mcp`
 - 方式二：编辑 `~/.codex/config.toml`（TOML 格式）：
+  ```toml
+  [mcp_servers.dota2]
+  command = "npx"
+  args = ["-y", "dota2-mcp"]
+  ```
 - 验证：`codex mcp list`，dota2 出现在列表且 enabled 为 true；或新开 Codex 会话后直接让 AI 调用 `dota_status`
 
 **Codex 桌面端（Desktop App）**
@@ -103,6 +127,7 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 ### 连接问题排查
 
 | 现象 | 处理 |
+|------|------|
 | 客户端启动超时 / 连接失败 | 首次拉包慢：args 改为 `["--prefer-offline", "-y", "dota2-mcp"]`（缓存优先，仍会自动更新，新版本可能晚一个缓存周期）；Codex TOML 可另加 `startup_timeout_sec = 120` |
 | Windows 报「找不到命令 / not recognized」 | 用 cmd 包装：JSON 客户端 `"command": "cmd", "args": ["/c", "npx", "-y", "dota2-mcp"]`；Codex TOML 则 `command = "cmd"`、`args = ["/c", "npx", "-y", "dota2-mcp"]` |
 | 工具报「未连接到 Dota 2」 | 启动 Dota 2（`-vconsole` 或 `-tools`） |
@@ -113,6 +138,7 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 ## 可用工具
 
 | 工具 | 用途 |
+|------|------|
 | `dota_status` | 获取连接、vconsole、addon、地图、游戏状态与下一步建议。建议先调用。 |
 | `dota_open_vconsole` | 打开 vconsole2 窗口（控制台类工具需要它已打开）。 |
 | `dota_launch_game` | 启动自定义游戏地图（等待进入对局；卡住时返回相位与推进方法）。 |
@@ -147,17 +173,25 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 
 ## 常见问题
 
+**The AI says it can't find Dota 2 — what do I do?**
+
 **AI 提示找不到 Dota 2 怎么办？**
 
 确保 Dota 2 是通过 Steam 安装的，并且启动了 VConsole2。程序会通过 Steam appid `570` 自动定位 Dota 2 目录，不需要手动设置路径。
+
+**Why does the vconsole2 GUI connect to `29001`?**
 
 **为什么 vconsole2 GUI 要连 `29001`？**
 
 因为 `dota2-mcp` 需要独占 Dota 2 的 VConsole2 连接，它会把 GUI 转发到 `29001`。这样人类开发者和 AI 都能同时使用控制台。
 
+**I don't want MCP output to appear in the vconsole2 GUI**
+
 **我不想让 MCP 输出出现在 vconsole2 GUI 里**
 
 默认就是屏蔽的。如果想临时关闭，调用 `console_gui_filter` 并设置 `auto: false`。
+
+**The AI says "vconsole not open" — what do I do?**
 
 **AI 提示「vconsole 未打开」怎么办？**
 

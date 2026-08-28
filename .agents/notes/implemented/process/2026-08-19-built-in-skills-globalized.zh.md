@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-`prose-standard`、`trim-cot-leakage`、`translate-docs`、`archive-agent-notes`、`code-review` 不再内置。它们的全局版本为准，仓库内引用均为裸文本（"the global prose-standard skill"）。`doc-standards` 同样不内置（划定边界的同日移除）：维护类 skill 在维护者的全局 skill 目录。`skills/` 只随包发布运行时知识。`dota2-game-phases` 与 `dota2-runtime-dev` 保持内置，因为 `scripts/test-mcp-offline.mjs` 与 `src/index.ts` 的卡相位指引钉住了它们；全局 `dota2-custom-game-dev` 覆盖 addon 开发，但不覆盖 MCP 相位推进 SOP 或运行时热重载模型。
+`prose-standard`、`trim-cot-leakage`、`translate-docs`、`archive-agent-notes`、`code-review` 均不内置。它们的全局版本为准，仓库内引用均为裸文本（"the global prose-standard skill"）。`doc-standards` 同样不内置：维护类 skill 在维护者的全局 skill 目录。`skills/` 只随包发布运行时知识。`dota2-game-phases` 与 `dota2-runtime-dev` 保持内置，因为 `scripts/test-mcp-offline.mjs` 与 `src/index.ts` 的卡相位指引钉住了它们；全局 `dota2-custom-game-dev` 覆盖 addon 开发，但不覆盖 MCP 相位推进 SOP 或运行时热重载模型。
 
 ## Alternatives considered
 

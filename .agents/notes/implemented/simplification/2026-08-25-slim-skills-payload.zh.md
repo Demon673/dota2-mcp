@@ -10,7 +10,7 @@ skills/ 通过 files[] 的“skills/**/*”发布了 2,431,997 字节。其中 9
 
 ## Decision
 
-字段级参考已经移出 npm 包：skills/dota2-vfx/data/class-ref/（连同 appendix-unused.md）和 vpcf-class-fields.json 现在位于 research/vpcf-field-reference/（files[] 不发布该目录）；被移动的 README 的链接已修复为指向新位置。SKILL.md 的 data 部分不再宣传不可达的数据路径——它指向 research/vpcf-field-reference/ 并注明那 143 个未被使用的 schema 类。可达的 vpcf-stats.json + vpcf-official-findings.md（以及 dota2-model 那一对）继续发布，research/README.md 的清单反映了这次移动。
+字段级参考在 npm 包之外：skills/dota2-vfx/data/class-ref/（连同 appendix-unused.md）和 vpcf-class-fields.json 位于 research/vpcf-field-reference/（files[] 不发布该目录）；README 的链接指向当前位置。SKILL.md 的 data 部分不宣传任何不可达的数据路径——它指向 research/vpcf-field-reference/ 并注明那 143 个未被使用的 schema 类。可达的 vpcf-stats.json + vpcf-official-findings.md（以及 dota2-model 那一对）继续发布，research/README.md 的清单反映了这次移动。
 
 ## Alternatives considered
 
@@ -19,4 +19,4 @@ skills/ 通过 files[] 的“skills/**/*”发布了 2,431,997 字节。其中 9
 
 ## Consequences
 
-npm tarball 少掉约 2.3 MB（约 skills/ 的 95%）：class-ref/*.md、vpcf-class-fields.json 和 appendix-unused.md 不再是每次安装的重量，而 dota2_skill 也不再发布 1.68 MB 的 blob 或不可达的子目录路径。这份参考留在仓库内用于再生成（复现步骤保留在它的 README 里）。
+npm tarball 比之前轻约 2.3 MB（约 skills/ 的 95%）：class-ref/*.md、vpcf-class-fields.json 和 appendix-unused.md 不占每次安装的重量，dota2_skill 不发布 1.68 MB 的 blob 也不发布不可达的子目录路径。这份参考留在仓库内用于再生成（复现步骤保留在它的 README 里）。

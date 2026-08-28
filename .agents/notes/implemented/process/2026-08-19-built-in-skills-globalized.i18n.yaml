@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/process/2026-08-19-built-in-skills-globalized.md
-2026-08-19-built-in-skills-globalized.md: d6354fb1359062dabf318ba50187c2b49b5fb183
-2026-08-19-built-in-skills-globalized.zh.md: 3ba04afa713eb48b07a993caab8003b1e0025a77
+2026-08-19-built-in-skills-globalized.md: 57cb40f2d02630872a5046619de8ab91482f19cd
+2026-08-19-built-in-skills-globalized.zh.md: d9d9e6ab3be51ef761cf8e68640adf332bbafab1

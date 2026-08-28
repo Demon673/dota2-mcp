@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/simplification/2026-08-25-console-bridge-dead-fallback.md
-2026-08-25-console-bridge-dead-fallback.md: fdfbd72fcd8224fce2ff900e3980055471502d9a
-2026-08-25-console-bridge-dead-fallback.zh.md: 223ddec0499173583ba50aa990f181910145ad17
+2026-08-25-console-bridge-dead-fallback.md: b7b7cd1494bf745f8712dd0de19003b53ed24d76
+2026-08-25-console-bridge-dead-fallback.zh.md: 45819340ae726d4cb9b7617135f8bc742abe057f

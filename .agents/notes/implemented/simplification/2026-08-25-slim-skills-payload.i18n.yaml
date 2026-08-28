@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/simplification/2026-08-25-slim-skills-payload.md
-2026-08-25-slim-skills-payload.md: f1e9a82c8425526fff465dc733398a1f62783f0c
-2026-08-25-slim-skills-payload.zh.md: 26e62610b1b5af9f002256841347e3940bbc941f
+2026-08-25-slim-skills-payload.md: 5a14d15767aab5ffcf6da64b2a63155d7c70e2d1
+2026-08-25-slim-skills-payload.zh.md: 99152f3b1082916225cd2d537d7044d8b3e62a06

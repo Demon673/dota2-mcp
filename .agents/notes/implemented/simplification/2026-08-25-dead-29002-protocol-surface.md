@@ -10,7 +10,7 @@ The daemon's control port (29002) implemented four legacy text commands that no 
 
 ## Decision
 
-The four legacy commands are gone: the STATUS/SHUTDOWN/FILTERS/TAIL branches no longer exist in vcon-relay.ts, and the remaining control protocol is HELLO/STREAM/CMD:/SETFILTERS:/SETMCPSUPPRESS. VConRelay.getRecentOutput() and its prntBuffer are deleted, _prntLog is deleted (push/shift sites removed), RelayClient's getRecentOutput()/prntBuffer are deleted (header comment updated), and index.ts no longer keeps a local text prntBuffer. Consumers migrated in the same change: test-daemon.mjs asserts the CMD round-trip via the relay's OK ack (offline the relay never echoes CMD output because Dota isn't connected — the ack is the observable round-trip fact), verify-phase-apis.mjs collects output fully via STREAM, and AGENTS.md documents STREAM as the only output channel (env table, data-flow diagram, and dev-workflow prose updated).
+The four legacy commands are gone from vcon-relay.ts (STATUS/SHUTDOWN/FILTERS/TAIL); the control protocol is HELLO/STREAM/CMD:/SETFILTERS:/SETMCPSUPPRESS. VConRelay.getRecentOutput() and its prntBuffer are deleted, _prntLog is deleted, RelayClient's getRecentOutput()/prntBuffer are deleted, and index.ts keeps only the structured prntLog. Consumers: test-daemon.mjs asserts the CMD round-trip via the relay's OK ack (offline the relay never echoes CMD output because Dota isn't connected — the ack is the observable round-trip fact), verify-phase-apis.mjs collects output fully via STREAM, and AGENTS.md documents STREAM as the only output channel (env table, data-flow diagram, and dev-workflow prose).
 
 ## Alternatives considered
 

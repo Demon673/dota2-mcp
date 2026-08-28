@@ -10,7 +10,7 @@ console-bridge.ts 仍然带着整套“把命令写入 cfg 文件 + 跟踪 game/
 
 ## Decision
 
-console-bridge.ts 不再包含 cfg 文件/console.log 回退路径：整个日志跟踪那一簇代码已删除，文件头描述它当下的角色（Dota 2 路径/进程/工具路径检测、WSL 映射、vconsole2 启动）。getDotaExeName 已删除，getDotaBinDir 不再导出。chokidar 已从 package.json 的 dependencies 移除，lockfile 已重新生成。AGENTS.md 的 console-bridge 那一行和 References 的“console.log path”那一行在同一改动中更新。
+console-bridge.ts 不含 cfg 文件/console.log 回退路径：文件的职责是 Dota 2 路径/进程/工具路径检测、WSL 映射与 vconsole2 启动。getDotaExeName 已删除，getDotaBinDir 为私有。chokidar 不在 package.json 的 dependencies 中。AGENTS.md 的 console-bridge 那一行与之一致，References 的“console.log path”那一行已不存在。
 
 ## Alternatives considered
 
@@ -19,4 +19,4 @@ console-bridge.ts 不再包含 cfg 文件/console.log 回退路径：整个日�
 
 ## Consequences
 
-每次 npm install 都少装一个未使用的依赖。console.log 不再是仓库里任何地方宣传的路径；控制台历史只能通过 console_output（relay prntLog）获取。
+每次 npm install 都少装一个未使用的依赖。console.log 不出现在仓库任何路径中；控制台历史只能通过 console_output（relay prntLog）获取。

@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-四条遗留命令已经删除：STATUS/SHUTDOWN/FILTERS/TAIL 分支不再存在于 vcon-relay.ts，剩下的控制协议是 HELLO/STREAM/CMD:/SETFILTERS:/SETMCPSUPPRESS。VConRelay.getRecentOutput() 及其 prntBuffer 已删除，_prntLog 已删除（push/shift 位置已移除），RelayClient 的 getRecentOutput()/prntBuffer 已删除（头部注释已更新），index.ts 不再保留本地文本 prntBuffer。消费方在同一改动中迁移：test-daemon.mjs 通过 relay 的 OK 确认断言 CMD 往返（离线时 relay 不会回显 CMD 输出，因为 Dota 没有连接——确认才是可观测的往返事实），verify-phase-apis.mjs 完全通过 STREAM 收集输出，AGENTS.md 把 STREAM 记录为唯一的输出通道（环境变量表、数据流图和开发工作流文字均已更新）。
+四条遗留命令已从 vcon-relay.ts 移除（STATUS/SHUTDOWN/FILTERS/TAIL）；控制协议是 HELLO/STREAM/CMD:/SETFILTERS:/SETMCPSUPPRESS。VConRelay.getRecentOutput() 及其 prntBuffer 已删除，_prntLog 已删除，RelayClient 的 getRecentOutput()/prntBuffer 已删除，index.ts 只保留结构化的 prntLog。消费方：test-daemon.mjs 通过 relay 的 OK 确认断言 CMD 往返（离线时 relay 不会回显 CMD 输出，因为 Dota 没有连接——确认才是可观测的往返事实），verify-phase-apis.mjs 完全通过 STREAM 收集输出，AGENTS.md 把 STREAM 记录为唯一的输出通道（环境变量表、数据流图和开发工作流文字）。
 
 ## Alternatives considered
 

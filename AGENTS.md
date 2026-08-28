@@ -278,7 +278,7 @@ Client → server command type: `CMND` (null-terminated ASCII).
 
 ## Known issues
 
-- The daemon occupies ports `29001` (GUI) and `29002` (control); multiple MCP sessions share one daemon through thin clients, no longer mutually exclusive. The single-instance limit applies only when the daemon fails to launch and it degrades to a local relay
+- The daemon occupies ports `29001` (GUI) and `29002` (control); multiple MCP sessions share one daemon through thin clients. The single-instance limit applies only when the daemon fails to launch and it degrades to a local relay
 - **vconsole usage path**: vconsole2's connection target is fixed at `127.0.0.1:29001` (the relay's GUI port). By default no manual open is needed — the relay auto-launches when it detects Dota readiness (`DOTA2_VCON_AUTO_OPEN_VCONSOLE=0` disables). The AssetBrowser vconsole button is disabled by the engine only while the relay holds 29000 (i.e. while vconsole is attached); once the window closes, 29000 is released and the button works again. A late-attaching window receives an init frame replay and works as soon as it opens
 - Dota 2 must be launched with the `-vconsole` flag (or have the vconsole2 listener enabled) for the relay to connect to `:29000`
 - **WSL environment**: tool directories are probed by existence (a win64 hit means a Windows install), argument paths are auto-converted to Windows format, and the VRF CLI needs the invariant globalization env. When a leftover daemon causes port conflicts, kill the node/relay processes — the next session's startup self-heals stale lock/pid state (`livePid`); don't delete `relay.token` while the daemon is alive

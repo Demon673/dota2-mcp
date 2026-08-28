@@ -10,7 +10,7 @@ skills/ shipped 2,431,997 bytes via files[] "skills/**/*". 95.4% of it was the p
 
 ## Decision
 
-The field-level reference moved out of the npm package: skills/dota2-vfx/data/class-ref/ (with appendix-unused.md) and vpcf-class-fields.json now live under research/vpcf-field-reference/, which files[] does not ship; the moved README's links are repaired to point at the new homes. SKILL.md's data section no longer advertises unreachable data paths — it points at research/vpcf-field-reference/ and notes the 143 unused schema classes. The reachable vpcf-stats.json + vpcf-official-findings.md (and the dota2-model pair) stay shipped, and research/README.md's inventory reflects the move.
+The field-level reference lives outside the npm package: skills/dota2-vfx/data/class-ref/ (with appendix-unused.md) and vpcf-class-fields.json live under research/vpcf-field-reference/, which files[] does not ship; the README's links point at the current homes. SKILL.md's data section advertises no unreachable data paths — it points at research/vpcf-field-reference/ and notes the 143 unused schema classes. The reachable vpcf-stats.json + vpcf-official-findings.md (and the dota2-model pair) stay shipped, and research/README.md's inventory reflects the move.
 
 ## Alternatives considered
 
@@ -19,4 +19,4 @@ The field-level reference moved out of the npm package: skills/dota2-vfx/data/cl
 
 ## Consequences
 
-The npm tarball drops ~2.3 MB (~95% of skills/): class-ref/*.md, vpcf-class-fields.json, and appendix-unused.md are no longer per-install weight, and dota2_skill no longer ships a 1.68 MB blob or unreachable subdirectory paths. The reference stays in-repo for regeneration (reproduction steps preserved in its README).
+The npm tarball carries ~2.3 MB less (~95% of skills/): class-ref/*.md, vpcf-class-fields.json, and appendix-unused.md weigh nothing per install, and dota2_skill ships neither a 1.68 MB blob nor unreachable subdirectory paths. The reference stays in-repo for regeneration (reproduction steps preserved in its README).

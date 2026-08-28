@@ -54,6 +54,13 @@ If you want to use vconsole2 without MCP (connecting straight to `29000`): close
 
 Every MCP-capable client takes the same config; put it in the client's `mcpServers`:
 
+```json
+"dota2": {
+  "command": "npx",
+  "args": ["-y", "dota2-mcp"]
+}
+```
+
 ### Per-client configuration
 
 Installation has two paths; pick whichever you prefer:
@@ -74,19 +81,8 @@ Installation has two paths; pick whichever you prefer:
 - Settings → MCP → Add new MCP server; or edit `~/.cursor/mcp.json` and add the common configuration
 
 **VS Code (GitHub Copilot)**
-**VS Code（GitHub Copilot）**
 
 - In your user `settings.json` or the workspace `.vscode/mcp.json`, write:
-  ```json
-  {
-    "mcp": {
-      "servers": {
-        "dota2": { "command": "npx", "args": ["-y", "dota2-mcp"] }
-      }
-    }
-  }
-  ```
-
   ```json
   {
     "mcp": {
@@ -112,12 +108,6 @@ Installation has two paths; pick whichever you prefer:
   ```
 - Verify: `codex mcp list` — dota2 appears in the list with enabled true; or start a new Codex session and have the AI call `dota_status`
 
-  ```toml
-  [mcp_servers.dota2]
-  command = "npx"
-  args = ["-y", "dota2-mcp"]
-  ```
-
 **Codex Desktop (Desktop App)**
 
 - The desktop app and CLI **share the same `~/.codex/config.toml`** — there's no separate config entry; just write the TOML via Codex CLI's "Option 2" above
@@ -142,8 +132,6 @@ Installation has two paths; pick whichever you prefer:
 | Windows reports "command not found / not recognized" | Wrap with cmd: JSON clients use `"command": "cmd", "args": ["/c", "npx", "-y", "dota2-mcp"]`; Codex TOML uses `command = "cmd"`, `args = ["/c", "npx", "-y", "dota2-mcp"]` |
 | Tools report "not connected to Dota 2" | Launch Dota 2 (`-vconsole` or `-tools`) |
 | Tools report "vconsole not open" | It's normally opened automatically; if not, see "FAQ" below |
-
-|------|------|
 
 > Standalone executables (win/linux/mac) are still shipped with each Release, only for special cases where Node is inconvenient; use npx for everyday use.
 
@@ -182,8 +170,6 @@ Installation has two paths; pick whichever you prefer:
 | `file_edit` | Replace old_string→new_string in an addon file (exactly one match). |
 | `file_delete` | Delete a file inside the addon. |
 | `dota2_skill` | Retrieve built-in development skills (vfx/model formats, game phases, runtime dev). |
-
-|------|------|
 
 ## FAQ
 

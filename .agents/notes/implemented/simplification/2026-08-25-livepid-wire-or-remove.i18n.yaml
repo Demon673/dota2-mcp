@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/simplification/2026-08-25-livepid-wire-or-remove.md
-2026-08-25-livepid-wire-or-remove.md: e2a14f7e79365159f7afba6c9fac910a898fdbb8
-2026-08-25-livepid-wire-or-remove.zh.md: 00808546f2876db0f8210167bc435d6ae26e8404
+2026-08-25-livepid-wire-or-remove.md: 0e26b46502dc58b62e5a6fc89a66f4238afeeee7
+2026-08-25-livepid-wire-or-remove.zh.md: da2562020c1cd4bcb4403121c98b39c53174132a

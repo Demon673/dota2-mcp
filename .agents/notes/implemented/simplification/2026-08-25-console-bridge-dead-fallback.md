@@ -10,7 +10,7 @@ console-bridge.ts carried the entire "write commands to a cfg file + tail game/d
 
 ## Decision
 
-console-bridge.ts no longer contains the cfg-file/console.log fallback: the whole log-tailing cluster is deleted and the file header describes its live role (Dota 2 path/process/tool-path detection, WSL mapping, vconsole2 spawn). getDotaExeName is deleted and getDotaBinDir is no longer exported. chokidar is removed from package.json dependencies with the lockfile regenerated. AGENTS.md's console-bridge row and the References "console.log path" row were updated in the same change.
+console-bridge.ts contains no cfg-file/console.log fallback: the file's role is Dota 2 path/process/tool-path detection, WSL mapping, and vconsole2 spawn. getDotaExeName is deleted and getDotaBinDir is private. chokidar is absent from package.json dependencies. AGENTS.md's console-bridge row matches this role, and the References "console.log path" row is gone.
 
 ## Alternatives considered
 
@@ -19,4 +19,4 @@ console-bridge.ts no longer contains the cfg-file/console.log fallback: the whol
 
 ## Consequences
 
-Each npm install drops an unused dependency. console.log is no longer an advertised path anywhere in the repo; console history is available through console_output (relay prntLog) only.
+Each npm install drops an unused dependency. console.log appears in no repo path; console history is available through console_output (relay prntLog) only.

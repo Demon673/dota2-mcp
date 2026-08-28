@@ -19,4 +19,4 @@ daemon-utils.livePid()——陈旧 PID/锁清理（kill(pid,0) 活性探针 + �
 
 ## Consequences
 
-启动现在会通过删除陈旧文件来改动状态目录。kill(pid,0) 探针和删除前比对守卫会防止触及存活守护进程的状态，而 Known issues 里“守护进程存活时不要删除 relay.token”的警告得以保留。陈旧锁故障模式不再需要人工干预。
+启动时会通过删除陈旧文件改动状态目录。kill(pid,0) 探针和删除前比对守卫防止触及存活守护进程的状态，Known issues 里“守护进程存活时不要删除 relay.token”的警告保持不变。陈旧锁故障模式无需人工干预。

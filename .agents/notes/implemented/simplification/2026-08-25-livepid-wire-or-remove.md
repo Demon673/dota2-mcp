@@ -19,4 +19,4 @@ Branch B shipped: createRelay() calls livePid() before acquireLock(), so a crash
 
 ## Consequences
 
-Startup now mutates the state dir by deleting stale files. The kill(pid,0) probe and the compare-before-unlink guard prevent touching a live daemon's state, and the Known-issues warning "don't delete relay.token while the daemon is alive" survives. The stale-lock failure mode no longer requires manual intervention.
+Startup mutates the state dir by deleting stale files. The kill(pid,0) probe and the compare-before-unlink guard prevent touching a live daemon's state, and the Known-issues warning "don't delete relay.token while the daemon is alive" stands. The stale-lock failure mode requires no manual intervention.
