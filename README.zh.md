@@ -173,25 +173,17 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 
 ## 常见问题
 
-**The AI says it can't find Dota 2 — what do I do?**
-
 **AI 提示找不到 Dota 2 怎么办？**
 
 确保 Dota 2 是通过 Steam 安装的，并且启动了 VConsole2。程序会通过 Steam appid `570` 自动定位 Dota 2 目录，不需要手动设置路径。
-
-**Why does the vconsole2 GUI connect to `29001`?**
 
 **为什么 vconsole2 GUI 要连 `29001`？**
 
 因为 `dota2-mcp` 需要独占 Dota 2 的 VConsole2 连接，它会把 GUI 转发到 `29001`。这样人类开发者和 AI 都能同时使用控制台。
 
-**I don't want MCP output to appear in the vconsole2 GUI**
-
 **我不想让 MCP 输出出现在 vconsole2 GUI 里**
 
 默认就是屏蔽的。如果想临时关闭，调用 `console_gui_filter` 并设置 `auto: false`。
-
-**The AI says "vconsole not open" — what do I do?**
 
 **AI 提示「vconsole 未打开」怎么办？**
 
