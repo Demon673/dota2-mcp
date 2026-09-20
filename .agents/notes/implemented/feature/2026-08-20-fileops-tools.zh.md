@@ -21,6 +21,6 @@ MCP 客户端无法创建或编辑 addon 源文件（`.vpcf` 粒子源、KV、Lu
 
 ## Consequences
 
-- 工具数 22 → 26；`scripts/test-mcp-offline.mjs` 断言 26。
+- 工具数 22 → 26。
 - `scripts/test-fileops.mjs` 钉住离线契约：写/读/编辑/删除往返 + 三种边界拒绝（其他 addon、`../` 逃逸、dota 游戏目录）。
 - junction 布局（`game/dota_addons/{addon}` → 仓库）对工具透明：按 Dota 安装目录下的逻辑路径解析，junction 自动跟随。

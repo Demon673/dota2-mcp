@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/bug-fix/2026-08-20-wsl-compat-fixes.md
-2026-08-20-wsl-compat-fixes.md: 6a1eb72dff682f8fd26f6a86f886a8bc19d08d8d
-2026-08-20-wsl-compat-fixes.zh.md: d327321a835189f20da5d05ef21cf9a26f1f3102
+2026-08-20-wsl-compat-fixes.md: f469cb358f9572b8b133690f23fdcae96f92a0f8
+2026-08-20-wsl-compat-fixes.zh.md: 4af7fa669d23c18df59d71da1038377f56b066d3

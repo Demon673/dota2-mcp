@@ -20,5 +20,5 @@ Status: implemented
 ## Consequences
 
 - `scripts/test-vfx-live.mjs` 钉住活体闭环：launch addon 地图 → 推进 CUSTOM_GAME_SETUP → spawn basic_explosion（pid>0、无加载错误）→ stop。
-- 活体测试暴露两个测试 addon 前置条件（已记录）：basic 模板的空 KV3 `addoninfo.txt` 必须声明 `AddonInfo { maps … IsPlayable }`（已在 dota2mcptest 测试仓库修复）；地图必须先编译（resourcecompiler 产出 `game/maps/<map>.vpk`）才能被 `dota_launch_custom_game` 加载。
+- 活体测试暴露两个测试 addon 前置条件（已记录）：basic 模板的空 KV3 `addoninfo.txt` 必须声明 `AddonInfo { maps … IsPlayable }`（已在测试 addon 修复）；地图必须先编译（resourcecompiler 产出 `game/maps/<map>.vpk`）才能被 `dota_launch_custom_game` 加载。
 - 工具数 29 → 31。

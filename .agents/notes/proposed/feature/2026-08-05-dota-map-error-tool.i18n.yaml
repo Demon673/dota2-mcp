@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/proposed/feature/2026-08-05-dota-map-error-tool.md
-2026-08-05-dota-map-error-tool.md: 44d9ca970082b3cea31ccf329c1336513a550dbf
-2026-08-05-dota-map-error-tool.zh.md: 4c6f6837ec6c74e3629445323b2cb8d25f085e2e
+2026-08-05-dota-map-error-tool.md: 18fcd15fa15b841ee44f816893d1c1f5d52c934d
+2026-08-05-dota-map-error-tool.zh.md: f7f9d08850a61a8c22b04e93f0ca5329e614ca26

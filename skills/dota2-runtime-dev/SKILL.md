@@ -7,18 +7,15 @@ description: Use when developing or testing a Dota 2 custom game with dota2-mcp.
 
 ## The core mental model: long-lived process + hot reload
 
-A Dota 2 custom game is NOT a service you restart after every edit. The game
-client stays running, and your code changes take effect WITHOUT relaunching
-the map. Treating it like "edit → restart → test" wastes the fast iteration
-loop and is the single most common mistake an agent makes here.
+A Dota 2 custom game runs as a long-lived process: the client stays up and
+your code changes take effect without relaunching the map.
 
 The loop is:
 
   edit source → build/watch compiles → reload in the live game → verify
 
-Do NOT call dota_restart or relaunch the map just to pick up code changes.
-Only restart when the change genuinely cannot be hot-reloaded (rare), or when
-you intentionally want a clean state.
+Send dota_restart only when the change genuinely cannot be hot-reloaded
+(rare), or when you intentionally want a clean state.
 
 ## How code changes take effect
 
@@ -93,12 +90,5 @@ KV are the exception, not the rule; when unsure, ask before editing KV.
 - dota_api_lua / dota_api_panorama_js / dota_api_css / dota_api_events / dota_api_help
   — query live engine APIs instead of guessing signatures.
 
-CONTRACT: all console-based tools (console_*, dota_api_*, dota_run_lua,
-dota_dump_*, dota_launch_game, dota_disconnect, dota_restart) require an open
-vconsole attached to 127.0.0.1:29001 — no window, no Dota connection, no
-console tools (the relay physically refuses to connect without it). The relay
-auto-opens vconsole2.exe when it detects Dota (unless
-DOTA2_VCON_AUTO_OPEN_VCONSOLE=0), so the window is usually already there.
-If a tool still reports "vconsole 未打开": call dota_open_vconsole. The
-AssetBrowser vconsole button is engine-disabled while the relay holds port
-29000 — but works again once the window (and relay) is gone.
+CONTRACT: console-class tools require an open vconsole attached to
+127.0.0.1:29001; if one reports "vconsole 未打开", call dota_open_vconsole.

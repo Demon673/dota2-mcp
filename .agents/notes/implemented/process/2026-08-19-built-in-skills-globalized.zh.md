@@ -15,7 +15,7 @@ Status: implemented
 ## Alternatives considered
 
 - **六个全部保持内置。** 否决：重复全局维护，且副本已漂移——例如全局 `translate-docs` 视两种语言同权，而本仓库的配对契约是英文 canonical。
-- **`doc-standards` 一并删除。** 起初否决：它是唯一 dota2-mcp 专属的文档 skill，没有全局对应。划定边界的同日最终仍将其移除（见 Decision）。
+- **`doc-standards` 保持内置。** 否决：它是唯一 dota2-mcp 专属的文档 skill，但边界是维护知识与运行时知识之分，而非主题专属之分，且维护类 skill 在维护者的全局 skill 目录。
 - **把两个 Dota skill 并入全局 `dota2-custom-game-dev`。** 否决：相位 SOP 与运行时模型经 `dota2_skill` 工具被任何 MCP 客户端消费，且离线冒烟测试钉住它们。
 
 ## Consequences

@@ -390,14 +390,14 @@ Initializers additionally get `m_nAssociatedEmitterIndex` (-1), `m_nSetMethod`
 ## Sources
 
 **1. Real template sources (primary, engine-accepted)**
-`/mnt/d/Repositories/dota2mcptest/content/particles/`
+`{dota2Path}/content/dota_addons/<addon>/particles/`
 — `basic_ambient/basic_ambient.vpcf` (+readme), `basic_explosion/{basic_explosion,basic_explosion_bits,basic_explosion_burst,basic_explosion_flash}.vpcf` (+readme),
 `basic_projectile/{basic_projectile,basic_projectile_explosion,basic_projectile_explosion_flash,basic_projectile_launch,basic_projectile_trail}.vpcf`
 (+readme), `basic_rope/basic_rope.vpcf` (+readme), `basic_trail/basic_trail.vpcf`,
 `test_vfx/{glow_burst,test_burst}.vpcf`.
 
 **2. Compiled + VRF-decompiled samples (source↔compiled comparison)**
-`/mnt/d/SteamLibrary/steamapps/common/dota 2 beta/game/dota_addons/dota2mcptest/particles/**/*.vpcf_c`,
+`{dota2Path}/game/dota_addons/<addon>/particles/**/*.vpcf_c`,
 decompiled with `Source2Viewer-CLI -i <f> -o <out> -d` (v20.0). Decompiled:
 `basic_ambient`, `basic_trail`, `basic_rope`, `basic_explosion_burst`,
 `basic_explosion`, `basic_projectile`, `test_burst`.
@@ -413,11 +413,11 @@ directory listing (emitter/renderer/initializer/operator class names).
 `https://github.com/SteamTracking/GameTracking-CS2/tree/master/DumpSource2/schemas/particles`
 
 **4. Vendor snapshot (checked, largely a dead-end for format knowledge)**
-`/home/mac/.agents/skills/dota2-custom-game-dev/references/` — the vendor
+the vendored `references/` under `~/.agents/skills/dota2-custom-game-dev/` — the vendor
 `dota_script_help2.json` / `cl_panorama_script_help_2.json` only reference the
 runtime `CScriptParticleManager` API and `ParticleAttachment_t` enum, **not**
-the vpcf file format; no particle-structure docs present. (Per task, that API
-surface is out of scope here.)
+the vpcf file format; no particle-structure docs present. (That runtime API
+surface is not covered by this format record.)
 
 **5. Web references**
 - Source2 wiki Particle Editor Guide: `http://www.source2.wiki/EngineTools/ParticleEditor/particle-editor-guide`
@@ -425,5 +425,5 @@ surface is out of scope here.)
 - ValveResourceFormat (the decompiler used above): `https://github.com/ValveResourceFormat/ValveResourceFormat`
 
 > Note: `#3` is the CS2 dump; Dota 2 and CS2 share the Source 2 particle
-> format, and every field observed in the dota2mcptest templates matches this
+> format, and every field observed in the `<addon>` templates matches this
 > schema exactly.

@@ -15,7 +15,7 @@ The repo shipped six documentation/review skills under `skills/` (`prose-standar
 ## Alternatives considered
 
 - **Keep all six built in.** Rejected: it duplicates global maintenance, and the copies had already drifted — e.g. the global `translate-docs` treats both languages as equal authority while this repo's pairing contract is English-canonical.
-- **Remove `doc-standards` too.** Rejected at first: it is the only dota2-mcp-specific documentation skill, with no global counterpart. The boundary settled the same day into removing it anyway (see Decision).
+- **Keep `doc-standards` built in.** Rejected: it is the only dota2-mcp-specific documentation skill, but the boundary is maintenance versus runtime knowledge, not subject-specificity, and maintenance skills live in the maintainer's global skill directory.
 - **Fold the two Dota skills into the global `dota2-custom-game-dev`.** Rejected: the phase SOP and runtime model are consumed through the `dota2_skill` tool by any MCP client, and the offline smoke test pins them.
 
 ## Consequences

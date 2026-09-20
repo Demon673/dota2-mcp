@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-The pinned VRF release was written in four places: the `DEFAULT_VERSION` constant and its option comment in `vrf-ensure.ts`, plus two `src/index.ts` tool descriptions spelling out "default v20.0" and "Default 20.0". A bump was a four-place manual edit, and nothing noticed when upstream moved. At the time of writing the pin was already the latest release, 20.0.
+The pinned VRF release was written in four places: the `DEFAULT_VERSION` constant and its option comment in `vrf-ensure.ts`, plus two `src/index.ts` tool descriptions spelling out "default v20.0" and "Default 20.0". A bump was a four-place manual edit, and nothing noticed when upstream moved.
 
 ## Decision
 
@@ -14,7 +14,7 @@ The pinned VRF release was written in four places: the `DEFAULT_VERSION` constan
 
 `scripts/check-vrf-version.mjs` (`npm run check-vrf-version`) reads that one line, compares it against the upstream latest release, and reports. `--write` moves the pin, and refuses when the target release drops a `cli-*.zip` asset the current pin ships — the code matches assets dynamically, so a missing one is a download 404 for that platform. Exit codes: 0 in sync or written, 1 behind, 2 undeterminable or refused. `--version <v>` bypasses the network for offline self-test.
 
-AGENTS.md documents the command, and the doc budget ceiling moves 4000 → 4050: the new line costs 18 words, and 3998/4000 left no room for any single-line addition.
+AGENTS.md documents the command, and the ceiling in `scripts/doc-budgets.manifest.json` was raised: the new line costs 18 words, and the ceiling it replaced left no room for any single-line addition.
 
 ## Alternatives considered
 

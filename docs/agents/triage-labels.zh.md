@@ -13,5 +13,3 @@ skill 以五个规范 triage 角色沟通。本文件把这些角色映射到本
 | `wontfix`                    | `wontfix`             | 不会处理                                 |
 
 skill 提到某个角色时（例如 "apply the AFK-ready triage label"），用本表对应的 label 字符串。
-
-右列按你实际使用的词汇修改。

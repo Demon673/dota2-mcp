@@ -45,8 +45,16 @@ function isExcluded(file, excluded) {
   return excluded.some((entry) => (entry.endsWith('/') ? file.startsWith(entry) : file === entry))
 }
 
+// The root pairs sit outside the two walked trees, so all three of their files are named here.
+const ROOT_ANCHORS = ['README.md', 'CHANGELOG.md']
+const rootPairFiles = (anchor) => [
+  anchor,
+  `${anchor.slice(0, -'.md'.length)}.zh.md`,
+  `${anchor.slice(0, -'.md'.length)}.i18n.yaml`,
+]
+
 function isScopeFile(file) {
-  if (file === 'README.md' || file === 'CHANGELOG.md') return true
+  if (ROOT_ANCHORS.some((anchor) => rootPairFiles(anchor).includes(file))) return true
   return (file.startsWith('.agents/notes/') || file.startsWith('docs/'))
     && !file.startsWith('.agents/notes/archived/')
 }
@@ -76,8 +84,10 @@ function discoverCorpus() {
       if (isScopeFile(rel)) files.add(rel)
     }
   }
-  for (const rootFile of ['README.md', 'CHANGELOG.md']) {
-    if (isScopeFile(rootFile)) files.add(rootFile)
+  for (const anchor of ROOT_ANCHORS) {
+    for (const file of rootPairFiles(anchor)) {
+      if (existsSync(join(root, file))) files.add(file)
+    }
   }
   return [...files]
 }

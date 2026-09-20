@@ -19,13 +19,13 @@ No manual copy-paste of console output — the AI pulls live information straigh
 - Node.js ≥ 18 (ships npx)
 - Dota 2 installed and launched with `-vconsole` or `-tools`
 
-> Once dota2-mcp detects Dota 2 it **opens vconsole automatically** and establishes the connection — no manual steps. Note: **if vconsole isn't open, the relay doesn't connect to Dota** — console tools are also unavailable, so keep the window open (this way you can watch what the AI does in the console).
+> **If vconsole isn't open, the relay doesn't connect to Dota** — console tools are unavailable, so keep the window open.
 
 ## Configure the vconsole2 GUI port
 
 Dota 2 allows only one VConsole2 client on `127.0.0.1:29000` by default. `dota2-mcp` occupies that port and forwards the GUI to `127.0.0.1:29001`, so you need to point vconsole2 there manually.
 
-**How to open vconsole2**: **by default you don't have to do anything** — the relay opens it automatically once it detects Dota is ready (set `DOTA2_VCON_AUTO_OPEN_VCONSOLE=0` to disable). Note: **if vconsole isn't open, the relay doesn't connect to Dota** (console tools are unavailable), so keep the window open. The vconsole button in Dota 2's tools mode (AssetBrowser) is disabled by the engine only while the relay holds `29000` (i.e. while vconsole is connected); once the window closes the button works again. You can also run `{dota 2 beta}\game\bin\win64\vconsole2.exe` directly, or ask the AI to call `dota_open_vconsole`. A window opened late is backfilled with init data and works as soon as it opens.
+**How to open vconsole2**: **by default you don't have to do anything** — the relay opens it automatically once it detects Dota is ready (set `DOTA2_VCON_AUTO_OPEN_VCONSOLE=0` to disable). The vconsole button in Dota 2's tools mode (AssetBrowser) is disabled by the engine only while the relay holds `29000` (i.e. while vconsole is connected); once the window closes the button works again. You can also run `{dota 2 beta}\game\bin\win64\vconsole2.exe` directly, or ask the AI to call `dota_open_vconsole`. A window opened late is backfilled with init data and works as soon as it opens.
 
 ### First-time setup
 
@@ -187,7 +187,7 @@ It's hidden by default. To show MCP output in the GUI temporarily, call `console
 
 **The AI says "vconsole not open" — what do I do?**
 
-Normally the relay opens vconsole2 automatically when it detects Dota is ready. If it isn't open: run `{dota 2 beta}\game\bin\win64\vconsole2.exe` directly, or have the AI call `dota_open_vconsole`. Note that when vconsole isn't open, console-class tools are unavailable — so keep the window open (that way you can watch what the AI does in the console). The vconsole button in AssetBrowser is inactive only while vconsole is connected — that's an engine limitation, not a fault.
+See "How to open vconsole2" under "Configure the vconsole2 GUI port" above.
 
 ## Version
 

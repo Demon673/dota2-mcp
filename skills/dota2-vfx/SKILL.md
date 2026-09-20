@@ -5,7 +5,7 @@ description: Use when creating, editing, compiling, or previewing Dota 2 particl
 
 # Dota 2 VFX — Particle Effects
 
-This skill owns the particle-effect workflow of the dota2-mcp toolchain: authoring `.vpcf` sources, compiling them, and verifying the result in a running game. It is self-contained for everyday particle work; deeper reference tables grow in the Complete Field Reference sections.
+This skill owns the particle-effect workflow of the dota2-mcp toolchain: authoring `.vpcf` sources, compiling them, and verifying the result in a running game. It is self-contained for everyday particle work; deeper reference tables grow in the Template-verified field reference section.
 
 ## Core mental model: asset pipeline
 
@@ -44,9 +44,9 @@ Key vocabulary (verified against a real basic-template addon):
 
 Common emitter/operator/initializer classes seen in the basic template: `C_OP_InstantaneousEmitter`, `C_OP_BasicMovement`, `C_OP_Decay`, `C_OP_FadeOutSimple`, `C_OP_InterpolateRadius`, `C_OP_RenderTrails`, `C_INIT_RandomLifeTime`, `C_INIT_RandomTrailLength`.
 
-## Complete field reference (full literal · batch 1: template-verified structure)
+## Template-verified field reference
 
-Based on a deep-dive of 18 real template sources, 7 VRF decompiles, and the engine's particle schemas (research/vpcf-structure/findings.md).
+Based on a deep-dive of 18 real template sources, 7 VRF decompiles, and the engine's particle schemas (repo-only `research/vpcf-structure/findings.md`; the research corpus is not part of the npm package).
 
 ### Top-level blocks (engine execution order)
 
@@ -76,7 +76,7 @@ Root scalars: `m_nMaxParticles`, `m_nInitialParticles`, `m_ConstantColor` [R,G,B
 - `C_INIT_CreateWithinSphere`: `m_fRadiusMin/Max`, `m_fSpeedMin/Max`, `m_LocalCoordinateSystemSpeedMin/Max`, `m_nControlPointNumber`.
 - `C_INIT_CreateWithinBox`: `m_vecMin` / `m_vecMax`.
 - `C_INIT_CreateSequentialPath`: `m_flNumToAssign`, `m_PathParams`.
-- **Random* are editor shortcuts**, compiled to the generic `C_INIT_InitFloat` writing scalar properties: RandomLifeTime→field 1 (lifetime), RandomRadius→0 (radius), RandomRotation→4, RandomRotationSpeed→5, RandomAlpha→7 (stores 0..1). Also RandomColor / RandomYawFlip / RandomTrailLength / InitialVelocityNoise / RemapParticleCountToScalar.
+- **Random* are editor shortcuts**, compiled to the generic `C_INIT_InitFloat` writing scalar properties: RandomLifeTime→field 1 (lifetime), RandomRadius→0 (radius), RandomRotation→4, RandomRotationSpeed→5, RandomAlpha→7 (stores 0..1). The full attribute index, with its empirical verification, is §3.4 of `dota2_skill(data='vpcf-official-findings.md')`; keep the two in step. Also RandomColor / RandomYawFlip / RandomTrailLength / InitialVelocityNoise / RemapParticleCountToScalar.
 
 ### Common Operators (m_Operators) and ForceGenerators
 
@@ -89,15 +89,11 @@ Root scalars: `m_nMaxParticles`, `m_nInitialParticles`, `m_ConstantColor` [R,G,B
 
 Source: stratified-sample decompile of pak01_dir.vpk. **Full machine-readable statistics ship with the skill**: `dota2_skill(name='dota2-vfx', data='vpcf-stats.json')` returns the complete JSON (all 263 class frequencies, all combo signatures, 962 materials, full parameter quantiles); human-readable version `data='vpcf-official-findings.md'`.
 
-- **Class frequency Top 5** (191,161 instances / 263 classes): `C_INIT_InitFloat` 39,889 → `C_OP_Decay` 11,513 → `C_OP_BasicMovement` 9,812 → `C_OP_InterpolateRadius` 9,114 → `C_OP_RenderSprites` 8,597. **No `C_INIT_RandomLifeTime` or other Random* classes exist in the official corpus** — after compilation they are all the generic `C_INIT_InitFloat` writing property indices.
-- **Standard recipe** (the most common combo signature, 1,065 files): `ContinuousEmitter + RenderSprites + [BasicMovement, ColorInterpolate, Decay]`.
-- **Typical parameter values**: `m_nMaxParticles` p50=20 / p75=64 / p90=128 / p99=500; `m_flEmitRate` p50=30/s (p90=256); random lifetime (InitFloat field 1, PF_TYPE_RANDOM_UNIFORM) min p50=0.5s, max p50=1.0s (5,903 cases); `m_flConstantLifespan` p50=0.74s; `m_flConstantRadius` p50=20 (p90=180).
-- **Material Top** (962 paths): particle_glow_05(486), sparks(466), smoke1(374), particle_glow_04(335), yellowflare2(288).
-- **Advanced technique usage**: child particle chains (`m_Children`) 26.6% (average 3.41 direct children, max chain depth 6); control points 79.9%; `m_Constraints` 2.8%; sequence frames (`m_nConstantSequenceNumber`) 8.1%.
+- **Advanced techniques**: child systems (`m_Children`) and control points are common in official content; constraints and forces are rare.
 
 ### Official recipe library (drop-in combo signatures, sorted by occurrence count)
 
-Source: combo statistics from 12,108 signable files among the 13,553 official samples (stats.json e_combos), with typical parameters (c_params quantiles).
+Source: combo statistics from 12,108 signable files among the 13,553 official samples (the `e_combos` section of [vpcf-stats.json](data/vpcf-stats.json)), with typical parameters (c_params quantiles).
 
 | # | Recipe (Emitter | Renderer | Operators) | Count | Use |
 |---|------|------|------|------|

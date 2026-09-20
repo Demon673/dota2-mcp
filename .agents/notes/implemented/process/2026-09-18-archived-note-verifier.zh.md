@@ -27,4 +27,4 @@ Status: implemented
 
 一次归档改动 = 移动文件 + 保留 `Status: implemented` + 插入 `Archived:` 行 + 连同 `.zh.md` 与 `.i18n.yaml` 兄弟文件一起删除切换行——中文译文不保留在 `archived/` 下。保留了 counterpart 的归档会让关卡转红，这是刻意给出的信号，而不是无声的半对。
 
-根 `AGENTS.md` 不写这道新关卡：它距 4000 词上限只剩三个词，因此冻结规则仍记在 `.agents/notes/README.md`——也正是关卡失败信息指向的文件。
+根 `AGENTS.md` 不写这道新关卡：它处在 `scripts/doc-budgets.manifest.json` 记录的上限之下，因此冻结规则仍记在 `.agents/notes/README.md`——也正是关卡失败信息指向的文件。

@@ -27,4 +27,4 @@ The gate is header-deep by design. A rewritten body under an unchanged header is
 
 An archival change is: move the file, keep `Status: implemented`, insert the `Archived:` line, and drop the switcher line with the `.zh.md` and `.i18n.yaml` siblings — a Chinese translation is not retained under `archived/`. An archival that keeps the counterpart turns the gate red, which is the intended signal rather than a silent half-pair.
 
-Root `AGENTS.md` does not name the new gate: it sits three words below its 4000-word ceiling, so the freeze rules stay documented in `.agents/notes/README.md`, the file the gate's failure message points at.
+Root `AGENTS.md` does not name the new gate: it sits under the ceiling recorded in `scripts/doc-budgets.manifest.json`, so the freeze rules stay documented in `.agents/notes/README.md`, the file the gate's failure message points at.

@@ -9,7 +9,7 @@ Two independent sources are joined per class:
 | Axis | Source | What it gives |
 |---|---|---|
 | Authoritative | Dota 2 engine schema dump (`SteamTracking/GameTracking-Dota2`, `DumpSource2/schemas/particles` + `particleslib`, 507 + 39 `.h` files, commit `6c875ca54c25e6fa98bbabbab1c3b1f78b46dde5`, 2026-08-19) | class inheritance, every field's C++ type, engine default (`MGetKV3ClassDefaults`), editor label / group, advanced+hidden flags, suppress expressions, GPU / obsolete / replacement markers, enum literals |
-| Empirical | 13,553 official `.vpcf` files decompiled from `{dota2Path}/game/dota/pak01_dir.vpk` (the same stratified sample as [vpcf-official-findings.md](../../skills/dota2-vfx/data/vpcf-official-findings.md)) | per-class instance and file counts, per-field override frequency, the literal values Valve actually uses |
+| Empirical | 13,553 official `.vpcf` files decompiled from `{dota2Path}/game/dota/pak01_dir.vpk` (the same stratified sample as [vpcf-official-findings.md](../../../skills/dota2-vfx/data/vpcf-official-findings.md)) | per-class instance and file counts, per-field override frequency, the literal values Valve actually uses |
 
 ## Files
 
@@ -144,8 +144,7 @@ are never used by the sampled official content ([appendix-unused.md](appendix-un
 **Particle attribute indices.** `ParticleAttributeIndex_t` fields
 (`m_nOutputField`, `m_nFieldOutput`, `m_nScalarAttribute`, …) are boxed `int32`
 with no enum in the schema; the index space is documented empirically in
-[vpcf-structure findings](../../vpcf-structure/findings.md) —
-`0 = radius, 1 = lifetime, 4 = rotation, 5 = rotation speed, 7 = alpha, 8 = texture-coordinate scalar, 13 = alpha-test point, 16 = alpha2, 21 = orientation vector`.
+[vpcf-structure findings](../../vpcf-structure/findings.md).
 
 ## class-fields.json
 
@@ -171,14 +170,14 @@ cd gt-dota2 && git sparse-checkout init --cone \
   && git sparse-checkout set DumpSource2/schemas/particles DumpSource2/schemas/particleslib \
   && git checkout
 
-# 2. official corpus (VRF / Source2Viewer-CLI v20.0, the strata of ../../skills/dota2-vfx/data/vpcf-official-findings.md)
+# 2. official corpus (VRF / Source2Viewer-CLI v20.0, the strata of ../../../skills/dota2-vfx/data/vpcf-official-findings.md)
 DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 Source2Viewer-CLI \
   -i "{dota2Path}/game/dota/pak01_dir.vpk" -d -f "<stratum prefixes>" -o corpus/ --threads 8
 ```
 
 Cross-checks that passed while building this reference: the corpus re-decompile
 reproduced **13,553 files, 263 distinct classes and 191,161 function instances**,
-matching `../../skills/dota2-vfx/data/vpcf-stats.json` exactly, including all 80 per-class counts
+matching `../../../skills/dota2-vfx/data/vpcf-stats.json` exactly, including all 80 per-class counts
 it records; every class's schema-declared category agrees with the block it is
 found in (0 disagreements over 263 classes); all 45 root fields observed in the
 corpus exist in `CParticleSystemDefinition`.

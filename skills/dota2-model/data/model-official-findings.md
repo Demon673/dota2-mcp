@@ -83,10 +83,8 @@ These are hard-won operational facts, not incidental:
 
 ## 1. Headline: the model format is `modeldoc`, not `m_meshList`
 
-The `dota2-model` skill currently documents the **legacy** `.vmdl` source
-shape (`m_meshList` → `CMesh` → `m_material`, `m_refLODGroup`, `m_smdl`). That
-shape **does not exist** in the official corpus. Every one of the 3,161
-decompiled models is the **modeldoc** format — a typed node graph:
+Every one of the 3,161 decompiled models is the **modeldoc** format — a typed
+node graph, not the legacy `m_meshList` shape:
 
 ```kv3
 <!-- kv3 encoding:text:version{...} format:modeldoc28:version{...} -->
@@ -216,7 +214,7 @@ majority of models are kinematic/skinned with no rigid-body shapes.
 ### 3.1 Format — KeyValues, not KV3
 
 Decompiled materials are **quoted KeyValues**, wrapped in a `Layer0` block —
-*not* the KV3 `m_shader = "…"` shape the skill documents:
+*not* a KV3 `m_shader = "…"` shape:
 
 ```
 "Layer0"
@@ -326,23 +324,3 @@ handful of feature flags. Top 5 combinations (`stats.json → c_combos`):
 
 The invariant core is `F_MASKS_1` + `F_MASKS_2` + `F_USE_STATUS_EFFECTS_PROXY`;
 `F_ALPHA_TEST` / `F_TRANSLUCENT` / `F_DIFFUSE_WARP` are the common add-ons.
-
----
-
-## 5. What the `dota2-model` skill should change
-
-1. **`.vmdl` is modeldoc, not `m_meshList`.** Replace the `m_meshList` /
-   `m_material` / `m_refLODGroup` / `m_smdl` quick-reference with the
-   `rootNode`/`children` node graph (RenderMeshList, LODGroupList, Skeleton,
-   AnimationList, AttachmentList, HitboxSetList, MaterialGroupList).
-2. **Meshes are imported `.dmx` files**, referenced by `RenderMeshFile.filename`
-   — there is no inline `m_meshList` and no `m_smdl` field name in the corpus.
-3. **Materials are bound in the mesh, not the model.** The `.vmdl` has no
-   material assignment; style variants use `MaterialGroupList` →
-   `BaseMaterialRemap { from, to }`.
-4. **`.vmat` is quoted KeyValues** wrapped in `"Layer0" { }`, with `shader`
-   (not `m_shader`), `F_*` feature flags, `g_fl*`/`g_v*` numeric params,
-   source `Texture*` refs, and a `"Compiled Textures"` block of `g_t*` refs.
-5. **The shader is `hero.vfx`**, not `dota_hero.vfx`. The canonical hero
-   material is `hero.vfx` + `g_tColor` + `g_tNormal` + `g_tMasks1` +
-   `g_tMasks2` + `F_MASKS_1` + `F_MASKS_2` + `F_USE_STATUS_EFFECTS_PROXY`.

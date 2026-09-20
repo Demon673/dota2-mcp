@@ -8,7 +8,7 @@ Status: proposed
 
 When a TSTL addon throws in-game, the console reports the generated `.lua` file and line, but the developer edits `.ts`. Dota 2's VScript disables `debug.traceback`, so tstl's runtime source-map override is dead in Dota — but the mapping data is compile-time static and always present in the artifact: `__TS__SourceMapTraceBack("<file>.lua", {["42"]=120, ...})`. A pure-static `.lua:line → .ts:line` translation therefore needs no game cooperation, and this MCP holds both ends (the live console stream over 29002, and artifact-format knowledge). A client-side agent doing the same chain must copy error text, guess the artifact directory, and hand-compute the map — every link can break.
 
-Background (adversarial review of the old three-pronged TODO, carried over from the retired roadmap spec): generic file r/w duplicates each MCP client's native capability (the shipped FileOps tools stay because the asset workflow needs addon-scoped edits); BuildTools shrank to a thin hot-reload point because build triggering runs in client bash and tsc/tstl diagnostics already localize errors; VRF parsing stays as the unique value a client cannot do (shipped in 1.6.0 as `asset_inspect`/related tools). The remaining gap this review surfaced is error-to-source mapping.
+Background: generic file r/w duplicates each MCP client's native capability (the shipped FileOps tools stay because the asset workflow needs addon-scoped edits); BuildTools shrank to a thin hot-reload point because build triggering runs in client bash and tsc/tstl diagnostics already localize errors; VRF parsing stays as the unique value a client cannot do (shipped in 1.6.0 as `asset_inspect`/related tools). The remaining gap is error-to-source mapping.
 
 ## Proposal
 
@@ -16,7 +16,7 @@ Add one offline MCP tool, `dota_map_error`, the translation layer between the ga
 
 - **Input**: artifact `.lua` path (relative to the addon or absolute) + line number.
 - **Output**: `.ts` file + line, plus optional source context (the surrounding lines of the mapped `.ts` file).
-- **Gating model**: no vconsole/Dota dependency — pure disk read. This is the first artifact-class tool, distinct from the 17 console tools under the vconsole gate.
+- **Gating model**: no vconsole/Dota dependency — pure disk read. This is the first artifact-class tool, distinct from the console tools under the vconsole gate.
 - **Addon resolution**: daemon handshake addon first; explicit argument or path inference when unavailable.
 - **Boundaries** (three explicit cases): artifact missing → "artifact not found, build first" with the addon artifact path; tstl artifact without a mapping table (sourceMapTraceback not enabled) → hint with the tstl config snippet; non-tstl artifact (no generated-with-TypeScriptToLua header, no `__TS__SourceMapTraceBack` call) → explicit "this tool only supports tstl projects".
 - **Form**: a passive query tool (form A). Post-processing `console_output` to auto-attach mappings (form B) is deferred until experience asks for it.

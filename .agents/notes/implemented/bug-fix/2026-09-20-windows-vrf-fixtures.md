@@ -33,4 +33,4 @@ Windows checkouts get one real pass and two explicit skips instead of three fail
 
 ## Testing
 
-`node scripts/test-vrf-ensure.mjs` passes all eight assertions on win32 (previously it failed on the first). `test-asset-inspect.mjs` and `test-asset-check-refs.mjs` print SKIP and exit 0.
+`node scripts/test-vrf-ensure.mjs` passes all eight assertions on win32. `test-asset-inspect.mjs` and `test-asset-check-refs.mjs` print SKIP and exit 0.

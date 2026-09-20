@@ -14,8 +14,8 @@ Branch B shipped: createRelay() calls livePid() before acquireLock(), so a crash
 
 ## Alternatives considered
 
-- **A (remove).** Pure surface removal; would have cost nothing today because the workaround existed, but left the stale-lock failure mode permanent.
-- **B (wire).** Adds a tiny startup check. Risk: pid reuse — a stale pid file pointing at an unrelated live process blocks startup (same failure as today), which the compare-before-unlink defense already bounds.
+- **A (remove).** Pure surface removal; would have cost nothing while the manual cleanup workaround existed, but would have left the stale-lock failure mode permanent.
+- **B (wire).** Adds a tiny startup check. Risk: pid reuse — a stale pid file pointing at an unrelated live process blocks startup (the same failure the stale lock already causes), which the compare-before-unlink defense already bounds.
 
 ## Consequences
 

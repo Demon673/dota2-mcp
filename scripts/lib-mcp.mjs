@@ -1,4 +1,4 @@
-// scripts/lib-mcp.mjs — 九个 MCP 脚本共享的 stdio 客户端：
+// scripts/lib-mcp.mjs — 十个 MCP 脚本共享的 stdio 客户端：
 // spawn dist/index.js + newline-JSON id-map call/notify/kill，外加 assert/sleep。
 // 与 lib-ctrl.mjs 平行：lib-ctrl 管 29002 控制口，这个管 MCP stdio 层。
 import { spawn } from "node:child_process";

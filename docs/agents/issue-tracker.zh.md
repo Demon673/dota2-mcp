@@ -17,7 +17,7 @@
 
 ## PR 作为 triage 入口
 
-**PR 作为请求入口：否。**（若本仓库把外部 PR 当作功能请求处理，设为 `yes`；`/triage` 会读这个 flag。）
+**PR 作为请求入口：否。**
 
 设为 `yes` 时，PR 走与 issue 相同的 label 与状态流转，用 `gh pr` 对等命令：
 

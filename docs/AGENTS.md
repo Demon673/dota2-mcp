@@ -29,7 +29,7 @@ Each fact has one home — the tier whose job it is; elsewhere, link there.
 | Code comments / JSDoc | Non-obvious contracts: behavior, failure, timing, ownership, exceptions | Reasoning transcripts, control-flow narration, code restatement |
 | `scripts/*.mjs` | Plain-node smoke tests (assert style) | — |
 
-Placement: rationale → Agent Notes; procedures → skills or cookbook content; contracts → `AGENTS.md` / `README.md`; standing orders → root `AGENTS.md`; known issues → the `已知问题 / 注意事项` section of `AGENTS.md` (a defect a fix closed may earn a `bug-fix` Agent Note; an incident that escaped to users earns a postmortem).
+Placement: rationale → Agent Notes; procedures → skills or cookbook content; contracts → `AGENTS.md` / `README.md`; standing orders → root `AGENTS.md`; known issues → the `Known issues` section of root `AGENTS.md` (a defect a fix closed may earn a `bug-fix` Agent Note; an incident that escaped to users earns a postmortem).
 
 ## Writing rules
 

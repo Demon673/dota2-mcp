@@ -80,7 +80,7 @@ Texture sources (`.tga`/`.psd`) compile to `.vtex_c`. `asset_inspect` on a compi
 
 ## Complete field reference (official corpus statistics)
 
-Full statistics ship with the skill: `dota2_skill(name='dota2-model', data='model-stats.json')` (machine-readable) and `data='model-official-findings.md'` (readable report, 348 lines). Headline numbers: vmdl 100% modeldoc28; mesh import 100% via RenderMeshFile `.dmx`; LOD 61.6%; skeleton 92.7%; animation 48.3%; physics 1.8%. vmat: shader hero.vfx 88.9%; params p50=43; Texture* source refs vs g_t* compiled refs; F_* flag frequencies.
+Full statistics ship with the skill: `dota2_skill(name='dota2-model', data='model-stats.json')` (machine-readable) and `data='model-official-findings.md'` (readable report, 326 lines).
 
 ## Workflow SOP
 

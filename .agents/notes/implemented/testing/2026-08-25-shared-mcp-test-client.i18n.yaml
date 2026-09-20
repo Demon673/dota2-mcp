@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/testing/2026-08-25-shared-mcp-test-client.md
-2026-08-25-shared-mcp-test-client.md: 4838600685884b1c2ae59990c48bc1eba275ead3
-2026-08-25-shared-mcp-test-client.zh.md: 02f3e95406742a10cf3a1af05aa112a09ab7205c
+2026-08-25-shared-mcp-test-client.md: 67f3ca312bf9fbadbba18d3d89c934061bc5ca30
+2026-08-25-shared-mcp-test-client.zh.md: dbcf2dda57814c6ce98db6ccb19bae703a2a15e8

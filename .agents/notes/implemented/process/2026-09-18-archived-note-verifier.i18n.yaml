@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/process/2026-09-18-archived-note-verifier.md
-2026-09-18-archived-note-verifier.md: 04efccf5095304f1074abf8a3b868c0d97f088e1
-2026-09-18-archived-note-verifier.zh.md: 215b2388f415f7a87630f46bf3414587efb54a0a
+2026-09-18-archived-note-verifier.md: b2baf99f68ba203fbe3e6b56b5a0255508cf9aa9
+2026-09-18-archived-note-verifier.zh.md: 4183269878ce7fca5ab9f8fc804c17bb4cbfa666

@@ -20,4 +20,4 @@ An end-to-end drill of the vfx workflow (write → compile → inspect → previ
 ## Consequences
 
 - The drill (scripts/drill-vfx-workflow.mjs) now passes end-to-end: engine logged an on-demand recompile of the written particle, vfx_preview returned pid=2, stop destroyed it.
-- Two residual-environment hazards documented: stale daemons survive across sessions (kill node/relay processes and clear the state dir when port conflicts appear), and deleting relay.token while a daemon lives breaks handshakes until that daemon exits.
+- Two residual-environment hazards documented: stale daemons survive across sessions (kill node/relay processes when port conflicts appear), and deleting relay.token while a daemon lives breaks handshakes until that daemon exits.

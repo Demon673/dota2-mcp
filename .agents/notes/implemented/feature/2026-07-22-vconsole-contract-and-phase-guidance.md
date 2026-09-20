@@ -14,7 +14,7 @@ Three problems share one root cause: the agent could not tell "Dota is not runni
 
 ## Decision
 
-**vconsole explicit contract (core)**: the 17 console tools enter through a shared `requireConsole()` two-stage check — Dota connected → vconsole attached to `:29001`; `dota_status` never throws and instead returns current state + next-step guidance, while the other 16 raise a clear error with the open path. Four tools are exempt: `dota_compile_asset` (pure local subprocess), `dota2_skill` (reads local docs), `console_gui_filter` (only changes forwarding filters), `dota_open_vconsole` (the contract's antidote).
+**vconsole explicit contract (core)**: console-class tools enter through a shared `requireConsole()` two-stage check — Dota connected → vconsole attached to `:29001`; console-class tools raise a clear error naming the open path, while `dota_status` never throws and returns current state + next-step guidance. Outside the check sit `dota_compile_asset` (pure local subprocess), `dota2_skill` (reads local docs), `console_gui_filter` (only changes forwarding filters), `dota_open_vconsole` (the contract's antidote), plus the offline asset and FileOps tools.
 
 **`dota_open_vconsole`**: spawns `{dotaPath}/game/bin/win64/vconsole2.exe`, waits ≤10s for `guiConnected`, and returns success/failure explicitly. No watchdog, no auto-open — it runs only when asked.
 

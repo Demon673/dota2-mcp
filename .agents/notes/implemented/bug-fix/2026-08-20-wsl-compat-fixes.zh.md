@@ -20,4 +20,4 @@ Status: implemented
 ## Consequences
 
 - 演练（scripts/drill-vfx-workflow.mjs）端到端通过：引擎日志确认按需重编译了写出的粒子、vfx_preview 返回 pid=2、stop 销毁成功。
-- 记录两个环境残留风险：跨会话残留的 daemon（端口冲突时杀 node/relay 进程并清状态目录）；daemon 存活期间删除 relay.token 会破坏握手，直到该 daemon 退出。
+- 记录两个环境残留风险：跨会话残留的 daemon（端口冲突时杀 node/relay 进程）；daemon 存活期间删除 relay.token 会破坏握手，直到该 daemon 退出。

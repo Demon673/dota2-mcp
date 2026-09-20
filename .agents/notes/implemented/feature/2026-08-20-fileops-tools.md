@@ -21,6 +21,6 @@ Four offline FileOps tools are registered in `src/index.ts`: `file_read`, `file_
 
 ## Consequences
 
-- Tool count 22 → 26; `scripts/test-mcp-offline.mjs` asserts 26.
+- Tool count 22 → 26.
 - `scripts/test-fileops.mjs` pins the offline contract: write/read/edit/delete round-trip plus three boundary rejections (other addon, `../` escape, dota game dir).
 - The junction layout (`game/dota_addons/{addon}` → repo) is transparent to the tools: they resolve logical paths under the Dota install and the junction follows.

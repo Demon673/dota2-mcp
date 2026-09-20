@@ -11,7 +11,7 @@ How the engineering skills should consume this repo's domain documentation when 
 - **`docs/i18n/terminology.md`** — this repo's domain glossary (English ↔ Chinese). Load it before naming domain concepts.
 - **`CONTEXT.md`** at the repo root, if it exists — a supplementary glossary. If absent, proceed silently.
 
-If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. In this repo, decision records live in `.agents/notes/`, not in `docs/adr/`, and terms live in `docs/i18n/terminology.md`, not in `CONTEXT.md`; the `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) records terms and decisions lazily into those two homes.
+If any of these files don't exist, **proceed silently**. In this repo, decision records live in `.agents/notes/`, not in `docs/adr/`, and terms live in `docs/i18n/terminology.md`, not in `CONTEXT.md`; the `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) records terms and decisions lazily into those two homes.
 
 ## File structure
 

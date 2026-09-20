@@ -8,7 +8,7 @@ Status: proposed
 
 TSTL addon 在游戏内报错时，控制台报的是生成的 `.lua` 文件与行号，而开发者改的是 `.ts`。Dota 2 的 VScript 禁用了 `debug.traceback`，tstl 的运行时 sourcemap 覆盖在 Dota 里失效——但映射数据是编译期静态生成、始终存在于产物里：`__TS__SourceMapTraceBack("<file>.lua", {["42"]=120, ...})`。因此「`.lua:行 → .ts:行`」的纯静态翻译不需要游戏配合，而本 MCP 恰好同时握着两端（29002 的实时控制台流与产物格式认知）。客户端 AI 自己做这条链，需要复制错误文本、猜产物目录、手算映射，每个环节都可能断。
 
-背景（对旧三大件 TODO 的对抗性审查，随已退役的 roadmap spec 继承而来）：通用文件读写与各 AI 客户端的自带能力重复（已发布的 FileOps 保留，因为资产工作流需要限定在 addon 内的编辑）；BuildTools 缩水为热重载一个薄点——构建触发走客户端 bash、tsc/tstl 诊断已经能定位错误；VRF 解析是客户端绝对做不到的独特价值（1.6.0 已以 `asset_inspect` 等工具发布）。审查剩下来的缺口就是错误→源行映射。
+背景：通用文件读写与各 AI 客户端的自带能力重复（已发布的 FileOps 保留，因为资产工作流需要限定在 addon 内的编辑）；BuildTools 缩水为热重载一个薄点——构建触发走客户端 bash、tsc/tstl 诊断已经能定位错误；VRF 解析是客户端绝对做不到的独特价值（1.6.0 已以 `asset_inspect` 等工具发布）。剩下来的缺口就是错误→源行映射。
 
 ## Proposal
 
@@ -16,7 +16,7 @@ TSTL addon 在游戏内报错时，控制台报的是生成的 `.lua` 文件与�
 
 - **输入**：产物 `.lua` 路径（相对 addon 或绝对路径）+ 行号。
 - **输出**：`.ts` 文件 + 行号，可选附带源文件上下文（映射到的 `.ts` 行前后若干行）。
-- **门控模型**：不依赖 vconsole/Dota 连接——纯磁盘读取。这是第一个产物类工具，与 vconsole 门控下的 17 个控制台工具本质不同。
+- **门控模型**：不依赖 vconsole/Dota 连接——纯磁盘读取。这是第一个产物类工具，与 vconsole 门控下的控制台工具本质不同。
 - **addon 定位**：优先 daemon 握手信息中的 addon；不可用时允许显式传入或从路径推断。
 - **边界**（明确区分三类情况）：产物不存在 → 报「未找到产物，请先构建」并给出 addon 产物路径；tstl 产物但无映射表（未开 sourceMapTraceback）→ 提示开启并给出 tstl 配置片段；非 tstl 项目（无 Generated with TypeScriptToLua 头、无 `__TS__SourceMapTraceBack` 调用）→ 明确报「此工具仅适用于 tstl 项目」。
 - **形态**：被动查询工具（形态 A）。对 `console_output` 做后处理自动附加映射（形态 B）留待体验提出需要后再议。

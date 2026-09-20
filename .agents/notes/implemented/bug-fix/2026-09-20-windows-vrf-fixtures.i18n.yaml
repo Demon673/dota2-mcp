@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/bug-fix/2026-09-20-windows-vrf-fixtures.md
-2026-09-20-windows-vrf-fixtures.md: 805aea2b8ecfa9cb75451169d1644b830cd3b03e
-2026-09-20-windows-vrf-fixtures.zh.md: d961c7a898523c1d7de2ffbed77b3255f350206d
+2026-09-20-windows-vrf-fixtures.md: 892864f586c1e1434a1295bdf0ef93fcdc7708ce
+2026-09-20-windows-vrf-fixtures.zh.md: ba2cf939eff62a9c5a1e34c3268d36a6d8ce5664

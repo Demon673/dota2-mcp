@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write docs/agents/triage-labels.md
-triage-labels.md: be421500a51e40dcbace83caf22c20785d56b767
-triage-labels.zh.md: 22198309a545753a43263257c5ae418d75da9de8
+triage-labels.md: 02c6181eb8eb20d2b6e5f0a6ee722ec9894414c8
+triage-labels.zh.md: e7f2ea071eda217d3472a05ffb0dd52890dfd7bc

@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-pin 住的 VRF 版本号写在四个地方：`vrf-ensure.ts` 的 `DEFAULT_VERSION` 常量与其选项注释，加上 `src/index.ts` 两条工具描述里写死的 "default v20.0" 与 "Default 20.0"。升级就是四处手改，而且上游动了没有任何提示。写这份笔记时，pin 已经就是最新版 20.0。
+pin 住的 VRF 版本号写在四个地方：`vrf-ensure.ts` 的 `DEFAULT_VERSION` 常量与其选项注释，加上 `src/index.ts` 两条工具描述里写死的 "default v20.0" 与 "Default 20.0"。升级就是四处手改，而且上游动了没有任何提示。
 
 ## Decision
 
@@ -14,7 +14,7 @@ pin 住的 VRF 版本号写在四个地方：`vrf-ensure.ts` 的 `DEFAULT_VERSIO
 
 `scripts/check-vrf-version.mjs`（`npm run check-vrf-version`）读这一行，与上游最新 release 比对并报告。`--write` 移动 pin；当目标 release 丢掉了当前 pin 已有的某个 `cli-*.zip` 资产时拒绝写入——代码是动态匹配资产的，缺一个就是该平台的下载 404。退出码：0 已同步或已写入，1 落后，2 无法判定或被拒。`--version <v>` 跳过网络，供离线自测。
 
-AGENTS.md 记录了该命令，文档预算上限从 4000 移到 4050：新增那行占 18 词，而 3998/4000 已经没有任何单行增补的余地。
+AGENTS.md 记录了该命令，`scripts/doc-budgets.manifest.json` 里的上限也调高了：新增那行占 18 词，而被替换掉的那个上限已经没有任何单行增补的余地。
 
 ## Alternatives considered
 

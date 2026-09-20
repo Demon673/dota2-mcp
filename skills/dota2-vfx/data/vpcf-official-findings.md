@@ -7,7 +7,7 @@ authoritative knowledge into the dota2-vfx skill.
 Every number in this document was computed by parsing the **decompiled**
 (.vpcf text) output of Valve Resource Format (VRF / Source 2 Viewer) over a
 13,553-file stratified sample. The raw machine-readable statistics are in
-stats.json next to this file.
+[vpcf-stats.json](vpcf-stats.json) next to this file.
 
 ---
 
@@ -64,7 +64,7 @@ hero_keeper_of_the_light, hero_monkey_king, hero_arc_warden, hero_snapfire,
 hero_furion, hero_hoodwink, hero_dawnbreaker, hero_phoenix, hero_drow,
 hero_lich, hero_earth_spirit).
 
-Note: the task's suggested particles/environment/ and particles/ambient/
+Note: the particles/environment/ and particles/ambient/
 prefixes do **not** exist in this VPK (0 entries each). The closest real analogues
 are particles/environment_dynamic/ (1 file), particles/base_static/,
 particles/dire_fx/ and particles/econ/world/, which are folded into the
@@ -560,7 +560,8 @@ C_INIT_RandomSequence + sprite-sheet animation instead of the legacy sequence id
 - Decompiler: ValveResourceFormat Source2Viewer-CLI v20.0
   (-d -f <prefix> -o <dir> --threads 8).
 - Analysis: this repository's parsing script (block/class/param extraction) —
-  see stats.json for the machine-readable output.
-- Cross-reference: research/vpcf-structure/findings.md and
-  skills/dota2-vfx/SKILL.md (attribute-field map and Random* shortcut
+  see [vpcf-stats.json](vpcf-stats.json) for the machine-readable output.
+- Cross-reference (repo-only; these two paths are relative to the repository
+  root, not to this file): `research/vpcf-structure/findings.md` and
+  `skills/dota2-vfx/SKILL.md` (attribute-field map and Random* shortcut
   semantics) — this report's empirical field map (§3.4) agrees with both.

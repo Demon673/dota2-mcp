@@ -19,13 +19,13 @@
 - Node.js ≥ 18（自带 npx）
 - Dota 2 已安装，并以 `-vconsole` 或 `-tools` 启动
 
-> dota2-mcp 探测到 Dota 2 后会**自动打开 vconsole** 并建立连接，无需手动操作。注意：**vconsole 不开，relay 就不连 Dota**——控制台类工具也不可用，所以窗口请保持开着（这样你也能随时看到 AI 在控制台里做了什么）。
+> **vconsole 不开，relay 就不连 Dota**——控制台类工具不可用，所以窗口请保持开着。
 
 ## 配置 vconsole2 GUI 端口
 
 Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota2-mcp` 已经占用了这个端口，并把 GUI 转发到 `127.0.0.1:29001`，所以需要手动把 vconsole2 切过去。
 
-**怎么打开 vconsole2**：**默认不用管**——relay 探测到 Dota 就绪后会自动帮你打开（设 `DOTA2_VCON_AUTO_OPEN_VCONSOLE=0` 可关闭）。注意：**vconsole 不开，relay 就不连 Dota**（控制台类工具也不可用），所以窗口请保持开着。Dota 2 工具模式（AssetBrowser）里的 vconsole 按钮只在 relay 占用 `29000` 期间（即 vconsole 已连接时）被引擎禁用；窗口关闭后按钮恢复可用。也可直接运行 `{dota 2 beta}\game\bin\win64\vconsole2.exe`，或让 AI 调用 `dota_open_vconsole`。晚打开的窗口会自动补齐初始化数据，随开随用。
+**怎么打开 vconsole2**：**默认不用管**——relay 探测到 Dota 就绪后会自动帮你打开（设 `DOTA2_VCON_AUTO_OPEN_VCONSOLE=0` 可关闭）。Dota 2 工具模式（AssetBrowser）里的 vconsole 按钮只在 relay 占用 `29000` 期间（即 vconsole 已连接时）被引擎禁用；窗口关闭后按钮恢复可用。也可直接运行 `{dota 2 beta}\game\bin\win64\vconsole2.exe`，或让 AI 调用 `dota_open_vconsole`。晚打开的窗口会自动补齐初始化数据，随开随用。
 
 ### 首次设置
 
@@ -187,7 +187,7 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 
 **AI 提示「vconsole 未打开」怎么办？**
 
-正常情况下 relay 探测到 Dota 就绪会自动打开 vconsole2。没有打开时：直接运行 `{dota 2 beta}\game\bin\win64\vconsole2.exe`，或让 AI 调用 `dota_open_vconsole`。注意 vconsole 不开，控制台类工具就不可用（这样你能看到 AI 的操作）。AssetBrowser 里的 vconsole 按钮只在 vconsole 已连接时无效，是引擎的限制，不是故障。
+见上方「配置 vconsole2 GUI 端口」一节的「怎么打开 vconsole2」。
 
 ## 版本
 

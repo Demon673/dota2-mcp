@@ -20,5 +20,5 @@ Two gated tools reuse the dota_run_lua channel (ent_fire 0 RunScriptCode). `vfx_
 ## Consequences
 
 - `scripts/test-vfx-live.mjs` pins the live loop: launch addon map → advance CUSTOM_GAME_SETUP → spawn basic_explosion (pid>0, no load errors) → stop.
-- Live testing surfaced two test-addon prerequisites now documented: the basic template's empty KV3 `addoninfo.txt` must declare `AddonInfo { maps … IsPlayable }` (fixed in the dota2mcptest test repo), and the map must be compiled (resourcecompiler emits `game/maps/<map>.vpk`) before `dota_launch_custom_game` can load it.
+- Live testing surfaced two test-addon prerequisites now documented: the basic template's empty KV3 `addoninfo.txt` must declare `AddonInfo { maps … IsPlayable }` (fixed in the test addon), and the map must be compiled (resourcecompiler emits `game/maps/<map>.vpk`) before `dota_launch_custom_game` can load it.
 - Tool count 29 → 31.

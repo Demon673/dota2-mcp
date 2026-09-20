@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/feature/2026-08-20-fileops-tools.md
-2026-08-20-fileops-tools.md: 46b7ffb2515159130b3d781fa3569093fbca2fb0
-2026-08-20-fileops-tools.zh.md: d7b9286c91859803b827cf445ed6ee41d0761b2f
+2026-08-20-fileops-tools.md: ee48dac0ff85105f7076169f04bf9c96f7a42c51
+2026-08-20-fileops-tools.zh.md: c86295e68effd93330722f8093e0b2a680a1b311

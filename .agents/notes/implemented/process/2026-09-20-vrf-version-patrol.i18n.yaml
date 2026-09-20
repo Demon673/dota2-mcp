@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/process/2026-09-20-vrf-version-patrol.md
-2026-09-20-vrf-version-patrol.md: 68633b142c01fe56279496f469fc6b44cd4b46ec
-2026-09-20-vrf-version-patrol.zh.md: 9b95251fae20ae7285ab1444621a9710e8a16bc1
+2026-09-20-vrf-version-patrol.md: 4ce864ff72283b0be3942970ab890dfaddd002aa
+2026-09-20-vrf-version-patrol.zh.md: 9578451b8a5e6d60ebdfb030b073ec085020377d

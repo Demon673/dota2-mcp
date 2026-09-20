@@ -33,4 +33,4 @@ Windows 检出从三个失败变成一真过、两显式跳过。`asset_inspect`
 
 ## Testing
 
-`node scripts/test-vrf-ensure.mjs` 在 win32 上八条断言全过（此前第一条就挂）。`test-asset-inspect.mjs` 与 `test-asset-check-refs.mjs` 打印 SKIP 并 exit 0。
+`node scripts/test-vrf-ensure.mjs` 在 win32 上八条断言全过。`test-asset-inspect.mjs` 与 `test-asset-check-refs.mjs` 打印 SKIP 并 exit 0。

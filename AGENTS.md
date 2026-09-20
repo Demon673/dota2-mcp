@@ -29,30 +29,12 @@ node dist/index.js    # Start the MCP server (over stdio)
 
 **Versioning**: only change `version` in `package.json`; everything else (the `getVersion()` fallback in `src/index.ts`, `README.md` and `README.zh.md`) is synced by `npm run sync-version`, which `build`/`prepack` run automatically.
 
-**Testing**: no lint/format/test framework — everything is plain-node smoke scripts (assert style):
+**Testing**: no lint/format/test framework — everything is plain-node smoke scripts (assert style) under `scripts/`. The set that must stay green is the `Offline smoke tests` step in `.github/workflows/release.yml`; each script's header states what it covers and what it needs.
 
-| Script | Type | Coverage |
-|------|------|------|
-| `scripts/test-relay.mjs` | offline | relay transport: init frame replay, liveness probes (pong keepalive / dead on missing pong / dead on zombie), probe-line filtering, GUI status broadcast. Fake VCon server + random port + injected short timeouts |
-| `scripts/test-daemon.mjs` | offline | daemon chain: spawn/handshake/token/multi-client/broadcast/idle exit/in-session respawn |
-| `scripts/test-mcp-offline.mjs` | offline | MCP stdio: tool list, contract-gating errors, dota_status doesn't throw, skill loading |
-| `scripts/test-fileops.mjs` | offline | the four FileOps: read/write/edit/delete round-trip + three out-of-bounds rejections |
-| `scripts/test-vrf-ensure.mjs` | offline | vrf_ensure: fake Release API + zip fixture, download/cache/sha256 tamper rejection |
-| `scripts/test-asset-inspect.mjs` | offline | asset_inspect: fake VRF CLI + five-type fixture, summary fields and raw truncation |
-| `scripts/test-asset-check-refs.mjs` | offline | asset_check_refs: temp asset-tree four-bucket assertions + cycle prevention |
-| `scripts/test-vfx-live.mjs` | live | vfx_preview: launch map → spawn particle (pid>0) → stop |
-| `scripts/drill-vfx-workflow.mjs` | drill | full real-usage chain: learn skill → write source → compile → inspect → check_refs → preview → diagnose → stop → iterate |
-| `scripts/test-mcp-live.mjs` | live | full vconsole contract chain: gating → dota_open_vconsole → ungate (resets the environment by killing vconsole2) |
-| `scripts/test-launch-phases.mjs` | live | real-map launch: stuck report on a stuck phase + following guidance to advance via dota_run_lua to GAME_IN_PROGRESS |
-| `scripts/test-crash-recovery.mjs` | live | crash recovery: kill Dota in the same MCP session → detect → restart → self-recover (the script starts and kills Dota itself) |
-| `scripts/test-multi-session.mjs` | live | multi-session shared daemon: A opens vconsole, B ungates at the same time |
-| `scripts/test-mcp-tools.mjs` | live | the 11 API/dump/console live smokes on the shared stdio helper (needs Dota + **vconsole already connected** — run test-mcp-live.mjs first to open the gate) |
-| `scripts/verify-phase-apis.mjs` | live | verify console API names over the 29002 protocol (one-off script, edit as needed) |
-
-Live scripts don't hardcode machine paths or project names: the Dota path uses `detectDotaPath()` auto-detection; the addon/map is inferred from the running daemon's handshake info (the addon/maps in hello-ok), overridable via `DOTA2_TEST_ADDON` / `DOTA2_TEST_MAP`; when inference fails they error and require an explicit value rather than silently using a default. Launch args vary by person/project/region (e.g. `-perfectworld`); test-crash-recovery can pass full args via `DOTA2_TEST_ARGS` when re-launching Dota. Shared handshake helper: `scripts/lib-ctrl.mjs`.
+Live scripts follow the portability rule under [Conventions](#conventions): the Dota path comes from `detectDotaPath()` auto-detection, the addon/map from the running daemon's handshake info (the addon/maps in hello-ok, overridable via `DOTA2_TEST_ADDON` / `DOTA2_TEST_MAP`), and test-crash-recovery passes full launch args via `DOTA2_TEST_ARGS` when re-launching Dota. Shared handshake helper: `scripts/lib-ctrl.mjs`.
 
 Offline one-liner: `npm run check && node scripts/test-relay.mjs && node scripts/test-daemon.mjs && node scripts/test-mcp-offline.mjs`
-Live prerequisites: Dota 2 running + `node dist/relay-main.js` to start the daemon (an MCP session attaches to an existing daemon).
+Live prerequisites: Dota 2 running + `node dist/relay-main.js` to start the daemon (an MCP session attaches to an existing daemon); `scripts/test-mcp-tools.mjs` additionally needs vconsole already connected — run test-mcp-live.mjs first to open the gate.
 
 ## Development–verification workflow
 
@@ -92,13 +74,13 @@ Optional advanced configuration:
 |------|--------|------|
 | `DOTA2_VCON_DOTA_PORT` | `29000` | Dota 2 VConsole2 port |
 | `DOTA2_VCON_GUI_PORT` | `29001` | Port forwarded to the vconsole2 GUI |
-| `DOTA2_VCON_CTRL_PORT` | `29002` | MCP control port (NDJSON: `HELLO`/`CMD`/`STREAM`/`SETFILTERS`/`SETMCPSUPPRESS`) |
+| `DOTA2_VCON_CTRL_PORT` | `29002` | MCP control port |
 | `DOTA2_VCON_AUTO_OPEN_VCONSOLE` | `1` | Auto-open vconsole2.exe when Dota readiness is detected (rising edge) and no vconsole2 process exists; `0` disables |
 
 ## Key findings
 
 - **VConsole2 protocol**: 12-byte frame header `Type(4B)+Version(2B=212)+Length(4B)+Handle(2B)` + payload (see "VConsole2 protocol" below)
-- **Dota 2 allows only 1 VCon client**: the relay takes over 29000, and the vconsole2 GUI coexists through the relay's 29001 port. **A measured side effect**: while the relay holds 29000, the engine treats the relay as the connected vconsole — the AssetBrowser vconsole button/shortcut is disabled (it doesn't launch a process). By default no manual open is needed (the relay auto-launches when it detects Dota readiness); manual path: run vconsole2.exe directly or call dota_open_vconsole. Once the window closes, 29000 is released and the button works again
+- **Dota 2 allows only 1 VCon client**: the relay takes over 29000, and the vconsole2 GUI coexists through the relay's 29001 port. **A measured side effect**: while the relay holds 29000, the engine treats the relay as the connected vconsole — the AssetBrowser vconsole button/shortcut is disabled (it doesn't launch a process). Manual path: run vconsole2.exe directly or call dota_open_vconsole. Once the window closes, 29000 is released and the button works again
 - **All APIs go through the console**: zero local JSON dependency — the engine version determines the API content
 - **Verified console commands**:
   - `script_help2` / `cl_script_help2` — Lua API (stub format)
@@ -151,7 +133,7 @@ src/tools/vcon-relay.ts  — VConRelay transparent proxy
 
 Dota 2 allows only one VConsole2 client on port `29000`. While vconsole2 is attached, the relay exclusively holds that connection (with no GUI it only probes, without occupying it), and exposes a second port `29001` so the official vconsole2 GUI can still connect transparently. MCP tools inject commands and read output through the control port `:29002`.
 
-**vconsole contract (gating)**: console-class tools require vconsole2 to be attached to `:29001` — if vconsole isn't open the relay doesn't connect to Dota ("no window = no connection = no tools", the state is physically true, so users won't mistake it for a bug). Tools report a clear error that distinguishes "Dota isn't running" from "vconsole just isn't open". The relay replays init frames (AINF/CHAN/CVRB/CFGV/ADON) to a late-attaching GUI; the connected state has a liveness probe (silently sends an `echo` probe, times out to declare dead, reconnects while the GUI is still there); and the daemon skips idle exit while the Dota process is running. See the [lifecycle note](.agents/notes/implemented/architecture/2026-07-22-vconsole-lifecycle.md) and [contract note](.agents/notes/implemented/feature/2026-07-22-vconsole-contract-and-phase-guidance.md) for the rationale and trade-offs.
+**vconsole contract (gating)**: console-class tools require vconsole2 to be attached to `:29001` — if vconsole isn't open the relay doesn't connect to Dota ("no window = no connection = no tools"). Tools report a clear error that distinguishes "Dota isn't running" from "vconsole just isn't open". The relay replays init frames (AINF/CHAN/CVRB/CFGV/ADON) to a late-attaching GUI; the connected state has a liveness probe (silently sends an `echo` probe, times out to declare dead, reconnects while the GUI is still there); and the daemon skips idle exit while the Dota process is running. See the [lifecycle note](.agents/notes/implemented/architecture/2026-07-22-vconsole-lifecycle.md) and [contract note](.agents/notes/implemented/feature/2026-07-22-vconsole-contract-and-phase-guidance.md) for the rationale and trade-offs.
 
 ### Isolation between MCP output and the vconsole2 GUI
 
@@ -171,17 +153,7 @@ This is a **conventional output-isolation feature**, not the real semantics of a
 
 ### Core modules
 
-| File | Description |
-|------|------|
-| `src/index.ts` | MCP server entry point (thin client). Registers all tools; `createRelay()` probes/launches the daemon and attaches as a `RelayClient`, falling back to a local `VConRelay` on failure |
-| `src/relay-main.ts` | relay daemon entry point (detached). Holds Dota 2 `:29000` exclusively while vconsole is attached (readiness probe only when no GUI), listens on `:29001`(GUI)/`:29002`(control), idles out after 5 minutes (not while Dota is running) |
-| `src/relay-client.ts` | The `RelayClient` class. A thin client implementing a subset of the `VConRelay` public interface, talking to the daemon over `:29002`; auto-reconnects on disconnect and resends buffered commands |
-| `src/daemon-utils.ts` | Daemon coordination: atomic lock, PID, token (0600), spawn/wait. State directory `os.tmpdir()/dota2-mcp` |
-| `src/tools/vcon-relay.ts` | The `VConRelay` class. Transparent proxy between the vconsole2 GUI (`:29001`) and Dota 2 (`:29000`) (gating: no GUI, no connection); broadcasts `status`/`prnt`/`adon`/`chan`/`suppress` to each thin client. Auto-reconnects to Dota 2 after a disconnect while a GUI is present, readiness probe when there's no GUI |
-| `src/tools/vcon-bridge.ts` | The `VConClient` class. Low-level VConsole2 TCP protocol implementation: 12-byte frame-header parsing, dispatch of `PRNT`/`AINF`/`CHAN`/`ADON`/`CVRB`/`CFGV`, `CMND` command sending |
-| `src/tools/console-bridge.ts` | Auto-detects the Dota 2 path (Steam appid 570 + WSL mount mapping), resolves Dota tool paths by directory probing, and spawns vconsole2 |
-| `src/tools/proxy-intercept.ts` | Standalone protocol-analysis tool. Run `npx tsx src/tools/proxy-intercept.ts direct` or `proxy` to capture or MITM-analyze VCon traffic |
-| `skills/<name>/SKILL.md` | Built-in skill directory. The `dota2_skill` tool reads a SKILL.md with frontmatter (name/description) from `skills/` and returns its content |
+`src/index.ts` is the thin client and `src/relay-main.ts` the detached daemon; `src/tools/` holds the console and asset modules behind them — the relay proxy and VCon bridge, Dota path detection, the VRF-backed asset tools, and the standalone `proxy-intercept.ts` protocol analyzer. Each file's header states its own role.
 
 ### VConsole2 protocol
 
@@ -194,7 +166,7 @@ Relay/Client implements the VConsole2 binary frame format, verified against Dota
 Server → client message types: `AINF`, `ADON`, `CHAN`, `CVRB`, `PRNT`, `CFGV`.
 Client → server command type: `CMND` (null-terminated ASCII).
 
-### The 31 currently implemented MCP tools
+### MCP tools
 
 **Game control**
 | Tool | Console command | Description |
@@ -211,7 +183,7 @@ Client → server command type: `CMND` (null-terminated ASCII).
 | `console_send` | arbitrary | Send a command |
 | `console_output` | VCon stream | Read output, supports `level` (0=all,1=warn+,3=error) and `filter` |
 | `console_channels` | VCon `CHAN` | List VCon channels |
-| `console_find` | `find <kw>` | Search all 5248 console commands |
+| `console_find` | `find <kw>` | Search console commands |
 | `console_help` | `help <cmd>` | View a single command's help |
 | `console_gui_filter` | relay-internal | Toggle isolation of MCP output from the GUI |
 
@@ -277,13 +249,13 @@ Client → server command type: `CMND` (null-terminated ASCII).
 - **Tool descriptions**: each tool clearly states its console command, so the AI can discover them on its own via `console_find`
 - **TSTL/SolidJS first**: edit `.ts`/`.tsx` source files, never the generated `.lua`/`.js`
 - **TODO marker semantics**: `FIXME` = release blocker; `TODO` = fix soon; `XXX` = fix someday. Choose by urgency, don't mix them
-- **Read `docs/defensive-patterns.md` before writing lifecycle/concurrency/subprocess/teardown code** (7 bug-class rules)
+- **Read `docs/defensive-patterns.md` before writing lifecycle/concurrency/subprocess/teardown code**
 - **Document ownership**: `README.md` is the public-facing document (for end users / AI client configurers) and must not contain implementation detail, code hierarchy, or internal protocol detail; that belongs in `AGENTS.md` or code comments. For public info, prefer updating `AGENTS.md` over duplicating it in `CLAUDE.md`
 
 ## Known issues
 
 - The daemon occupies ports `29001` (GUI) and `29002` (control); multiple MCP sessions share one daemon through thin clients. The single-instance limit applies only when the daemon fails to launch and it degrades to a local relay
-- **vconsole usage path**: vconsole2's connection target is fixed at `127.0.0.1:29001` (the relay's GUI port). By default no manual open is needed — the relay auto-launches when it detects Dota readiness (`DOTA2_VCON_AUTO_OPEN_VCONSOLE=0` disables). The AssetBrowser vconsole button is disabled by the engine only while the relay holds 29000 (i.e. while vconsole is attached); once the window closes, 29000 is released and the button works again. A late-attaching window receives an init frame replay and works as soon as it opens
+- **vconsole usage path**: vconsole2's connection target is fixed at `127.0.0.1:29001` (the relay's GUI port); the [connection model](#daemon-architecture-multi-instance-coexistence) covers the auto-open trigger and its env switch. The AssetBrowser vconsole button is disabled by the engine only while the relay holds 29000; once the window closes, 29000 is released and the button works again. A late-attaching window receives an init frame replay and works as soon as it opens
 - Dota 2 must be launched with the `-vconsole` flag (or have the vconsole2 listener enabled) for the relay to connect to `:29000`
 - **WSL environment**: tool directories are probed by existence (a win64 hit means a Windows install), argument paths are auto-converted to Windows format, and the VRF CLI needs the invariant globalization env. When a leftover daemon causes port conflicts, kill the node/relay processes — the next session's startup self-heals stale lock/pid state (`livePid`); don't delete `relay.token` while the daemon is alive
 - Many API dump tools need the map to be loaded; calling them too early may return empty results
@@ -298,7 +270,6 @@ Client → server command type: `CMND` (null-terminated ASCII).
 | VConsoleLib.python | https://github.com/uilton-oliveira/VConsoleLib.python |
 | luaconsole2 (Lua) | https://github.com/eepycats/luaconsole2 |
 | Dota 2 path | Auto-detected via Steam appid `570` (referred to as `{dota2Path}` in docs; never an absolute path) |
-| VCon ports | engine listens on 29000, relay listens on 29001 (GUI), 29002 (MCP control) |
 
 ## Agent skills
 
@@ -308,7 +279,7 @@ Issues are tracked in GitHub Issues (`gh` CLI). See `docs/agents/issue-tracker.m
 
 ### Triage labels
 
-Use the default five labels: needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix. See `docs/agents/triage-labels.md`.
+Use the five canonical triage roles; the label strings live in `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
@@ -320,7 +291,7 @@ Document hierarchy, tutorial/reference classification, writing rules, and the sl
 
 ### Bilingual pairing
 
-`.agents/notes/**` and `docs/**` are the English-canonical + Chinese-counterpart + `.i18n.yaml` trio (excluding `docs/AGENTS.md`, `docs/i18n/terminology.md`, `.agents/notes/archived/**`); the contract is in `docs/i18n/README.md`, translation rules in `docs/i18n/translation-rules.md`, terminology in `docs/i18n/terminology.md`. Editing the English side requires updating the Chinese counterpart in the same commit and re-recording with `npm run verify-pairs -- --write <file>`; the `npm run verify-pairs` gate going red means a pair is out of sync. Root `README.md`/`CHANGELOG.md` are in-scope trios; root `AGENTS.md`/`CLAUDE.md` stay English-only.
+Editing the English side of a paired document requires updating the Chinese counterpart in the same commit and re-recording it with `npm run verify-pairs -- --write <file>`; the gate going red means a pair is out of sync. Scope and exclusions: `docs/i18n/README.md`; translation rules: `docs/i18n/translation-rules.md`; terminology: `docs/i18n/terminology.md`.
 
 ### Two kinds of skills (don't conflate them)
 
@@ -341,9 +312,7 @@ Document hierarchy, tutorial/reference classification, writing rules, and the sl
 
 ## TODO — Roadmap
 
-- [x] **FileOps** — read/write KV/Lua/TS/JS/CSS/XML source files (`file_read/write/edit/delete` landed)
 - [ ] **BuildTools** — npm/tstl/rollup build integration + scaffolding generation
-- [x] **AssetInspector** — VRF CLI subprocess calls to parse .vmdl_c/.vmap_c/.vpcf_c etc. (`asset_inspect` landed)
-- [ ] **dota_map_error** — tstl 源行静态映射工具（proposal: `.agents/notes/proposed/feature/2026-08-05-dota-map-error-tool.md`）
+- [ ] **dota_map_error** — static tstl source-line mapping tool (proposal: `.agents/notes/proposed/feature/2026-08-05-dota-map-error-tool.md`)
 - [ ] Verify the actual output of `script_find` / `script_dump_all` while the game is running
 - [ ] Test dota_launch_game across various addon/map combinations

@@ -12,7 +12,7 @@ Agents needed built-in format knowledge for the vfx/model toolchain (map #9): ho
 
 Two built-in skills ship under `skills/`: `dota2-vfx` (particles: KV3 structure verified against a real basic-template addon, C_OP_*/C_INIT_* vocabulary, pipeline mental model, SOP, tool map, error table, minimal template) and `dota2-model` (vmdl/vmat/vtex, same shape; model validation is compile + inspect + refs + load errors — no preview tool by design, map #7). Shared pipeline/SOP sections are duplicated per skill by the #9 resolution (self-containment over DRY). The full field-level reference lives in `research/vpcf-field-reference/`, kept out of the npm package (see the [slim-skills-payload note](../simplification/2026-08-25-slim-skills-payload.md)).
 
-`dota2_skill` gains `section` (return one `##` section) and `outline` (list headings) parameters; the full body remains the default for small skills.
+`dota2_skill` gains `section` (return one `##` section), `outline` (list headings) and `data` (return one file under `skills/<name>/data/` verbatim; `data='list'` lists them) parameters; the full body remains the default for small skills. `files[]` ships `skills/**/*`, so a skill's data files ride inside the npm package — that is how `dota2-vfx` delivers the official particle-corpus statistics (`vpcf-stats.json`, `vpcf-official-findings.md`) to an agent working outside this repo; the `dota2_skill` row of the tool table in `AGENTS.md` is the registry entry for the surface.
 
 ## Alternatives considered
 

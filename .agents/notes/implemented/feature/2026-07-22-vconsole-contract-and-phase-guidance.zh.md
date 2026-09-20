@@ -14,7 +14,7 @@ Status: implemented
 
 ## Decision
 
-**vconsole 显式契约（核心）**：17 个控制台工具入口统一走 `requireConsole()` 两段检查 —— Dota 连接 → vconsole 已接入 `:29001`；`dota_status` 不抛异常、改为返回当前状态 + 下一步指引，其余 16 个显式报错并给出打开路径。四个工具豁免：`dota_compile_asset`（纯本地子进程）、`dota2_skill`（读本地文档）、`console_gui_filter`（只改转发过滤）、`dota_open_vconsole`（契约的解药）。
+**vconsole 显式契约（核心）**：控制台类工具入口统一走 `requireConsole()` 两段检查 —— Dota 连接 → vconsole 已接入 `:29001`；控制台类工具显式报错并给打开路径，`dota_status` 则不抛异常、返回当前状态 + 下一步指引。检查之外还有 `dota_compile_asset`（纯本地子进程）、`dota2_skill`（读本地文档）、`console_gui_filter`（只改转发过滤）、`dota_open_vconsole`（契约的解药），以及离线的资产与 FileOps 工具。
 
 **`dota_open_vconsole`**：spawn `{dotaPath}/game/bin/win64/vconsole2.exe`，等待 ≤10s 直到 `guiConnected`，显式返回成功/失败。无看门狗、无自动拉起 —— 只在被要求时调用。
 

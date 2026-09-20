@@ -11,7 +11,7 @@
 - **`docs/i18n/terminology.md`** —— 本仓库的领域术语表（英文 ↔ 中文）。命名领域概念前先加载它。
 - **`CONTEXT.md`** —— 仓库根目录（若存在），补充术语表。若不存在，静默继续。
 
-如果这些文件里有任何一个不存在，**静默继续**。不要标注它们的缺失；不要主动提议创建。本仓库的决策记录归属 `.agents/notes/`，不在 `docs/adr/`；术语归属 `docs/i18n/terminology.md`，不在 `CONTEXT.md`。`/domain-modeling` skill（经 `/grill-with-docs` 和 `/improve-codebase-architecture` 触达）惰性地把术语与决策记录进这两个归属。
+如果这些文件里有任何一个不存在，**静默继续**。本仓库的决策记录归属 `.agents/notes/`，不在 `docs/adr/`；术语归属 `docs/i18n/terminology.md`，不在 `CONTEXT.md`。`/domain-modeling` skill（经 `/grill-with-docs` 和 `/improve-codebase-architecture` 触达）惰性地把术语与决策记录进这两个归属。
 
 ## 文件结构
 
