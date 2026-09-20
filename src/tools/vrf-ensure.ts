@@ -17,13 +17,14 @@ export interface VrfInfo {
 }
 
 export interface VrfOptions {
-  version?: string;   // pin 版本覆盖（默认 env VRF_VERSION 或 "20.0"）
+  version?: string;   // pin 版本覆盖（默认 env VRF_VERSION 或 DEFAULT_VERSION）
   cacheDir?: string;  // 缓存目录覆盖（默认 env VRF_CACHE_DIR 或 os.tmpdir()/dota2-mcp/vrf）
   apiBase?: string;   // 测试注入（默认 https://api.github.com）
 }
 
 const REPO = "ValveResourceFormat/ValveResourceFormat";
-const DEFAULT_VERSION = "20.0";
+/** 版本 pin，唯一真源：scripts/check-vrf-version.mjs 只读这一行并与上游最新 release 比对。 */
+export const DEFAULT_VERSION = "20.0";
 const EXE_BASE = process.platform === "win32" ? "Source2Viewer-CLI.exe" : "Source2Viewer-CLI";
 
 /** 本机平台 → VRF release 资产名（cli-{os}-{arch}.zip）。 */

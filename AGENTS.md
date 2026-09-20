@@ -19,6 +19,7 @@ npm run check         # Type check + version-consistency check
 npm run sync-version  # Sync version numbers across the repo from package.json (--check validates without modifying)
 npm run verify-pairs  # Bilingual pairing gate (--write re-records pairs)
 npm run verify-doc-budgets  # Doc word-budget gate (manifest ceilings)
+npm run check-vrf-version   # Report whether the pinned VRF release is still the latest (--write moves the pin)
 npm run install-lefthook    # Register pre-commit jobs
 npm run dev           # tsc --watch incremental compilation
 npm run bundle        # esbuild → dist/bundle.cjs (pre-step before packaging)
