@@ -116,8 +116,6 @@ export interface VConClientEvents {
   ainf: (msg: AinfMessage) => void;
   chan: (channels: ChannelInfo[]) => void;
   adon: (msg: AdonMessage) => void;
-  cvrb: (data: Buffer) => void;
-  cfgv: () => void;
   rawFrame: (type: string, rawData: Buffer) => void;  // 完整原始帧（header+payload）供代理转发
   error: (err: Error) => void;
   close: () => void;
@@ -295,10 +293,6 @@ export class VConClient extends EventEmitter {
     this.socket = null;
   }
 
-  get connected(): boolean {
-    return this.socket !== null && !this.socket.destroyed;
-  }
-
   // ---- internal ----
 
   private _processFrames(): void {
@@ -339,12 +333,6 @@ export class VConClient extends EventEmitter {
         break;
       case "ADON":
         this.emit("adon", parseAdonPayload(payload));
-        break;
-      case "CVRB":
-        this.emit("cvrb", payload);
-        break;
-      case "CFGV":
-        this.emit("cfgv");
         break;
     }
   }

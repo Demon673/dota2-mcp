@@ -1,4 +1,4 @@
-# Agent Note: vconsole relay connection lifecycle (constant hold + liveness probes + init-frame replay + idle guard)
+# Agent Note: vconsole relay connection lifecycle (GUI-gated connect + liveness probes + init-frame replay + idle guard)
 
 English | [中文](2026-07-22-vconsole-lifecycle.zh.md)
 
@@ -15,7 +15,7 @@ The relay is the transparent proxy between Dota 2 `:29000`, the vconsole2 GUI `:
 
 ## Decision
 
-The relay **holds Dota 2 `:29000` constantly**, reconnecting every 2s on disconnect; no lease, no reference counting, no on-demand connection. Four mechanisms cover the lifecycle (all in `src/tools/vcon-relay.ts`, effective in both daemon and embedded modes):
+The relay connects to Dota 2 `:29000` only while the vconsole2 GUI is attached to `:29001`. With no GUI it holds no long-lived connection — it probes engine readiness once per second (connect and drop, without keeping the socket). A GUI attaching triggers the real connect, which then reconnects every 2s on disconnect for as long as the GUI stays; the GUI closing drops `:29000` immediately, which returns the AssetBrowser's vconsole button to the engine. Four mechanisms cover the lifecycle (all in `src/tools/vcon-relay.ts`, effective in both daemon and embedded modes):
 
 - **Init-frame replay**: cache the raw `AINF/CHAN/CVRB/CFGV/ADON` frames per Dota connection in arrival order (cleared and rebuilt on each new connection); when a GUI connects to `:29001`, write the cached frames first, then take over live forwarding. On a Dota reconnect the new init sequence flows naturally and the attached GUI revives.
 - **Liveness probe**: use the last `rawFrame` timestamp as `lastDataAt`. Periodic check (default 10s): silent >15s → send `echo __mcp_ping__` via `dotaClient.sendCommand` (no `ai_disabled` wrapping); no data within 20s after the probe → `close()` and take the existing reconnect path. Zombie detection is unified into the same probe path: a zombie accepts the TCP handshake but never sends data, so it goes silent → probe → no pong → death verdict (same path as a hung connection). The probe echo line `__mcp_ping__` is dropped by exact match in both the prnt handler and rawPrntEditor: it never enters the MCP buffer, never broadcasts to thin clients, never forwards to the GUI.
@@ -27,7 +27,7 @@ The timeouts are optional `VConRelay` constructor injection (`{probeIntervalMs, 
 ## Alternatives considered
 
 - **TCP keepalive** — lost: the liveness probe covers crash-hang and half-open connections without kernel tuning, reuses the relay's own reconnect semantics, and is assertable with injected timeouts offline.
-- **29000 lease / reference counting / on-demand connect** — lost: on-demand connect drops passive output during disconnects and complicates the state machine; constant hold + death detection is simpler, and "no window = no connection = no tools" stays physically true.
+- **29000 lease / reference counting** — lost: a single GUI attachment is the only connect trigger, so there is nothing to count, and death detection already lives in the liveness probe. "No window = no connection = no tools" stays physically true.
 - **vconsole watchdog / auto-open / close counting** — lost (see the feature note's [Alternatives](../feature/2026-07-22-vconsole-contract-and-phase-guidance.md#alternatives-considered)): it fights human intent and produces haunted UX; the explicit principle wins.
 
 ## Consequences

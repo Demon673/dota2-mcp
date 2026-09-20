@@ -34,7 +34,7 @@ Status: implemented
 ## Consequences
 
 - **买到**：「没窗口 = 没连接 = 没工具」的状态物理为真，使用者不会误判为 BUG；agent 拿到可执行的下一步；多 agent 场景下任一 agent 开 vconsole → `guiConnected` 广播 → 所有 agent 同步解除限制（`test-multi-session.mjs` 覆盖）。
-- **付出**：控制台工具多了一个硬前提（vconsole 窗口必须开着），要求人类保持窗口在场 —— 这是刻意的契约，不是技术必需（29000 本身不需要 GUI）。放弃了「无头用控制台」的隐式便利。
+- **付出**：控制台工具多了一个硬前提（vconsole 窗口必须开着），要求人类保持窗口在场 —— 这是刻意的契约，不是引擎约束：Dota 的 29000 监听在无窗口时照样接受连接（relay 的就绪探测做的正是这件事），拒绝连接的是 relay 自己的连接门（见[生命周期笔记](../architecture/2026-07-22-vconsole-lifecycle.md)）加这一层工具检查。放弃了「无头用控制台」的隐式便利。
 
 ## Testing
 

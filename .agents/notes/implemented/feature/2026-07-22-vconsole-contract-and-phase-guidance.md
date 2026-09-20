@@ -34,7 +34,7 @@ The full phase table and advance methods live in `skills/dota2-game-phases/SKILL
 ## Consequences
 
 - **Bought**: "no window = no connection = no tools" is physically true, so the user never mistakes it for a bug; the agent gets an actionable next step; in multi-agent use, any agent opening the vconsole broadcasts `guiConnected` and unblocks every agent in lockstep (covered by `test-multi-session.mjs`).
-- **Cost**: console tools gain one hard prerequisite (the vconsole window must be open), requiring the human to keep the window present — a deliberate contract, not a technical necessity (29000 itself needs no GUI). The implicit convenience of headless console use is given up.
+- **Cost**: console tools gain one hard prerequisite (the vconsole window must be open), requiring the human to keep the window present — a deliberate contract, not an engine constraint: Dota's 29000 listener accepts a connection with no window open (that is exactly what the relay's readiness probe does), and what refuses without one is the relay's own connect gate (see the [lifecycle note](../architecture/2026-07-22-vconsole-lifecycle.md)) plus this tool-layer check. The implicit convenience of headless console use is given up.
 
 ## Testing
 

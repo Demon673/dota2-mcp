@@ -12,7 +12,6 @@ export interface VrfInfo {
   executable: string | null;
   version: string | null;
   cached: boolean;
-  downloadedBytes?: number;
   sha256Ok?: boolean;
   message: string;
 }
@@ -122,5 +121,5 @@ export async function ensureVrf(opts: VrfOptions = {}): Promise<VrfInfo> {
     return { ok: false, executable: null, version, cached: false, message: `VRF extraction failed: ${(e as Error).message}` };
   }
 
-  return { ok: true, executable: exe, version, cached: false, downloadedBytes: data.length, sha256Ok, message: `Source2Viewer-CLI v${version} installed at ${exe} (sha256 ${sha256Ok ? "verified" : "unverified — release digest missing"})` };
+  return { ok: true, executable: exe, version, cached: false, sha256Ok, message: `Source2Viewer-CLI v${version} installed at ${exe} (sha256 ${sha256Ok ? "verified" : "unverified — release digest missing"})` };
 }

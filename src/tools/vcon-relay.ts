@@ -21,7 +21,7 @@ import * as net from "net";
 import * as fs from "fs";
 import * as path from "path";
 import { EventEmitter } from "events";
-import { VConClient, PrntMessage, AinfMessage } from "./vcon-bridge.js";
+import { VConClient, PrntMessage } from "./vcon-bridge.js";
 import { pidPath } from "../daemon-utils.js";
 import { isDotaProcessRunning, isProcessRunning, spawnVconsole } from "./console-bridge.js";
 

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/feature/2026-07-22-vconsole-contract-and-phase-guidance.md
-2026-07-22-vconsole-contract-and-phase-guidance.md: cace3969b01dac9676dda3e2d3a0f85667e100ac
-2026-07-22-vconsole-contract-and-phase-guidance.zh.md: a903265a43659a170a1e136277eaaf65438c0163
+2026-07-22-vconsole-contract-and-phase-guidance.md: 43b5531356e82c70cfeb3b13311983bbebfbf1e5
+2026-07-22-vconsole-contract-and-phase-guidance.zh.md: f55576fb84b4f3c47a8b4a12d599104f30da5ed3
