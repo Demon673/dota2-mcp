@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/process/2026-08-29-root-docs-pairing-and-doc-gates.md
-2026-08-29-root-docs-pairing-and-doc-gates.md: c57d1a7f47ba7f56cf39863cbea7651fec020470
-2026-08-29-root-docs-pairing-and-doc-gates.zh.md: 9a4677b90f2acad9341317a09b6b1f7f4f62df7f
+2026-08-29-root-docs-pairing-and-doc-gates.md: 5f9d97ad6a2644c2f206835095efb1362850a1df
+2026-08-29-root-docs-pairing-and-doc-gates.zh.md: 3547b0e527167bb5d50ebd32f45ba346997a163b

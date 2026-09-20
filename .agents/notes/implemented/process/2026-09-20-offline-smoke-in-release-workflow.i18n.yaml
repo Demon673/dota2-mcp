@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/process/2026-09-20-offline-smoke-in-release-workflow.md
+2026-09-20-offline-smoke-in-release-workflow.md: 97b6b8f7454842824684d3286e1f5e7d089c1a76
+2026-09-20-offline-smoke-in-release-workflow.zh.md: 43abe007eeafe0812562e7ce05879140a5ee6307

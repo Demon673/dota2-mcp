@@ -12,7 +12,7 @@ Status: implemented
 
 根 `README.md`/`CHANGELOG.md` 是范围内的三件套：英文 `.md` + `.zh.md` + `.i18n.yaml`，由 `verify-translation-pairing.mjs` 发现并校验（isScopeFile + discoverCorpus 包含它们）。`sync-version` 英文标记在 `README.md`、中文标记在 `README.zh.md`；`package.json` files[] 两者都发布。契约的范围段写明它们；单语言的只剩根 `AGENTS.md`/`CLAUDE.md`、`docs/AGENTS.md`、`skills/**`、术语表与归档笔记。
 
-提交前检查点：`lefthook.yml` 跑三个 job——翻译配对（对暂存的 `*.md`/`*.i18n.yaml` 做 scoped 检查；检查跳过配对语料之外的文件，例如单语言的 AGENTS.md）、文档预算（AGENTS.md 上限 4000 词，经 `verify-doc-budgets.mjs` + `scripts/doc-budgets.manifest.json`）、暂存空白检查。`scripts/change-scope.mjs` 供 pre-push-checks 与 code-review 读取已提交/工作区范围。激活方式：`npm run install-lefthook`（lefthook 本身不是包依赖，安装器的报错提示 `npm install --no-save lefthook`）。
+提交前检查点：`lefthook.yml` 跑三个 job——翻译配对（对暂存的 `*.md`/`*.i18n.yaml` 做 scoped 检查；检查跳过配对语料之外的文件，例如单语言的 AGENTS.md）、文档预算（AGENTS.md 上限存于 `scripts/doc-budgets.manifest.json`，经 `verify-doc-budgets.mjs` 读取）、暂存空白检查。`scripts/change-scope.mjs` 供 pre-push-checks 与 code-review 读取已提交/工作区范围。激活方式：`npm run install-lefthook`（lefthook 本身不是包依赖，安装器的报错提示 `npm install --no-save lefthook`）。
 
 ## Alternatives considered
 
@@ -22,4 +22,4 @@ Status: implemented
 
 ## Consequences
 
-每次配对文档编辑都必须同步 counterpart 并重录，否则提交前 scoped 检查（以及全库门禁）转红。新克隆环境执行一次 `npm install --no-save lefthook && npm run install-lefthook`。AGENTS.md 载有纪律四行与 4000 词预算上限。
+每次配对文档编辑都必须同步 counterpart 并重录，否则提交前 scoped 检查（以及全库门禁）转红。新克隆环境执行一次 `npm install --no-save lefthook && npm run install-lefthook`。AGENTS.md 载有纪律四行，词数上限记在 `scripts/doc-budgets.manifest.json`。
