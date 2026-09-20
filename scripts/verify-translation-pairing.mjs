@@ -168,8 +168,13 @@ try {
 function repositoryFileExists(file) {
   return existsSync(join(root, file))
 }
+// The pairing record and its hashes are defined on the canonical LF text, while the working
+// tree carries platform-native endings (.gitattributes `text=auto` + core.autocrlf). Normalize
+// here so a Windows checkout compares what the repository actually stores, and so the record
+// parser never sees a trailing CR.
 function readRepositoryFile(file) {
-  return readFileSync(join(root, file))
+  const text = readFileSync(join(root, file), 'utf8').replace(/\r\n/g, '\n')
+  return Buffer.from(text, 'utf8')
 }
 
 // Enumerate the scope: the whole corpus, or exactly the named pairs' files.
@@ -213,7 +218,7 @@ if (request.mode === 'write') {
       sourceHash: gitBlobHash(readRepositoryFile(source)),
       zhHash: gitBlobHash(readRepositoryFile(paths.zh)),
     })
-    if (existsSync(join(root, paths.meta)) && readFileSync(join(root, paths.meta), 'utf8') === record) continue
+    if (repositoryFileExists(paths.meta) && readRepositoryFile(paths.meta).toString('utf8') === record) continue
     writeFileSync(join(root, paths.meta), record)
     console.log(`verify-translation-pairing: recorded ${paths.meta}`)
     written++

@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/bug-fix/2026-09-21-pairing-gate-line-endings.md
+2026-09-21-pairing-gate-line-endings.md: 03b3500f5bf885b329d7145b4e8e75a94c3eaefe
+2026-09-21-pairing-gate-line-endings.zh.md: d10b4d82ba3782ee13f2ed104106f0ad3f0d88a1
