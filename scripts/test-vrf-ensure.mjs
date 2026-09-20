@@ -14,12 +14,19 @@ function assert(cond, msg) {
 }
 
 // 1. 生成假 CLI zip（含一个可执行脚本）与篡改 zip
+// 两个平台的可执行名都放进去：win32 的 EXE_BASE 带 .exe（vrf-ensure.ts:27）
+const CLI_FILE_NAMES = ["Source2Viewer-CLI", "Source2Viewer-CLI.exe"];
 const goodZip = new AdmZip();
-goodZip.addFile("Source2Viewer-CLI", Buffer.from("#!/bin/sh\\necho fake-vrf\\n"));
+for (const name of CLI_FILE_NAMES) goodZip.addFile(name, Buffer.from("#!/bin/sh\\necho fake-vrf\\n"));
 const goodBuf = goodZip.toBuffer();
 const badZip = new AdmZip();
-badZip.addFile("Source2Viewer-CLI", Buffer.from("#!/bin/sh\\necho tampered\\n"));
+for (const name of CLI_FILE_NAMES) badZip.addFile(name, Buffer.from("#!/bin/sh\\necho tampered\\n"));
 const badBuf = badZip.toBuffer();
+
+// 资产名由 platformAssetName() 按本机平台算（cli-{windows,linux,macos}-{x64,arm64,arm}.zip）；
+// fixture 把九个都摆上，测试就不再绑死在某个平台上。
+const ASSET_NAMES = ["windows", "linux", "macos"].flatMap((os) =>
+  ["x64", "arm64", "arm"].map((arch) => `cli-${os}-${arch}.zip`));
 const goodSha = createHash("sha256").update(goodBuf).digest("hex");
 
 // 2. fake Release API server
@@ -29,24 +36,24 @@ const server = createServer((req, res) => {
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify({
       tag_name: "9.9.9",
-      assets: [{
-        name: "cli-linux-x64.zip",
+      assets: ASSET_NAMES.map((name) => ({
+        name,
         browser_download_url: "http://127.0.0.1:" + PORT + "/good.zip",
         size: goodBuf.length,
         digest: "sha256:" + goodSha,
-      }],
+      })),
     }));
   } else if (url.includes("/releases/tags/8.8.8")) {
     // 篡改 zip：digest 对不上
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify({
       tag_name: "8.8.8",
-      assets: [{
-        name: "cli-linux-x64.zip",
+      assets: ASSET_NAMES.map((name) => ({
+        name,
         browser_download_url: "http://127.0.0.1:" + PORT + "/bad.zip",
         size: badBuf.length,
         digest: "sha256:" + goodSha,
-      }],
+      })),
     }));
   } else if (url.includes("/releases/tags/7.7.7")) {
     // 无本平台资产

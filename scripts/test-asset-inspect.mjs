@@ -5,6 +5,13 @@ import { mkdtempSync, writeFileSync, chmodSync, rmSync, mkdirSync } from "node:f
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+// 假 VRF CLI 在 Windows 上执行不了：无扩展名脚本报 ENOENT、伪装 .exe 不是合法 PE、
+// .cmd/.bat 需 shell。本冒烟因此仅覆盖 POSIX（EXE_BASE 见 vrf-ensure.ts:27）。
+if (process.platform === "win32") {
+  console.log("[test] SKIP: 假 VRF CLI 在 Windows 上不可执行，本冒烟仅覆盖 POSIX");
+  process.exit(0);
+}
+
 // fake VRF CLI：Node 脚本，按 -i 参数扩展名选择 fixture；vtex 写 PNG 到 -o
 const vpcfFixture = `
 _class = "CParticleSystemDefinition"
