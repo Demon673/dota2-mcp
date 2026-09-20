@@ -45,13 +45,13 @@ A fully superseded `implemented/` Agent Note may be consolidated into the curren
 
 Archive an `implemented/` Agent Note when the shipped decision is complete and its rationale is unlikely to guide future work. Keep it active when its alternatives, ownership boundary, negative guarantee, durable or wire semantics, security rule, or reintroduction condition remains useful. Never archive a `proposed/` note: reject an obsolete proposal. Keep a `rejected/` note only while it prevents a plausible mistake; otherwise delete it.
 
-The archive path is `archived/{class}/yyyy-mm-dd-topic-title.md`; `implemented` is deliberately absent because only implemented notes can enter it. An archival change moves the file, keeps `Status: implemented`, and inserts `Archived: YYYY-MM-DD` immediately below that status. These are the only permitted content changes during archival.
+The archive path is `archived/{class}/yyyy-mm-dd-topic-title.md`; `implemented` is deliberately absent because only implemented notes can enter it. An archival change moves the file, keeps `Status: implemented`, and inserts `Archived: YYYY-MM-DD` immediately below that status. An archived note is single-language: the same change drops the language switcher line and the `foo.zh.md` / `foo.i18n.yaml` siblings, since `archived/**` sits outside the pairing corpus. Those are the only permitted content changes, and `scripts/verify-archived-agent-notes.mjs` checks the header block they produce.
 
-Once archived, a note is permanently frozen. Do not edit, translate, reformat, update, move, or delete it, and do not treat it as authority for current behavior. Active prose may link into an archived note when it intentionally cites history. This repo has no archive verifier script: the freeze is a convention enforced by the global archive-agent-notes skill and review.
+Once archived, a note is permanently frozen. Do not edit, translate, reformat, update, move, or delete it, and do not treat it as authority for current behavior. Active prose may link into an archived note when it intentionally cites history. `node scripts/verify-archived-agent-notes.mjs` checks the path shape, the header block, single-language status, and that no committed note is edited, moved, or deleted; the `lefthook.yml` pre-commit job runs it before every commit. What the gate cannot see — a rewritten body under an unchanged header — stays a review convention enforced by the global archive-agent-notes skill.
 
 ## The file format
 
-Every active Agent Note follows one in-file format (a convention, with no verifier script; the global doc-standards and archive-agent-notes skills enforce it).
+Every active Agent Note follows one in-file format (a review convention — the archive gate checks only an archived note's header block, not its body; the global doc-standards and archive-agent-notes skills enforce the rest).
 
 ### The header block
 

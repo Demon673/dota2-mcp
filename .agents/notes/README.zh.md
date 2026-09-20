@@ -47,15 +47,15 @@
 
 当已落地决策完整、其理由不太可能再指导未来工作时，归档一条 `implemented/` Agent Note。当它的备选、所有权边界、负面保证、持久/线上语义、安全规则或再引入条件仍然有用时保持活跃。永不归档 `proposed/` note：否决一个过时提案。`rejected/` note 只在能阻止一个看似合理错误时保留；否则删除。
 
-归档路径是 `archived/{class}/yyyy-mm-dd-topic-title.md`；`implemented` 刻意缺席，因为只有 implemented note 能进入。归档改动 = 移动文件 + 保留 `Status: implemented` + 紧接该 status 插入 `Archived: YYYY-MM-DD`。这是归档期间唯一允许的内容改动。
+归档路径是 `archived/{class}/yyyy-mm-dd-topic-title.md`；`implemented` 刻意缺席，因为只有 implemented note 能进入。归档改动 = 移动文件 + 保留 `Status: implemented` + 紧接该 status 插入 `Archived: YYYY-MM-DD`。归档 note 是单语言的：同一改动里删除语言切换行与 `foo.zh.md` / `foo.i18n.yaml` 两个兄弟文件，因为 `archived/**` 不在配对语料范围内。这些是归档期间唯一允许的内容改动，`scripts/verify-archived-agent-notes.mjs` 校验它们产生的头部块。
 
-一旦归档，note 永久冻结。不要编辑、翻译、改写、更新、移动或删除它，也不要把它当作当前行为的权威。活跃 prose 可以在有意引用历史时链入归档 note。本仓库没有归档校验脚本：冻结是约定，靠全局 archive-agent-notes skill 与 review 执行。
+一旦归档，note 永久冻结。不要编辑、翻译、改写、更新、移动或删除它，也不要把它当作当前行为的权威。活跃 prose 可以在有意引用历史时链入归档 note。`node scripts/verify-archived-agent-notes.mjs` 校验路径形状、头部块、单语言状态，以及已提交的 note 未被编辑、移动或删除；`lefthook.yml` 的 pre-commit job 在每次提交前运行它。关卡看不到的部分——头部不变而正文被改写——仍是评审约定，由全局 archive-agent-notes skill 执行。
 
 <a id="the-file-format"></a>
 
 ## 文件内格式
 
-每条活跃 Agent Note 遵循一个格式（约定，无校验脚本；全局 doc-standards 与 archive-agent-notes skill 执行）。
+每条活跃 Agent Note 遵循一个格式（评审约定——归档关卡只校验归档 note 的头部块，不校验正文；其余由全局 doc-standards 与 archive-agent-notes skill 执行）。
 
 ### 头部块
 
