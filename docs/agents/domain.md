@@ -2,46 +2,27 @@
 
 English | [中文](domain.zh.md)
 
-How the engineering skills should consume this repo's domain documentation when exploring the codebase.
+How the engineering skills consume this repo's domain documentation when exploring the codebase.
 
 ## Before exploring, read these
 
-- **`AGENTS.md`** at the repo root — standing orders and conventions.
-- **`.agents/notes/`** — the Agent Note corpus. Read the notes whose class (`architecture` / `feature` / `bug-fix` / `simplification` / `process` / `testing`) or topic touches the area you're about to work in. `implemented/` notes describe shipped reality in present tense; `proposed/` are under review; `rejected/` are frozen verdicts.
-- **`docs/i18n/terminology.md`** — this repo's domain glossary (English ↔ Chinese). Load it before naming domain concepts.
-- **`CONTEXT.md`** at the repo root, if it exists — a supplementary glossary. If absent, proceed silently.
+- **[GLOSSARY.md](../../GLOSSARY.md)** — domain terms and distinctions. Read it before naming domain concepts.
+- **[AGENTS.md](../../AGENTS.md)** — standing orders and conventions.
+- **[.agents/notes/](../../.agents/notes/README.md)** — decision records. Read active notes whose class or topic touches the area you're working in: `implemented/` describes shipped decisions, `proposed/` holds proposals under review, and `rejected/` preserves rejection rationale. Archived notes are historical snapshots.
+- **[docs/i18n/terminology.md](../i18n/terminology.md)** — English ↔ Chinese translation choices. Load it when writing or updating bilingual prose.
 
-If any of these files don't exist, **proceed silently**. In this repo, decision records live in `.agents/notes/`, not in `docs/adr/`, and terms live in `docs/i18n/terminology.md`, not in `CONTEXT.md`; the `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) records terms and decisions lazily into those two homes.
+If a referenced file is absent, proceed silently. `/domain-modeling` records resolved domain terms in [GLOSSARY.md](../../GLOSSARY.md) and decisions in [.agents/notes/](../../.agents/notes/README.md).
 
 ## File structure
 
-Single-context repo. Agent Notes are path-encoded as `{lifecycle}/{class}/yyyy-mm-dd-topic-title.md` under `.agents/notes/`:
-
-```
-.agents/notes/
-├── README.md              ← format + lifecycle/classification rules
-├── proposed/
-│   └── <class>/…
-├── implemented/
-│   ├── architecture/…
-│   ├── feature/…
-│   └── …
-├── rejected/
-│   └── <class>/…
-└── archived/
-    └── <class>/…          ← frozen history, not current authority
-```
-
-Read `.agents/notes/README.md` for the full format (header block, per-lifecycle skeleton, mandatory Alternatives-considered).
+Single-context repo: one root [GLOSSARY.md](../../GLOSSARY.md). Agent Notes live under `.agents/notes/` as `{lifecycle}/{class}/yyyy-mm-dd-topic-title.md`; [the Agent Note rules](../../.agents/notes/README.md) define their format, lifecycle, and classification.
 
 ## Use the glossary's vocabulary
 
-When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `docs/i18n/terminology.md` or `AGENTS.md`. Don't drift to synonyms the glossary explicitly avoids.
+When an issue title, refactor proposal, hypothesis, or test name uses a domain concept, use the term and definition in [GLOSSARY.md](../../GLOSSARY.md). Follow its `_Avoid_` entries when choosing synonyms; follow [the translation table](../i18n/terminology.md) when rendering terms in Chinese.
 
-If the concept you need isn't in the glossary yet, that's a signal — either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/domain-modeling`).
+If a needed concept is absent, check whether it belongs to this domain. Record a resolved domain term in [GLOSSARY.md](../../GLOSSARY.md).
 
 ## Flag Agent Note conflicts
 
-If your output contradicts an existing Agent Note, surface it explicitly rather than silently overriding:
-
-> _Contradicts `.agents/notes/implemented/feature/2026-07-22-vconsole-contract-and-phase-guidance.md` — but worth reopening because…_
+If your output contradicts an active Agent Note, name and link that note and explain why the decision needs reconsideration.

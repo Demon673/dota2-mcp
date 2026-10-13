@@ -35,7 +35,7 @@ The gate's limit, stated plainly: **a green gate means the pair was confirmed co
 
 ## Scope and exclusions
 
-**Scope** (paired): every active `.md` under `.agents/notes/**` (the Agent Notes and their README), under `docs/**`, plus root `README.md` and `CHANGELOG.md`, per [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json).
+**Scope** (paired): every active `.md` under `.agents/notes/**` (the Agent Notes and their README), under `docs/**`, plus root `README.md`, `CHANGELOG.md`, and `GLOSSARY.md`, per [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json).
 
 **Out of scope** (single-language):
 

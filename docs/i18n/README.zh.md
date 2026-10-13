@@ -35,7 +35,7 @@
 
 ## 范围与排除
 
-**范围**（配对）：`.agents/notes/**`（Agent Note 及其 README）、`docs/**` 下的每个活跃 `.md`，以及根 `README.md`、`CHANGELOG.md`，见 [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json)。
+**范围**（配对）：`.agents/notes/**`（Agent Note 及其 README）、`docs/**` 下的每个活跃 `.md`，以及根 `README.md`、`CHANGELOG.md`、`GLOSSARY.md`，见 [scripts/translation-pairing.manifest.json](../../scripts/translation-pairing.manifest.json)。
 
 **范围外**（单语言）：
 

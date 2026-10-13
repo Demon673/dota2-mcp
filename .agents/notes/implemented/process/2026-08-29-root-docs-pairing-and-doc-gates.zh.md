@@ -23,3 +23,7 @@ Status: implemented
 ## Consequences
 
 每次配对文档编辑都必须同步 counterpart 并重录，否则提交前 scoped 检查（以及全库门禁）转红。新克隆环境执行一次 `npm install --no-save lefthook && npm run install-lefthook`。AGENTS.md 载有纪律四行，词数上限记在 `scripts/doc-budgets.manifest.json`。
+
+## Related
+
+[根领域术语表](2026-10-14-root-domain-glossary.md)将此配对范围扩展到 `GLOSSARY.md`。

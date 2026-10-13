@@ -46,7 +46,7 @@ function isExcluded(file, excluded) {
 }
 
 // The root pairs sit outside the two walked trees, so all three of their files are named here.
-const ROOT_ANCHORS = ['README.md', 'CHANGELOG.md']
+const ROOT_ANCHORS = ['README.md', 'CHANGELOG.md', 'GLOSSARY.md']
 const rootPairFiles = (anchor) => [
   anchor,
   `${anchor.slice(0, -'.md'.length)}.zh.md`,

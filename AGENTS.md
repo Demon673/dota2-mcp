@@ -283,7 +283,7 @@ Use the five canonical triage roles; the label strings live in `docs/agents/tria
 
 ### Domain docs
 
-Single-context: decisions are recorded in `.agents/notes/` (Agent Notes). See `docs/agents/domain.md`.
+Single-context: read [GLOSSARY.md](GLOSSARY.md) for domain terms; decisions live in `.agents/notes/` (Agent Notes). See [docs/agents/domain.md](docs/agents/domain.md).
 
 ### Documentation standard
 

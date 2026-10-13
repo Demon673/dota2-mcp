@@ -20,6 +20,7 @@ Each fact has one home — the tier whose job it is; elsewhere, link there.
 |---|---|---|
 | Root `AGENTS.md` | Standing orders: rules an agent needs in context every session, one to three lines each, linking its home | Stories, worked examples, situational procedures, anything restated from a linked home |
 | `README.md` | Public consumer contract: configuration, semantics, failures, limitations, extension points | Implementation detail, internal protocol, decision rationale |
+| `GLOSSARY.md` | Domain terms, definitions, and preferred vocabulary | Implementation details, translation policy, decision rationale |
 | `docs/AGENTS.md` | This standard | Repo-wide rules the root file already carries |
 | `docs/agents/*.md` | Agent workflow guidance: issue tracker, triage labels, domain consumption | Decision rationale (→ Agent Notes) |
 | [Agent Notes](../.agents/notes/README.md) | Active decision records: the why, what-was-given-up, and required verification; `implemented/` notes describe shipped reality in present tense | Migration plans, acceptance checklists, fixture walkthroughs, spec-speak |
@@ -39,7 +40,7 @@ Placement: rationale → Agent Notes; procedures → skills or cookbook content;
 - **Comments and JSDoc state complete contracts, not reasoning transcripts.** Preserve behavior, failure, timing, ownership, modality, exceptions, and consequences; delete narration, test walkthroughs, and code restatement. Use the global prose-standard skill for details.
 - **Write directly: name actors and facts.** Reserve `contract`, `boundary`, `seam`, `gate`, and `surface` for the exact technical subject; otherwise name the rule, API, field set, type, or failure state.
 - **Cross-reference with relative Markdown paths, never bare filenames.** Links must resolve from the document's location; keep them mechanically checkable — a move fixes every inbound link in the same change.
-- **Paired documents update together.** Documents in scope (`.agents/notes/**`, `docs/**`) are English-canonical bilingual pairs; a change to the English side updates the Chinese counterpart in the same change and re-records the pair with `node scripts/verify-translation-pairing.mjs --write <file>`. See [the pairing contract](i18n/README.md), [translation rules](i18n/translation-rules.md), and [terminology](i18n/terminology.md). This file, `skills/**`, and root `AGENTS.md`/`CLAUDE.md` are single-language (out of scope); root `README.md`/`CHANGELOG.md` are paired trios in scope like the rest of `docs/**`.
+- **Paired documents update together.** Documents in scope (`.agents/notes/**`, `docs/**`) are English-canonical bilingual pairs; a change to the English side updates the Chinese counterpart in the same change and re-records the pair with `node scripts/verify-translation-pairing.mjs --write <file>`. See [the pairing contract](i18n/README.md), [translation rules](i18n/translation-rules.md), and [terminology](i18n/terminology.md). This file, `skills/**`, and root `AGENTS.md`/`CLAUDE.md` are single-language (out of scope); root `README.md`/`CHANGELOG.md`/`GLOSSARY.md` are paired trios in scope like the rest of `docs/**`.
 
 ## The slop checklist
 

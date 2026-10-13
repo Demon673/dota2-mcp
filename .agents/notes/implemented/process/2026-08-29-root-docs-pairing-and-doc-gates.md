@@ -23,3 +23,7 @@ Pre-commit checkpoints: `lefthook.yml` runs three jobs — translation pairing (
 ## Consequences
 
 Every paired-doc edit must update the counterpart and re-record, or the pre-commit scoped check (and the corpus-wide gate) goes red. A fresh clone runs `npm install --no-save lefthook && npm run install-lefthook` once. AGENTS.md carries the four session-discipline lines and a budget ceiling recorded in `scripts/doc-budgets.manifest.json`.
+
+## Related
+
+[The root domain glossary](2026-10-14-root-domain-glossary.md) extends this pairing scope to `GLOSSARY.md`.
