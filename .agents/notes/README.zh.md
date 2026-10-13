@@ -124,4 +124,4 @@ Status 不带日期、不带括号：文件名持有首次提出日期，git 持
 
 ## 双语配对
 
-每条活跃 Agent Note 是一个三件套：英文 `foo.md`（canonical）、中文 `foo.zh.md`（counterpart）、`foo.i18n.yaml`（一致性记录）。英文是权威源；counterpart 逐节镜像。见 [配对契约](../../docs/i18n/README.md) 与 [术语表](../../docs/i18n/terminology.md)。机器校验的头部记号（`# Agent Note: ` 与 `Status:` 行）在 counterpart 中保持英文原样；`# Agent Note: ` 之后的标题翻译为中文。
+每条活跃 Agent Note 是一个三件套：英文 `foo.md`（canonical）、中文 `foo.zh.md`（counterpart）、`foo.i18n.yaml`（一致性记录）。英文是权威源；counterpart 逐节镜像。见 [配对契约](../../docs/i18n/README.md) 与 [译法表](../../docs/i18n/terminology.md)。机器校验的头部记号（`# Agent Note: ` 与 `Status:` 行）在 counterpart 中保持英文原样；`# Agent Note: ` 之后的标题翻译为中文。

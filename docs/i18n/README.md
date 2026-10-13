@@ -42,7 +42,8 @@ The gate's limit, stated plainly: **a green gate means the pair was confirmed co
 - Root `AGENTS.md`, `CLAUDE.md` — standing orders, English only.
 - `docs/AGENTS.md` — the documentation standard is an agent instruction, maintained in English only like root `AGENTS.md`.
 - `skills/**` — agent-facing workflows and knowledge, English only, shipped to npm.
-- `docs/i18n/terminology.md` — the terminology table is bilingual by construction.
+- `docs/i18n/terminology.md` — the translation terminology table is bilingual by construction.
+- `research/**` — one-off investigation records may remain in the requested language; they are outside the paired corpus.
 - `.agents/notes/archived/**` — frozen historical snapshots.
 
 ## Division of labor

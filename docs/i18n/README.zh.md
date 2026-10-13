@@ -42,7 +42,8 @@
 - 根 `AGENTS.md`、`CLAUDE.md` —— 常驻规范，仅英文。
 - `docs/AGENTS.md` —— 文档规范是 agent 指令，与根 `AGENTS.md` 一样只维护英文。
 - `skills/**` —— agent 面向的工作流与知识，只英文，随包发布到 npm。
-- `docs/i18n/terminology.md` —— 术语表天然双语。
+- `docs/i18n/terminology.md` —— 译法表天然双语。
+- `research/**` —— 一次性调查记录可以保留指定语言；它们不属于配对语料。
 - `.agents/notes/archived/**` —— 冻结的历史快照。
 
 ## 分工

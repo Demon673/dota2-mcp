@@ -120,4 +120,4 @@ Moving a file between lifecycle folders means updating the `Status:` line and re
 
 ## Bilingual pairing
 
-Every active Agent Note is a bilingual triplet: the English `foo.md` (canonical), the Chinese `foo.zh.md` (counterpart), and `foo.i18n.yaml` (consistency record). English is canonical; the counterpart mirrors it section-for-section. See [the pairing contract](../../docs/i18n/README.md) and [terminology](../../docs/i18n/terminology.md). The machine-checked header tokens (`# Agent Note: ` and the `Status:` line) stay in English verbatim in the counterpart; the title after `# Agent Note: ` is translated.
+Every active Agent Note is a bilingual triplet: the English `foo.md` (canonical), the Chinese `foo.zh.md` (counterpart), and `foo.i18n.yaml` (consistency record). English is canonical; the counterpart mirrors it section-for-section. See [the pairing contract](../../docs/i18n/README.md) and [the translation terminology table](../../docs/i18n/terminology.md). The machine-checked header tokens (`# Agent Note: ` and the `Status:` line) stay in English verbatim in the counterpart; the title after `# Agent Note: ` is translated.

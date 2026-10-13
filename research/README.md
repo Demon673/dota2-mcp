@@ -2,6 +2,7 @@
 
 One-off investigations whose findings are not yet (or never will be) absorbed into a skill. Files whose content has been delivered to an agent are canonical under `skills/<name>/data/` — do not keep a duplicate here (see the tier table in docs/AGENTS.md).
 
+- [CustomGame development integration](2026-10-14-dota2-ai-integration.md) — engine MCP comparison and practical development-tool candidates, with evidence limits; Chinese-language investigation record. Priorities live in [the development tools proposal](../.agents/notes/proposed/feature/2026-10-14-development-tool-priorities.md).
 - `vpcf-structure/` — template-source deep-dive (18 sources + 7 decompiles); cited by the dota2-vfx skill body.
 
 Superseded research deliveries (official corpus stats, class field reference, model corpus) live under:
