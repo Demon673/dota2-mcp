@@ -14,6 +14,7 @@ import { z } from "zod";
 import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+import * as crypto from "crypto";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
@@ -130,6 +131,8 @@ async function main(): Promise<void> {
     console.error("[relay] daemon unavailable, falling back to local relay (single-instance mode)");
     const relay = new VConRelay();
     relay.setDotaPath(dotaPath);
+    // 本地 relay 同样监听 :29002，不设 token 等于对本机任意进程开放 CMD（RunScriptCode = RCE）
+    relay.setExpectedToken(daemon.ensureToken());
     await relay.start();
     if (relay.portInUse) {
       console.error(`[relay] Ports 29001/29002 in use by another dota2-mcp instance. Tools will report unavailable.`);
@@ -168,6 +171,7 @@ async function main(): Promise<void> {
     });
     // 事件驱动：relay 收到 PRNT 时立即同步到本地缓冲
     r.on("prnt", (msg: any) => {
+      if (/^__mcp_[0-9a-f]+_(begin|end)$/.test(String(msg.text).trim())) return; // collectOutput 的边界标记
       prntLog.push({ text: msg.text, verbosity: msg.verbosity, channel: msg.channel || "" });
       if (prntLog.length > 10000) {
         prntLog.shift();
@@ -254,7 +258,7 @@ Then call dota_status again.`;
   /** 依赖 dotaPath 的工具在路径未检测到时返回的可操作错误 */
   function dotaPathNotDetectedText(): string {
     return `未能检测到 Dota 2 安装目录（asset 编译和 addon 地图扫描依赖此路径）。
-已尝试：find-steam-app、注册表 SteamPath、STEAM_PATH 环境变量、各平台默认 Steam 位置。
+已尝试：注册表 SteamPath、STEAM_PATH 环境变量、各平台默认 Steam 位置。
 请确认 Dota 2 是通过 Steam 安装的（appid 570），或设置 STEAM_PATH 指向你的 Steam 目录。`;
   }
 
@@ -649,7 +653,10 @@ Once connected, call dota_status again.` }] };
       if (initial.game_state.includes("GAME_IN_PROGRESS")) {
         return { content: [{ type: "text", text: `Already in game: ${initial.map} (${initial.game_state})` }] };
       }
-      if (!initial.loaded && !initial.loading) {
+      // 已加载的是别的地图（如上一局停在 POST_GAME）也要发命令，否则只会干等到卡相位报告
+      // status_json 的 map 格式未经活体核对，去目录和扩展名再比
+      const loadedMap = path.basename(initial.map).replace(/\.[^.]+$/, "");
+      if (!initial.loading && (!initial.loaded || loadedMap !== m)) {
         relay.sendCommand(`dota_launch_custom_game ${a} ${m}`);
       }
 
@@ -758,7 +765,7 @@ Once connected, call dota_status again.` }] };
       requireConsole();
       const s = side ?? "client";
       const cmd = s === "server" ? "dota_modifier_dump" : "cl_dump_modifier_list";
-      const out = await queryConsole(cmd, 3000);
+      const out = await collectOutput(cmd, { waitMs: 3000, settleMs: 300 });
       return { content: [{ type: "text", text: out.join("\n") || "(no results)" }] };
     }
   );
@@ -771,7 +778,7 @@ Once connected, call dota_status again.` }] };
       requireConsole();
       const s = side ?? "client";
       const cmd = s === "server" ? "ent_script_dump" : "cl_ent_script_dump";
-      const out = await queryConsole(`${cmd} ${entity}`, 3000);
+      const out = await collectOutput(`${cmd} ${entity}`, { waitMs: 3000, settleMs: 300 });
       return { content: [{ type: "text", text: out.join("\n") || "(no data)" }] };
     }
   );
@@ -780,10 +787,6 @@ Once connected, call dota_status again.` }] };
   // ═══════════════════════════════════════════════════
   // API 文档工具 — 全部走控制台实时查询，用户已逐个验证
   // ═══════════════════════════════════════════════════
-
-  async function queryConsole(cmd: string, waitMs = 3000, settleMs = 300): Promise<string[]> {
-    return collectOutput(cmd, { waitMs, settleMs });
-  }
 
   /** 从最近输出中提取最后一个完整的 status_json 对象 */
   function extractLastStatusJson(lines: string[]): Record<string, any> | null {
@@ -811,65 +814,39 @@ Once connected, call dota_status again.` }] };
     return null;
   }
 
+  /** 只解析本次命令窗口内收到的输出：无回应返回 null，绝不回落到历史日志（那里是过期状态） */
   async function queryStatusJson(waitMs = 5000): Promise<Record<string, any> | null> {
-    const collected: string[] = [];
-
-    return new Promise((resolve) => {
-      let settled = false;
-      let settleTimer: NodeJS.Timeout | null = null;
-      let waitTimer: NodeJS.Timeout | null = null;
-
-      const onPrnt = (msg: any) => {
-        collected.push(msg.text);
-      };
-
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        if (settleTimer) clearTimeout(settleTimer);
-        if (waitTimer) clearTimeout(waitTimer);
-        relay.off("prnt", onPrnt);
-        const lines = prntLog.slice(-collected.length).map(l => l.text);
-        const result = extractLastStatusJson(collected.length > 0 ? collected : lines);
-        resolve(result);
-      };
-
-      relay.on("prnt", onPrnt);
-      relay.sendCommand("status_json");
-
-      let lastLen = 0;
-      let lastChangeTime = Date.now();
-
-      const settleCheck = () => {
-        if (collected.length > lastLen) {
-          lastLen = collected.length;
-          lastChangeTime = Date.now();
-        }
-        const elapsed = Date.now() - lastChangeTime;
-        const gotSome = collected.length > 0;
-        if (gotSome && elapsed > 150) {
-          finish();
-          return;
-        }
-        settleTimer = setTimeout(settleCheck, 50);
-      };
-
-      waitTimer = setTimeout(() => {
-        finish();
-      }, waitMs);
-
-      settleTimer = setTimeout(settleCheck, 50);
-    });
+    return extractLastStatusJson(await collectOutput("status_json", { waitMs, settleMs: 150 }));
   }
 
-  /** 直接监听 PRNT 事件收集命令输出（避免 prntLog 滚动导致 slice 失效）
-   * 支持 settleMs：收到第一批输出后，若 settleMs 毫秒内无新输出则提前返回。 */
-  async function collectOutput(cmd: string, opts: { waitMs?: number; settleMs?: number } = {}): Promise<string[]> {
+  /** 直接监听 PRNT 事件收集命令输出（避免 prntLog 滚动导致 slice 失效）。
+   * 命令前后各回显一个唯一标记，只收两标记之间的行：隔离共享 daemon 的其他会话和游戏自身的打印。
+   * ent_fire RunScriptCode 下一帧才执行（输出晚于紧随其后的 echo），这类命令传函数，
+   * 由 Lua 自己 print 结束标记。
+   * 支持 settleMs：收到第一批输出后，若 settleMs 毫秒内无新输出则提前返回（结束标记没到时的兜底）。 */
+  async function collectOutput(cmd: string | ((endMarker: string) => string), opts: { waitMs?: number; settleMs?: number } = {}): Promise<string[]> {
     const { waitMs = 3000, settleMs } = opts;
+    const r = relay; // respawn 会替换 relay，off 必须落在同一个对象上
+    const id = crypto.randomBytes(4).toString("hex");
+    const begin = `__mcp_${id}_begin`;
+    const end = `__mcp_${id}_end`;
     const collected: string[] = [];
-    const onPrnt = (msg: any) => collected.push(msg.text);
-    relay.on("prnt", onPrnt);
-    relay.sendCommand(cmd);
+    let inside = false;
+    let finishEarly: (() => void) | null = null;
+    const onPrnt = (msg: any) => {
+      const text = String(msg.text).trim();
+      if (text === begin) { inside = true; return; }
+      if (text === end) { finishEarly?.(); return; }
+      if (inside) collected.push(msg.text);
+    };
+    r.on("prnt", onPrnt);
+    r.sendCommand(`echo ${begin}`);
+    if (typeof cmd === "string") {
+      r.sendCommand(cmd);
+      r.sendCommand(`echo ${end}`);
+    } else {
+      r.sendCommand(cmd(end));
+    }
 
     return new Promise((resolve) => {
       let lastLen = 0;
@@ -883,9 +860,10 @@ Once connected, call dota_status again.` }] };
         settled = true;
         if (checkTimer) clearTimeout(checkTimer);
         if (waitTimer) clearTimeout(waitTimer);
-        relay.off("prnt", onPrnt);
+        r.off("prnt", onPrnt);
         resolve(collected);
       };
+      finishEarly = finish;
 
       const check = () => {
         if (collected.length > lastLen) {
@@ -914,11 +892,9 @@ Once connected, call dota_status again.` }] };
     map: string;
     loaded: boolean;
     loading: boolean;
-    state: string;
     game_state: string;
     phase: string;
     players: number;
-    addon: string;
     hibernating: boolean;
     cpu_usage: number;
     clients_bot: number;
@@ -933,8 +909,8 @@ Once connected, call dota_status again.` }] };
     if (!server) {
       return {
         map: "(unknown)", loaded: false, loading: false,
-        state: "(unknown)", game_state: "(unknown)", phase: "unknown",
-        players: 0, addon: "",
+        game_state: "(unknown)", phase: "unknown",
+        players: 0,
         hibernating: false, cpu_usage: 0, clients_bot: 0, clients_proxies: 0,
         udp_port: 0, build_version: 0, process_uptime: 0, network_lag_avg: 0,
         first_player: "",
@@ -956,11 +932,9 @@ Once connected, call dota_status again.` }] };
       map: map || "(not loaded)",
       loaded: isLoaded,
       loading: isLoading,
-      state: state || "(unknown)",
       game_state: state || "(unknown)",
       phase,
       players: (server.clients_human as number) ?? 0,
-      addon: (server.addon as string) || "",
       hibernating: !!server.hibernating,
       cpu_usage: (server.cpu_usage as number) ?? 0,
       clients_bot: (server.clients_bot as number) ?? 0,
@@ -983,7 +957,7 @@ Once connected, call dota_status again.` }] };
       requireConsole();
       const s = side ?? "server";
       const cmd = s === "client" ? "cl_script_help2" : "script_help2";
-      const out = await queryConsole(func ? `${cmd} ${func}` : cmd, 3000);
+      const out = await collectOutput(func ? `${cmd} ${func}` : cmd, { waitMs: 3000, settleMs: 300 });
       return { content: [{ type: "text", text: out.join("\n") || "(no results)" }] };
     }
   );
@@ -994,7 +968,7 @@ Once connected, call dota_status again.` }] };
     { name: z.string().optional().describe("Enum/class name. Empty=full list.") },
     async ({ name }) => {
       requireConsole();
-      const out = await queryConsole(name ? `cl_panorama_script_help_2 ${name}` : "cl_panorama_script_help_2", 3000);
+      const out = await collectOutput(name ? `cl_panorama_script_help_2 ${name}` : "cl_panorama_script_help_2", { waitMs: 3000, settleMs: 300 });
       return { content: [{ type: "text", text: out.join("\n") || "(no results)" }] };
     }
   );
@@ -1005,7 +979,7 @@ Once connected, call dota_status again.` }] };
     { prop: z.string().optional().describe("CSS property name, e.g. 'wash-color'. Empty=all 128.") },
     async ({ prop }) => {
       requireConsole();
-      const out = await queryConsole(prop ? `dump_panorama_css_properties ${prop}` : "dump_panorama_css_properties", 3000);
+      const out = await collectOutput(prop ? `dump_panorama_css_properties ${prop}` : "dump_panorama_css_properties", { waitMs: 3000, settleMs: 300 });
       return { content: [{ type: "text", text: out.join("\n") || "(no results)" }] };
     }
   );
@@ -1016,7 +990,7 @@ Once connected, call dota_status again.` }] };
     { event: z.string().optional().describe("Event name, e.g. 'SetPanelSelected'. Empty=all events.") },
     async ({ event }) => {
       requireConsole();
-      const out = await queryConsole(event ? `dump_panorama_events ${event}` : "dump_panorama_events", 3000);
+      const out = await collectOutput(event ? `dump_panorama_events ${event}` : "dump_panorama_events", { waitMs: 3000, settleMs: 300 });
       return { content: [{ type: "text", text: out.join("\n") || "(no results)" }] };
     }
   );
@@ -1029,7 +1003,7 @@ Once connected, call dota_status again.` }] };
     { query: z.string().describe("Search keyword") },
     async ({ query }) => {
       requireConsole();
-      const out = await queryConsole(`find ${query}`, 3000, 250);
+      const out = await collectOutput(`find ${query}`, { waitMs: 3000, settleMs: 250 });
       // Dota `find` output: header + separator + rows. Drop header/separator, keep rows that mention the query.
       const results = out.filter(l =>
         l.includes(query) && /^\S+/.test(l) && !/^=+$/.test(l.trim()) && !/^name\s+value/.test(l)
@@ -1050,7 +1024,7 @@ Once connected, call dota_status again.` }] };
     { command: z.string().describe("Command name") },
     async ({ command }) => {
       requireConsole();
-      const out = await queryConsole(`help ${command}`, 3000, 250);
+      const out = await collectOutput(`help ${command}`, { waitMs: 3000, settleMs: 250 });
       // help 命令常先 dump 一批枚举，再给出目标命令行；过滤出真正相关的行
       const relevant = out.filter(l => l.toLowerCase().includes(command.toLowerCase()));
       const text = relevant.length > 0 ? relevant.join("\n") : out.join("\n");
@@ -1100,7 +1074,7 @@ Once connected, call dota_status again.` }] };
     { query: z.string().optional().describe("Function or class name. Empty = list all registered API functions.") },
     async ({ query }) => {
       requireConsole();
-      const out = await queryConsole(query ? `script_help ${query}` : "script_help", 4000, 300);
+      const out = await collectOutput(query ? `script_help ${query}` : "script_help", { waitMs: 4000, settleMs: 300 });
       return { content: [{ type: "text", text: out.join("\n") || "Sent. Use console_output to see results." }] };
     }
   );
@@ -1127,8 +1101,8 @@ Once connected, call dota_status again.` }] };
       // 简单转义：把双引号换成单引号，避免 RunScriptCode 参数字符串冲突
       const safeCode = luaBody.replace(/"/g, "'");
 
-      // 使用 collectOutput 直接监听 PRNT，避免 prntLog 滚动和 queryConsole 提前返回导致丢失 VScript 输出
-      const execOut = await collectOutput(`ent_fire 0 RunScriptCode "${safeCode}"`, { waitMs: 15000, settleMs: 400 });
+      // 结束标记由 Lua 打印（RunScriptCode 下一帧才执行）；用户代码报错时它不会到，靠 settleMs 兜底
+      const execOut = await collectOutput((end) => `ent_fire 0 RunScriptCode "${safeCode} print('${end}')"`, { waitMs: 15000, settleMs: 400 });
 
       const markerIdx = execOut.findIndex(l => l.includes("[MCP-LUA] IsServer"));
       if (markerIdx === -1) {
@@ -1257,14 +1231,7 @@ Once connected, call dota_status again.` }] };
       if (!dotaPath) {
         throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
       }
-      const a = resolveAddon(addon);
-      if (!a) {
-        const addons = listAddonsFs();
-        throw new McpError(ErrorCode.InvalidRequest, addons.length > 1
-          ? `No addon detected. Please specify one of: ${addons.join(", ")}`
-          : "No addon detected. Load a project first or specify the addon name."
-        );
-      }
+      const a = requireAddon(addon);
 
       const resolved = resolveAssetPath(target, a);
       const r = recursive ?? false;
@@ -1318,14 +1285,7 @@ Once connected, call dota_status again.` }] };
     },
     async ({ target, addon, include_raw }) => {
       if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
-      const a = resolveAddon(addon);
-      if (!a) {
-        const addons = listAddonsFs();
-        throw new McpError(ErrorCode.InvalidRequest, addons.length > 1
-          ? `No addon detected. Please specify one of: ${addons.join(", ")}`
-          : "No addon detected. Load a project first or specify the addon name."
-        );
-      }
+      const a = requireAddon(addon);
       const resolved = resolveAssetPath(target, a);
       const result = await inspectAsset(dotaPath, resolved, { includeRaw: include_raw ?? false });
       return { content: [{ type: "text", text: result.text }], isError: !result.ok };
@@ -1343,14 +1303,7 @@ Once connected, call dota_status again.` }] };
     },
     async ({ target, addon, max_depth }) => {
       if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
-      const a = resolveAddon(addon);
-      if (!a) {
-        const addons = listAddonsFs();
-        throw new McpError(ErrorCode.InvalidRequest, addons.length > 1
-          ? `No addon detected. Please specify one of: ${addons.join(", ")}`
-          : "No addon detected. Load a project first or specify the addon name."
-        );
-      }
+      const a = requireAddon(addon);
       const resolved = resolveAssetPath(target, a);
       const result = await checkRefs(dotaPath, a, resolved, { maxDepth: max_depth ?? 3 });
       return { content: [{ type: "text", text: result.text }], isError: !result.ok };
@@ -1379,7 +1332,7 @@ Once connected, call dota_status again.` }] };
         : " ";
       const luaBody = "print('[MCP-VFX] IsServer: ' .. tostring(IsServer())) local pid = ParticleManager:CreateParticle('" + pathSafe + "', " + attachName + ", nil)" + posLua + " print('[MCP-VFX] pid=' .. tostring(pid) .. ' attach=" + attachName + "')";
       const safeCode = luaBody.replace(/"/g, "'");
-      const execOut = await collectOutput('ent_fire 0 RunScriptCode "' + safeCode + '"', { waitMs: 15000, settleMs: 400 });
+      const execOut = await collectOutput((end) => 'ent_fire 0 RunScriptCode "' + safeCode + " print('" + end + "')" + '"', { waitMs: 15000, settleMs: 400 });
       const lines = execOut.filter((l) => l.includes("[MCP-VFX]") || /error|failed|missing/i.test(l));
       return { content: [{ type: "text", text: lines.join("\n") || "Sent. Read console_output (channels Particles/ResourceSystem) for load errors." }] };
     }
@@ -1394,7 +1347,7 @@ Once connected, call dota_status again.` }] };
       requireConsole();
       const luaBody = "print('[MCP-VFX] destroy pid=' .. tostring(" + particle_id + ")) local ok = ParticleManager:DestroyParticle(" + particle_id + ", false) print('[MCP-VFX] destroyed pid=" + particle_id + " ok=' .. tostring(ok))";
       const safeCode = luaBody.replace(/"/g, "'");
-      const execOut = await collectOutput('ent_fire 0 RunScriptCode "' + safeCode + '"', { waitMs: 15000, settleMs: 400 });
+      const execOut = await collectOutput((end) => 'ent_fire 0 RunScriptCode "' + safeCode + " print('" + end + "')" + '"', { waitMs: 15000, settleMs: 400 });
       const lines = execOut.filter((l) => l.includes("[MCP-VFX]") || /error|failed/i.test(l));
       return { content: [{ type: "text", text: lines.join("\n") || "Sent. Check console_output for errors." }] };
     }
@@ -1425,11 +1378,17 @@ Once connected, call dota_status again.` }] };
     return normalized;
   }
 
-  /** FileOps 的 addon 解析：显式参数 > relay 检测 > DOTA2_TEST_ADDON > 文件系统唯一推断 */
-  function resolveFileOpsAddon(addon?: string): string {
+  /** 工具层 addon 解析：显式参数 > relay 检测 > DOTA2_TEST_ADDON > 文件系统唯一推断。
+   *  addon 必须是单个目录名：它参与拼接路径边界，含 .. 或分隔符会让边界本身逃逸 */
+  function requireAddon(addon?: string): string {
     const fromEnv = process.env.DOTA2_TEST_ADDON;
     const a = resolveAddon(addon) ?? (fromEnv ? fromEnv : null);
-    if (a) return a;
+    if (a) {
+      if (a === "." || a === ".." || /[\\/:]/.test(a)) {
+        throw new McpError(ErrorCode.InvalidRequest, `Invalid addon name '${a}': must be a single directory name under dota_addons/.`);
+      }
+      return a;
+    }
     const addons = listAddonsFs();
     throw new McpError(ErrorCode.InvalidRequest, addons.length > 1
       ? `No addon detected. Specify the addon name or one of: ${addons.join(", ")}`
@@ -1446,7 +1405,7 @@ Once connected, call dota_status again.` }] };
     },
     async ({ target, addon }) => {
       if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
-      const a = resolveFileOpsAddon(addon);
+      const a = requireAddon(addon);
       const resolved = resolveFileOpsPath(target, a);
       try {
         const stat = fs.statSync(resolved);
@@ -1471,7 +1430,7 @@ Once connected, call dota_status again.` }] };
     },
     async ({ target, content, addon }) => {
       if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
-      const a = resolveFileOpsAddon(addon);
+      const a = requireAddon(addon);
       const resolved = resolveFileOpsPath(target, a);
       try {
         fs.mkdirSync(path.dirname(resolved), { recursive: true });
@@ -1493,14 +1452,15 @@ Once connected, call dota_status again.` }] };
     },
     async ({ target, old_string, new_string, addon }) => {
       if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
-      const a = resolveFileOpsAddon(addon);
+      const a = requireAddon(addon);
       const resolved = resolveFileOpsPath(target, a);
       try {
         const content = fs.readFileSync(resolved, "utf8");
         const count = content.split(old_string).length - 1;
         if (count === 0) throw new McpError(ErrorCode.InvalidRequest, `old_string not found in ${resolved}`);
         if (count > 1) throw new McpError(ErrorCode.InvalidRequest, `old_string appears ${count} times in ${resolved}; make it unique before editing`);
-        fs.writeFileSync(resolved, content.replace(old_string, new_string), "utf8");
+        // 函数形式：字符串替换参数会展开 $' $& $1 等特殊序列
+        fs.writeFileSync(resolved, content.replace(old_string, () => new_string), "utf8");
         return { content: [{ type: "text", text: `Edited ${resolved} (1 replacement)` }] };
       } catch (e) {
         if (e instanceof McpError) throw e;
@@ -1517,7 +1477,7 @@ Once connected, call dota_status again.` }] };
     },
     async ({ target, addon }) => {
       if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
-      const a = resolveFileOpsAddon(addon);
+      const a = requireAddon(addon);
       const resolved = resolveFileOpsPath(target, a);
       try {
         const snapshot = fs.readFileSync(resolved, "utf8").slice(0, 500);

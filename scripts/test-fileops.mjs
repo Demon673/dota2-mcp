@@ -44,6 +44,11 @@ const ed = await call("tools/call", { name: "file_edit", arguments: { target: TE
 assert(callText(ed).includes("1 replacement"), "file_edit replaces unique match");
 const rd2 = await call("tools/call", { name: "file_read", arguments: { target: TEST_TARGET, addon: ADDON } });
 assert(callText(rd2) === "HELLO fileops\nline2\n", "file_edit content correct");
+// 替换文本里的 $' $& 必须原样写入（String.replace 字符串参数会展开它们）
+const edDollar = await call("tools/call", { name: "file_edit", arguments: { target: TEST_TARGET, addon: ADDON, old_string: "line2", new_string: "t = '$' + g; $&" } });
+assert(callText(edDollar).includes("1 replacement"), "file_edit with $ sequences");
+const rdDollar = await call("tools/call", { name: "file_read", arguments: { target: TEST_TARGET, addon: ADDON } });
+assert(callText(rdDollar) === "HELLO fileops\nt = '$' + g; $&\n", "file_edit keeps $' and $& literal");
 const edDup = await call("tools/call", { name: "file_edit", arguments: { target: TEST_TARGET, addon: ADDON, old_string: "\n", new_string: "" } });
 expectError(edDup, "appears");
 const del = await call("tools/call", { name: "file_delete", arguments: { target: TEST_TARGET, addon: ADDON } });
@@ -57,6 +62,11 @@ const oob2 = await call("tools/call", { name: "file_write", arguments: { target:
 expectError(oob2, "outside addon");
 const oob3 = await call("tools/call", { name: "file_write", arguments: { target: "game/dota/materials/x.txt", addon: ADDON, content: "x" } });
 expectError(oob3, "outside addon");
+// addon 参与拼接边界本身：.. 或分隔符会让允许的根逃逸到 addon 之外
+for (const bad of ["..", "../..", ADDON + "/../.."]) {
+  const r = await call("tools/call", { name: "file_write", arguments: { target: "escape.txt", addon: bad, content: "x" } });
+  expectError(r, "Invalid addon name");
+}
 
 console.log("PASS");
 process.exit(0);

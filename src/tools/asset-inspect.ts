@@ -133,11 +133,10 @@ export async function inspectAsset(dotaPath: string, resolvedPath: string, opts:
       stdout = decompileToText(vrf.executable, resolvedPath, tmpOut);
     }
   } catch (e) {
+    // 失败输出不能当反编译文本做摘要：会得到全 0 的「成功」结果
     const err = e as { stdout?: string; stderr?: string; message?: string };
-    stdout = (err.stdout ?? "") + (err.stderr ?? "") + (err.message ?? "");
-    if (!stdout.trim()) {
-      return { ok: false, text: "asset_inspect failed to run the VRF CLI" };
-    }
+    const detail = [err.stderr, err.stdout, err.message].filter((s) => s && s.trim()).join("\n");
+    return { ok: false, text: "asset_inspect: VRF CLI failed on " + resolvedPath + (detail ? "\n" + detail : "") };
   } finally {
     if (tmpOut) { try { rmSync(tmpOut, { force: true }); } catch { /* ignore */ } }
   }

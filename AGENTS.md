@@ -164,7 +164,7 @@ Relay/Client implements the VConsole2 binary frame format, verified against Dota
 ```
 
 Server → client message types: `AINF`, `ADON`, `CHAN`, `CVRB`, `PRNT`, `CFGV`.
-Client → server command type: `CMND` (null-terminated ASCII).
+Client → server command type: `CMND` (null-terminated UTF-8).
 
 ### MCP tools
 

@@ -223,7 +223,7 @@ async function main() {
   // 5b. RelayClient-level: reconnect + pending command resend.
   //     杀掉 daemon 后等 3.5s（多次重连尝试失败——验证重连链不断），再重启 daemon，
   //     以重握手（hello 事件）作为重连成功的真实凭据。旧断言（sendCommand 不抛错）
-  //     是空转的：断线时 sendCommand 只缓冲，永远不抛。
+  //     是空转的：断线时 sendCommand 只丢弃，永远不抛。
   {
     const { RelayClient } = await import("../dist/relay-client.js");
     const token = fs.readFileSync(tokenPath, "utf-8").trim();
@@ -234,11 +234,11 @@ async function main() {
     // 重握手凭据：初始握手已完成，之后收到的 hello-ok 只能来自重连成功
     const rehello = new Promise((res) => client.on("hello", (m) => { if (m.type === "hello-ok") res(true); }));
     await new Promise(r => setTimeout(r, 3500)); // 多次失败的重连尝试（链不能断）
-    // send while disconnected — should buffer, not throw
+    // send while disconnected — should drop, not throw
     let threw = false;
-    try { client.sendCommand("echo buffered"); } catch { threw = true; }
-    if (threw) console.log("[test] FAIL sendCommand threw while disconnected (should buffer)");
-    else console.log("[test] PASS sendCommand buffers while disconnected");
+    try { client.sendCommand("echo dropped"); } catch { threw = true; }
+    if (threw) console.log("[test] FAIL sendCommand threw while disconnected (should drop)");
+    else console.log("[test] PASS sendCommand drops while disconnected");
 
     // restart daemon
     const child2 = spawn(process.execPath, ["dist/relay-main.js"], {

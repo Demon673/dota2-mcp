@@ -83,6 +83,9 @@ try {
   assert(out.broken.length === 1 && out.broken[0].ref === "materials/missing.vmat", "missing.vmat broken");
   assert(out.engine_refs.length === 1 && out.engine_refs[0] === "materials/engine.vmat", "engine.vmat engine ref");
   assert(!out.ok.some((r) => r.ref.includes("hero.vmdl")) && out.checked === 5, "self ref deduped by visited (no loop)");
+  // 根资产反编译不出（路径打错）必须报失败，不能报「0 个问题」
+  const bad = await checkRefs(root, ADDON, path.join(path.dirname(target), "typo.vmdl"));
+  assert(!bad.ok && bad.text.includes("could not decompile"), "undecompilable root reports failure");
   console.log("PASS");
 } finally {
   rmSync(root, { recursive: true, force: true });

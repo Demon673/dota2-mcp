@@ -62,6 +62,7 @@ if (input.endsWith(".vtex_c") || input.endsWith(".vtex")) {
   }
   process.exit(0);
 }
+if (input.includes("crash")) { process.stderr.write("fake vrf: cannot open input"); process.exit(1); }
 const body = ${JSON.stringify({ vpcf: vpcfFixture, vmdl: vmdlFixture, vmat: vmatFixture })};
 for (const [k, v] of Object.entries(body)) if (input.endsWith(k) || input.endsWith(k + "_c")) {
   if (out) { writeFileSync(out, v); } else { process.stdout.write(v); }
@@ -142,6 +143,10 @@ assert(un.notes.some((n) => n.includes("未知")), "unknown notes hint");
 // include_raw 截断
 const raw = await inspect("game/dota_addons/" + ADDON + "/particles/x.vpcf_c", { include_raw: true });
 assert(typeof raw.raw_decompiled === "string" && raw.raw_decompiled.length > 0, "raw included");
+
+// CLI 失败必须报错，不能把错误输出当反编译文本做出全 0 的「成功」摘要
+const failed = await call("tools/call", { name: "asset_inspect", arguments: { target: "game/dota_addons/" + ADDON + "/particles/crash.vpcf_c", addon: ADDON } });
+assert(failed.result.isError && failed.result.content[0].text.includes("cannot open input"), "VRF failure reported as error");
 
 console.log("PASS");
 rmSync(cache, { recursive: true, force: true });

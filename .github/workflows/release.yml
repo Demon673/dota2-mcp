@@ -37,13 +37,14 @@ jobs:
         run: npm run build
 
       # Offline smoke scripts only: the live/drill scripts need Dota 2 and a vconsole
-      # window, which a runner has not. These eight import from dist/, so they run after
+      # window, which a runner has not. These nine import from dist/, so they run after
       # Build. test-asset-{inspect,check-refs} skip on win32 (a fake VRF CLI cannot execute there).
       - name: Offline smoke tests
         run: |
           node scripts/test-relay.mjs
           node scripts/test-daemon.mjs
           node scripts/test-mcp-offline.mjs
+          node scripts/test-collect-output.mjs
           node scripts/test-vrf-ensure.mjs
           node scripts/test-asset-inspect.mjs
           node scripts/test-asset-check-refs.mjs

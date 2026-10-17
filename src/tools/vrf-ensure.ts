@@ -1,8 +1,7 @@
 // vrf_ensure：检测/下载/校验/缓存 ValveResourceFormat CLI（Source2Viewer-CLI）
 // 半集成策略（wayfinder #6/#7 决议）：pin 版本、按 release assets[] 动态匹配平台、sha256 校验、自包含无需 .NET。
 import { createHash, randomBytes } from "node:crypto";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync, readFileSync, chmodSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import AdmZip from "adm-zip";

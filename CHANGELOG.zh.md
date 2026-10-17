@@ -2,6 +2,30 @@
 
 [English](CHANGELOG.md) | 中文
 
+## 未发布
+
+### 修复
+
+- **`file_edit` 写坏含 `$` 的文件**：`new_string` 里的 `$'`、`$&`、`$1` 现在按字面写入，不再被展开。
+- **借 `addon` 绕过 FileOps 路径边界**：为 `.`/`..` 或含 `/`、`\`、`:` 的 addon 名被拒绝。所有 FileOps 与资产工具共用同一个 addon 解析入口。
+- **非 ASCII 控制台文本**：VConsole2 输出与命令改为 UTF-8，中文 `print` 输出和非 ASCII Lua 不再乱码。
+- **过期游戏状态**：查询没有回应时，`dota_status` / `dota_launch_game` 不再回落到日志里旧的 `status_json`。
+- **工具结果混入其他输出**：控制台类工具只保留每次调用的 begin/end 回显标记之间的行，隔离其他会话与游戏自身的打印。
+- **本地降级 relay 的 :29002 无认证**：现在执行与守护进程相同的 token 握手。
+- **VRF 失败被报告为成功**：CLI 失败或根资产无法反编译时，`asset_inspect` 与 `asset_check_refs` 返回错误。
+- **`dota_launch_game`** 在已加载其他地图时也会启动请求的地图。
+- **vconsole 重连**：被取代的 GUI socket 不再断掉在线连接；命令执行中途切换 MCP 屏蔽不再让 GUI 静默。
+- **Linux/macOS Steam 检测**：默认 Steam 根目录从用户主目录解析（`~` 此前从未被展开）。
+- **打包**：`prepack` 打包前先编译。
+
+### 变更
+
+- 瘦客户端断线期间发送的命令直接丢弃，不再在重连后补发。
+
+### 依赖
+
+- 移除 `find-steam-app`（它在当前 `libraryfolders.vdf` 格式上抛错，手动解析已覆盖）。
+
 ## 1.6.0 (2026-08-20)
 
 ### 新增（特效与模型处理能力，9 个新工具，总数 22 → 31）

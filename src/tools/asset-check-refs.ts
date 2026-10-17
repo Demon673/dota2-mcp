@@ -82,6 +82,10 @@ export async function checkRefs(dotaPath: string, addon: string, resolvedPath: s
     if (visited.has(src) || depth > maxDepth) continue;
     visited.add(src);
     const text = decompileText(vrf.executable, src);
+    // 根资产都打不开（路径错/文件坏）不能报成「0 个问题」
+    if (!text && src === resolvedPath) {
+      return { ok: false, text: "asset_check_refs: VRF CLI could not decompile " + resolvedPath + " (wrong path or unreadable asset)" };
+    }
     if (!text) continue;
     for (const ref of extractRefs(text)) {
       if (!isAssetRef(ref)) continue;

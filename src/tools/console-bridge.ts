@@ -1,7 +1,7 @@
 /**
  * Dota 2 环境探测与工具执行辅助。
  *
- * - detectDotaPath：Steam appid 570 自动检测（find-steam-app → 注册表 → 库扫描 → 默认位置），
+ * - detectDotaPath：Steam appid 570 自动检测（注册表 → STEAM_PATH → 默认位置，各自展开 libraryfolders.vdf），
  *   非 win32 平台自动映射到 /mnt/<drive> 挂载（WSL 兼容）。
  * - resolveDotaToolPath / toWindowsPath / isProcessRunning / spawnVconsole：
  *   Dota 2 工具目录按存在性探测，spawn 参数在 WSL 下转换为 Windows 路径。
@@ -9,9 +9,9 @@
  */
 
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import { execSync, spawn } from "child_process";
-import { findSteamAppById } from "find-steam-app";
 
 /** 非 win32 平台（WSL 等）把 Windows 盘符路径映射到 /mnt/<drive>/ 挂载，使 fs 可访问；win32 原样返回。 */
 function toHostPath(p: string | null): string | null {
@@ -24,20 +24,10 @@ function toHostPath(p: string | null): string | null {
 
 /** 尝试自动检测 Dota 2 路径（通过 Steam appid 570） */
 export async function detectDotaPath(): Promise<string | null> {
-  // 先试 find-steam-app
-  try {
-    const appPath = await findSteamAppById(570);
-    if (appPath && fs.existsSync(path.join(appPath, "game", "dota"))) {
-      return toHostPath(appPath);
-    }
-  } catch {
-    // find-steam-app 1.0.2 无法解析新版 libraryfolders.vdf（条目是对象不是字符串），
-    // 抛 TypeError。fall through 到手动解析。
-  }
   const manual = detectDotaPathManual();
   if (!manual) {
     console.error(
-      "[dota2-mcp] Failed to detect Dota 2 path. Tried: find-steam-app, " +
+      "[dota2-mcp] Failed to detect Dota 2 path. Tried: " +
       "HKCU registry SteamPath, STEAM_PATH env, platform default Steam locations. " +
       "Asset compilation and addon map scanning will be unavailable."
     );
@@ -95,8 +85,9 @@ function detectDotaPathManual(): string | null {
     process.env.STEAM_PATH,
     "C:/Program Files (x86)/Steam",
     "C:/Program Files/Steam",
-    process.platform === "linux" ? "~/.steam/steam" : null,
-    process.platform === "darwin" ? "~/Library/Application Support/Steam" : null,
+    // fs 不展开 ~，必须用 homedir 拼
+    process.platform === "linux" ? path.join(os.homedir(), ".steam", "steam") : null,
+    process.platform === "darwin" ? path.join(os.homedir(), "Library", "Application Support", "Steam") : null,
   ].filter((p): p is string => !!p);
 
   for (const root of steamRoots) {

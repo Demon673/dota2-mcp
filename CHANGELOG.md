@@ -2,6 +2,30 @@
 
 English | [中文](CHANGELOG.zh.md)
 
+## Unreleased
+
+### Fixed
+
+- **`file_edit` corrupted files containing `$`**: `$'`, `$&` and `$1` in `new_string` are now written literally instead of being expanded.
+- **FileOps path boundary bypass via `addon`**: addon names that are `.`/`..` or contain `/`, `\` or `:` are rejected. All FileOps and asset tools share one addon resolver.
+- **Non-ASCII console text**: VConsole2 output and commands are UTF-8, so Chinese `print` output and non-ASCII Lua survive.
+- **Stale game state**: `dota_status` / `dota_launch_game` no longer fall back to an old `status_json` from the log when the query gets no answer.
+- **Tool results mixed with other output**: console tools keep only the lines between per-call begin/end echo markers, isolating other sessions and game prints.
+- **Local fallback relay had no auth on :29002**: it now requires the same token handshake as the daemon.
+- **VRF failures reported as success**: `asset_inspect` and `asset_check_refs` return an error when the CLI fails or the root asset cannot be decompiled.
+- **`dota_launch_game`** launches the requested map even when a different map is already loaded.
+- **vconsole reconnect**: a superseded GUI socket no longer drops the live connection. Toggling MCP suppression mid-command no longer mutes the GUI.
+- **Linux/macOS Steam detection**: default Steam roots are resolved from the home directory (`~` was never expanded).
+- **Packaging**: `prepack` compiles before packing.
+
+### Changed
+
+- Commands sent while the thin client is disconnected are dropped instead of replayed after reconnect.
+
+### Dependencies
+
+- Removed `find-steam-app` (it throws on the current `libraryfolders.vdf` format; manual parsing covers it).
+
 ## 1.6.0 (2026-08-20)
 
 ### Added (VFX & model capabilities, 9 new tools, 22 → 31)
