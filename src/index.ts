@@ -18,7 +18,7 @@ import * as crypto from "crypto";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
-import { VConRelay } from "./tools/vcon-relay.js";
+import { VConRelay, MCP_MARKER_RE } from "./tools/vcon-relay.js";
 import { RelayClient } from "./relay-client.js";
 import * as consoleBridge from "./tools/console-bridge.js";
 import { ensureVrf, DEFAULT_VERSION } from "./tools/vrf-ensure.js";
@@ -34,8 +34,10 @@ function getVersion(): string {
   }
 }
 
-/** collectOutput 的边界标记：生成与识别共用这一处定义 */
-const MCP_MARKER_RE = /^__mcp_[0-9a-f]{8}_(begin|end)$/;
+/** collectOutput 的边界标记（格式定义在 vcon-relay，relay 据此不转发 GUI） */
+/** 单条控制台语句的长度上限：实测 510 字节的 echo 能执行，530 字节被引擎静默丢弃 */
+const LUA_STATEMENT_MAX_BYTES = 510;
+
 function newMcpMarkers(): { begin: string; end: string } {
   const id = crypto.randomBytes(4).toString("hex");
   return { begin: `__mcp_${id}_begin`, end: `__mcp_${id}_end` };
@@ -381,16 +383,37 @@ Then call dota_status again.`;
   // 相位卡住时的推进指引（game_state 子串匹配；命令名经 vscode-dota2-tools
   // 的 script_help2 引擎转储佐证，活体复核见 plan Task 7）
   const PHASE_GUIDANCE: Record<string, string> = {
-    CUSTOM_GAME_SETUP: "Addon setup phase — it ends when the addon calls GameRules:FinishCustomGameSetup(). To advance now: dota_run_lua with code `GameRules:FinishCustomGameSetup()`. If it won't advance, the addon's setup logic is erroring → console_output (level 3, channel 'VScript').",
+    CUSTOM_GAME_SETUP: "Addon setup phase — it ends when the addon calls GameRules:FinishCustomGameSetup(). To get to a playable game now: call dota_advance_to_game. If it won't advance, the addon's setup logic is erroring → console_output (level 3, channel 'VScript').",
     WAIT_FOR_PLAYERS_TO_LOAD: "Waiting for players/bots to finish loading — usually resolves on its own. If stuck, check console_output for which client never finishes loading.",
-    HERO_SELECTION: "Hero selection is controlled by the addon. Advance by assigning heroes via dota_run_lua, or set selection time to 0 in the addon (GameRules:SetHeroSelectionTime).",
-    STRATEGY_TIME: "Timed phase, advances automatically. To shorten in addon code: GameRules:SetStrategyTime(0).",
-    TEAM_SHOWCASE: "Timed phase, advances automatically. To shorten in addon code: GameRules:SetShowcaseTime(0).",
+    HERO_SELECTION: "Waiting for players to pick. Call dota_advance_to_game (picks a random hero, or the one you pass, for every player without one).",
+    STRATEGY_TIME: "Timed phase, advances automatically. To skip: call dota_advance_to_game.",
+    TEAM_SHOWCASE: "Timed phase, advances automatically. To skip: call dota_advance_to_game.",
     WAIT_FOR_MAP_TO_LOAD: "Map still loading — should pass quickly. If stuck: console_output (channel 'ResourceSystem') — the map may not be compiled; run dota_compile_asset on it.",
-    PRE_GAME: "Pre-game, advances automatically. To shorten in addon code: GameRules:SetPreGameTime(0).",
+    PRE_GAME: "Pre-game, advances automatically. To skip: call dota_advance_to_game.",
     INIT: "Map loading / game-rules init — big maps can take minutes, this is normal while loading. If it never finishes: console_output (channel 'ResourceSystem') — assets may be missing or uncompiled; run dota_compile_asset.",
     POST_GAME: "Game ended. Use dota_restart to run again.",
   };
+
+  /** 加载期相位：会自己推进、只需等待（不算卡住，也无可执行的推进动作） */
+  function isLoadingPhase(state: string): boolean {
+    return /_INIT$|WAIT_FOR_/.test(state);
+  }
+
+  /** 卡相位报告：相位原文 + 已卡时长 + 推进指引 + 近期错误 + skill 文档指路 */
+  function buildStuckReport(state: string, stuckMs: number): string {
+    const key = Object.keys(PHASE_GUIDANCE).find(k => state.includes(k));
+    const guidance = key ? PHASE_GUIDANCE[key] : "Unrecognized phase. Check console_output for errors.";
+    const errors = prntLog
+      .filter(l => l.verbosity >= 3 || l.channel === "VScript")
+      .slice(-8)
+      .map(l => `[${l.channel || "?"}][L${l.verbosity}] ${l.text}`);
+    return [
+      `Game has been stuck in ${state || "(unknown state)"} for ${Math.round(stuckMs / 1000)}s.`,
+      `How to advance: ${guidance}`,
+      errors.length > 0 ? `Recent errors:\n${errors.join("\n")}` : "No recent VScript/error output.",
+      `Full phase guide: call dota2_skill with name "dota2-game-phases".`,
+    ].join("\n");
+  }
 
   // Tool: 读取 console 输出（VCon 实时流，含 verbosity 级别和 channel 来源）
   server.tool("console_output",
@@ -623,7 +646,7 @@ Once connected, call dota_status again.` }] };
 
   // Tool: 启动游戏（轮询到 GAME_IN_PROGRESS；卡相位返回推进指引）
   server.tool("dota_launch_game",
-    "Use to start / run / load a Dota 2 custom game map when the user wants to test or play their addon. Launches the map and polls until the game reaches GAME_IN_PROGRESS; if it gets stuck in a phase (e.g. CUSTOM_GAME_SETUP), returns the phase, how to advance it, and recent errors. Call dota_status first to see available maps. Requires an open vconsole (see dota_open_vconsole).",
+    "Use to start / run / load a Dota 2 custom game map when the user wants to test or play their addon. Launches the map and polls until the game reaches GAME_IN_PROGRESS; if it gets stuck in a phase (e.g. CUSTOM_GAME_SETUP), returns the phase, how to advance it, and recent errors. To reach a playable game from a stuck pre-game phase, follow with dota_advance_to_game. Call dota_status first to see available maps. Requires an open vconsole (see dota_open_vconsole).",
     {
       map: z.string().optional().describe("Map name. Auto-detected if omitted."),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
@@ -638,22 +661,6 @@ Once connected, call dota_status again.` }] };
       if (!m) throw new McpError(ErrorCode.InvalidRequest, `No map specified and none found in addon '${a}'. Available: ${maps.length > 0 ? maps.join(", ") : "none"}`);
 
       const timeoutMs = Math.max(15, timeout || 90) * 1000;
-
-      /** 卡相位报告：相位原文 + 已卡时长 + 推进指引 + 近期错误 + skill 文档指路 */
-      const buildStuckReport = (state: string, stuckMs: number): string => {
-        const key = Object.keys(PHASE_GUIDANCE).find(k => state.includes(k));
-        const guidance = key ? PHASE_GUIDANCE[key] : "Unrecognized phase. Check console_output for errors.";
-        const errors = prntLog
-          .filter(l => l.verbosity >= 3 || l.channel === "VScript")
-          .slice(-8)
-          .map(l => `[${l.channel || "?"}][L${l.verbosity}] ${l.text}`);
-        return [
-          `Game has been stuck in ${state || "(unknown state)"} for ${Math.round(stuckMs / 1000)}s.`,
-          `How to advance: ${guidance}`,
-          errors.length > 0 ? `Recent errors:\n${errors.join("\n")}` : "No recent VScript/error output.",
-          `Full phase guide: call dota2_skill with name "dota2-game-phases".`,
-        ].join("\n");
-      };
 
       // 已进入 GAME_IN_PROGRESS 直接返回；已在加载/已加载则不发命令只观察
       const initial = parseGameState(await queryStatusJson(5000));
@@ -684,14 +691,88 @@ Once connected, call dota_status again.` }] };
         if (cur.game_state.includes("GAME_IN_PROGRESS")) {
           return { content: [{ type: "text", text: `Launched and in game: ${a}/${m} (map: ${cur.map}, state: ${cur.game_state})` }] };
         }
-        // 地图加载期间 game_state 恒为 INIT 是正常现象，不作卡住判定；
+        // INIT / WAIT_FOR_* 是加载期（大地图可达数分钟，且 loading 标志此时已为 false），不作卡住判定；
         // 加载真卡死由 timeout 兜底报告（含 ResourceSystem 错误）
-        if (!cur.loading && lastState && Date.now() - lastChangeAt > 15000) {
+        if (!cur.loading && !isLoadingPhase(lastState) && Date.now() - lastChangeAt > 15000) {
           return { content: [{ type: "text", text: buildStuckReport(lastState, Date.now() - lastChangeAt) }] };
         }
       }
 
       return { content: [{ type: "text", text: buildStuckReport(lastState, timeoutMs) }] };
+    }
+  );
+
+  // Tool: 标准推进流程——从任一已加载相位推进到带英雄的 GAME_IN_PROGRESS。
+  // 只按观测到的 game_state 决定动作，不依赖任何 addon 的实现（活体核对见 Agent Note）：
+  // SETUP → 计时清零 + FinishCustomGameSetup；HERO_SELECTION → 无英雄的玩家选英雄；
+  // STRATEGY/SHOWCASE → 计时清零；PRE_GAME 仍不走 → ForceGameStart。
+  // ForceGameStart 绝不早于 PRE_GAME：英雄在进入 PRE_GAME 时才生成，提前调用得到没有英雄的「游戏中」。
+  server.tool("dota_advance_to_game",
+    "Use after dota_launch_game or dota_restart, when the game sits in a pre-game phase (CUSTOM_GAME_SETUP, HERO_SELECTION, STRATEGY_TIME, TEAM_SHOWCASE, PRE_GAME), to get to a playable GAME_IN_PROGRESS with a hero for every player in one call. Standard, addon-independent flow driven by the observed game_state: waits out map loading; zeroes the strategy/showcase/pre-game timers (runtime only, for this match); ends custom game setup; picks a hero for each player that has none (random, or `hero`); force-starts only from PRE_GAME, after heroes have spawned. Returns the steps taken and each player's hero, or a stuck report with recent errors. Requires an open vconsole (see dota_open_vconsole).",
+    {
+      hero: z.string().regex(/^npc_dota_hero_[a-z0-9_]+$/).optional().describe("Hero for every player, e.g. 'npc_dota_hero_axe' (overrides an existing pick). Default: a random hero for each player that has none."),
+      timeout: z.number().optional().describe("Max seconds to wait. Default 120 (map loading counts)."),
+    },
+    async ({ hero, timeout }) => {
+      requireConsole();
+      const timeoutMs = Math.max(15, timeout || 120) * 1000;
+      const lua = (code: string) => collectLuaOutput(code, { waitMs: 5000, settleMs: 400 });
+      const zeroTimers = "GameRules:SetStrategyTime(0) GameRules:SetShowcaseTime(0) GameRules:SetPreGameTime(0)";
+      // 单条控制台语句有长度上限（LUA_STATEMENT_MAX_BYTES），下面的 Lua 刻意写短
+      // 用玩家控制器选（与随机选同一路径才会结束选人）；PlayerResource:SetSelectedHero 只记名字，相位不推进（活体实测）
+      const pick = `local p=P:GetPlayer(i) if p then p:${hero ? `SetSelectedHero('${hero}')` : "MakeRandomHeroSelection()"} end`;
+      const steps: string[] = [];
+      const done = new Map<string, number>(); // 动作 → 上次执行时刻（同一相位里每 5s 至多重试一次）
+      const stepIdx = new Map<string, number>(); // 动作 → 在 steps 里的位置（重试只标注，不重复记）
+      const act = async (key: string, desc: string, code: string) => {
+        if (Date.now() - (done.get(key) ?? 0) < 5000) return;
+        if (!stepIdx.has(key)) stepIdx.set(key, steps.push(desc) - 1);
+        else steps[stepIdx.get(key)!] = desc + " (retried)";
+        done.set(key, Date.now());
+        await lua(code);
+      };
+
+      const start = Date.now();
+      let state = "";
+      let stateSince = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        if (!relay.dotaConnected) {
+          return { content: [{ type: "text", text: `Dota 2 disconnected. ${disconnectedReasonText()}` }] };
+        }
+        const cur = parseGameState(await queryStatusJson(5000));
+        if (cur.game_state !== state) { state = cur.game_state; stateSince = Date.now(); }
+        if (!cur.loaded && !cur.loading && cur.phase === "menu") {
+          return { content: [{ type: "text", text: "No map is loaded. Call dota_launch_game first, then dota_advance_to_game." }], isError: true };
+        }
+        if (state.includes("GAME_IN_PROGRESS")) {
+          const out = await lua("local P=PlayerResource for i=0,23 do if P:IsValidPlayerID(i) then local h=P:GetSelectedHeroEntity(i) " +
+            "print('[MCP-ADV] player '..i..' team='..P:GetTeam(i)..' hero='..tostring(h and h:GetUnitName())) end end");
+          const players = out.filter(l => l.startsWith("[MCP-ADV]")).map(l => l.slice(10));
+          return { content: [{ type: "text", text: [
+            `In game: ${cur.map} (${state}).`,
+            steps.length > 0 ? `Steps taken:\n${steps.map(s => "- " + s).join("\n")}` : "Already in progress; nothing to do.",
+            players.length > 0 ? `Players:\n${players.join("\n")}` : "No valid players found.",
+          ].join("\n") }] };
+        }
+        if (state.includes("POST_GAME")) {
+          return { content: [{ type: "text", text: "Game has ended (POST_GAME). Call dota_restart, then dota_advance_to_game." }], isError: true };
+        }
+        if (state.includes("CUSTOM_GAME_SETUP")) {
+          await act("setup", "CUSTOM_GAME_SETUP: zeroed phase timers, called GameRules:FinishCustomGameSetup()", `${zeroTimers} GameRules:FinishCustomGameSetup()`);
+        } else if (state.includes("HERO_SELECTION")) {
+          // 随机只补没选的（不动 addon 已分配的英雄）；显式 hero 覆盖所有玩家
+          await act("pick", hero ? `HERO_SELECTION: zeroed phase timers, set ${hero} for every player` : "HERO_SELECTION: zeroed phase timers, picked a random hero for every player without one",
+            `${zeroTimers} local P=PlayerResource for i=0,23 do if P:IsValidPlayerID(i)${hero ? "" : " and not P:HasSelectedHero(i)"} then ${pick} end end`);
+        } else if (state.includes("STRATEGY_TIME") || state.includes("TEAM_SHOWCASE")) {
+          await act("timers", `${state.replace("DOTA_GAMERULES_STATE_", "")}: zeroed phase timers`, zeroTimers);
+        } else if (state.includes("PRE_GAME") && Date.now() - stateSince > 3000) {
+          // 英雄在进入 PRE_GAME 时已生成；清零后仍未推进才强制开局
+          await act("force", "PRE_GAME: called GameRules:ForceGameStart()", "GameRules:ForceGameStart()");
+        }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      const report = buildStuckReport(state, Date.now() - stateSince);
+      return { content: [{ type: "text", text: `${report}\n${steps.length > 0 ? `Steps taken:\n${steps.map(s => "- " + s).join("\n")}` : ""}` }], isError: true };
     }
   );
 
@@ -740,12 +821,21 @@ Once connected, call dota_status again.` }] };
 
   // Tool: 重启当前游戏
   server.tool("dota_restart",
-    "Use to quickly reload / restart the current map after changing Lua, KV, or Panorama files, so the user can re-test without relaunching manually. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use to quickly reload / restart the current map after changing Lua, KV, or Panorama files, so the user can re-test without relaunching manually. Returns once the reload has begun; follow with dota_advance_to_game to get back to a playable game. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
     {},
     async () => {
       requireConsole();
+      const before = parseGameState(await queryStatusJson(5000)).game_state;
       relay.sendCommand("restart");
-      return { content: [{ type: "text", text: "Sent: restart (reloads current map)" }] };
+      // restart 不是立即生效：在它生效前读到的仍是旧相位，紧随其后的 dota_advance_to_game 会误判「已在游戏中」
+      for (let i = 0; i < 40; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        const cur = parseGameState(await queryStatusJson(5000));
+        if (cur.loading || cur.game_state !== before) {
+          return { content: [{ type: "text", text: `Restarting current map (now ${cur.loading ? "loading" : cur.game_state}). Next: dota_advance_to_game.` }] };
+        }
+      }
+      return { content: [{ type: "text", text: `Sent restart, but the game state did not change within 20s (still ${before}). Check dota_status / console_output.` }] };
     }
   );
 
@@ -834,12 +924,21 @@ Once connected, call dota_status again.` }] };
     return collectBetweenMarkers((begin, end) => `echo ${begin}; ${cmd}; echo ${end}`, opts);
   }
 
-  /** 在服务端 Lua 里执行代码并收集输出。ent_fire RunScriptCode 下一帧才执行，
-   * 所以结束标记由 Lua 自己 print；代码报错时结束标记不到，靠 settleMs 兜底。
-   * 双引号换成单引号，避免与 RunScriptCode 参数的引号冲突。 */
+  /** 在服务端 Lua 里执行代码并收集输出。ent_fire RunScriptCode 下一帧才执行，晚于 relay 包在命令外的
+   * `ai_disabled` 屏蔽窗口，所以 Lua 自己打印 `ai_disabled = …` 开关行（relay 按这种行切换 GUI 屏蔽）
+   * 和结束标记。xpcall 保证运行时报错也会打印收尾开关与结束标记（否则 GUI 屏蔽卡死在开启态）；
+   * 语法错误时整段都不执行，靠 settleMs 兜底。双引号换成单引号，避免与 RunScriptCode 参数的引号冲突。
+   * 引擎静默丢弃超过 LUA_STATEMENT_MAX_BYTES 的单条控制台语句（活体实测），超长直接报错而不是返回空结果。 */
   function collectLuaOutput(luaBody: string, opts: { waitMs?: number; settleMs?: number } = {}): Promise<string[]> {
     const code = luaBody.replace(/"/g, "'");
-    return collectBetweenMarkers((begin, end) => `echo ${begin}; ent_fire 0 RunScriptCode "${code} print('${end}')"`, opts);
+    const toggle = relay.mcpSuppressEnabled ? "print('ai_disabled =') " : "";
+    const statement = (end: string) =>
+      `ent_fire 0 RunScriptCode "${toggle}xpcall(function() ${code} end, function(e) print(debug.traceback(e)) end) print('${end}') ${toggle}"`;
+    const bytes = Buffer.byteLength(statement(newMcpMarkers().end), "utf8");
+    if (bytes > LUA_STATEMENT_MAX_BYTES) {
+      throw new McpError(ErrorCode.InvalidRequest, `Lua too long: ${bytes} bytes after wrapping, but the Dota console drops any single statement over ${LUA_STATEMENT_MAX_BYTES} bytes. Shorten the code (about ${LUA_STATEMENT_MAX_BYTES - (bytes - Buffer.byteLength(code, "utf8"))} bytes are available), split it into several calls, or put it in an addon script and call that.`);
+    }
+    return collectBetweenMarkers((begin, end) => `echo ${begin}; ${statement(end)}`, opts);
   }
 
   async function collectBetweenMarkers(buildCmd: (begin: string, end: string) => string, opts: { waitMs?: number; settleMs?: number }): Promise<string[]> {
@@ -1091,7 +1190,7 @@ Once connected, call dota_status again.` }] };
 
   // Tool: 在运行中的游戏里执行 Lua 代码
   server.tool("dota_run_lua",
-    "Use to run server-side Lua in the live game while testing — verify a function works, inspect a value, spawn a unit, or reproduce a bug without editing files and reloading. 'expression' auto-DeepPrintTables the result. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use to run server-side Lua in the live game while testing — verify a function works, inspect a value, spawn a unit, or reproduce a bug without editing files and reloading. 'expression' auto-DeepPrintTables the result. Single-line snippets only: the console drops a statement over ~510 bytes, so code over ~300 bytes is rejected — put longer logic in an addon script. To advance game phases use dota_advance_to_game, not hand-written phase calls. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
     {
       code: z.string().optional().describe("Arbitrary Lua statements to run. Use single quotes inside to avoid shell escaping issues."),
       expression: z.string().optional().describe("Lua expression to evaluate; its result will be DeepPrintTable'd automatically (e.g. 'PlayerResource:GetAllTeamPlayerIDs()')."),

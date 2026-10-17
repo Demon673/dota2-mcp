@@ -4,7 +4,16 @@ English | [中文](CHANGELOG.zh.md)
 
 ## Unreleased
 
+### Added
+
+- **`dota_advance_to_game`**: one call takes a loaded game from any pre-game phase to GAME_IN_PROGRESS with a hero for every player (random, or a given `hero`), acting only on the observed game state. Standard flow: `dota_launch_game` or `dota_restart`, then `dota_advance_to_game`. The `dota2-game-phases` skill and stuck-phase guidance now point to it.
+
 ### Fixed
+
+- **Lua tool output leaked into vconsole**: `dota_run_lua` / `vfx_preview` output and collection markers no longer appear in the vconsole window; a Lua runtime error no longer leaves the window muted.
+- **Over-long Lua silently did nothing**: the engine drops a console statement over ~510 bytes; `dota_run_lua` now rejects such code with a clear error.
+- **`dota_launch_game` reported normal map loading as stuck in INIT.**
+- **`dota_restart` returned before the restart took effect**: it now waits until the reload has begun.
 
 - **`file_edit` corrupted files containing `$`**: `$'`, `$&` and `$1` in `new_string` are now written literally instead of being expanded.
 - **FileOps path boundary bypass via `addon`**: addon names that are `.`/`..` or contain `/`, `\` or `:` are rejected. All FileOps and asset tools share one addon resolver.

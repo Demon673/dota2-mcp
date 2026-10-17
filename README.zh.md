@@ -143,7 +143,8 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 | `dota_open_vconsole` | 打开 vconsole2 窗口（控制台类工具需要它已打开）。 |
 | `dota_launch_game` | 启动自定义游戏地图（等待进入对局；卡住时返回相位与推进方法）。 |
 | `dota_disconnect` | 断开当前游戏。 |
-| `dota_restart` | 重载当前地图。 |
+| `dota_advance_to_game` | 把已加载的游戏从任一开局前相位推进到可玩的对局，每个玩家都有英雄。 |
+| `dota_restart` | 重载当前地图（等到重载真正开始才返回）。 |
 | `console_send` | 向 Dota 2 控制台发送命令。 |
 | `console_output` | 读取控制台输出。 |
 | `console_channels` | 列出可用的 VConsole2 通道。 |

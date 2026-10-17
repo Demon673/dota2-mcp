@@ -4,7 +4,16 @@
 
 ## 未发布
 
+### 新增
+
+- **`dota_advance_to_game`**：一次调用把已加载的游戏从任一开局前相位推进到 GAME_IN_PROGRESS，每个玩家都有英雄（随机，或指定 `hero`），只按观测到的游戏状态行动。标准流程：`dota_launch_game` 或 `dota_restart`，然后 `dota_advance_to_game`。`dota2-game-phases` skill 与卡相位指引现在都指向它。
+
 ### 修复
+
+- **Lua 工具输出漏进 vconsole**：`dota_run_lua` / `vfx_preview` 的输出和收集标记不再出现在 vconsole 窗口；Lua 运行时报错不再让窗口一直静默。
+- **过长的 Lua 静默无效**：引擎会丢弃超过约 510 字节的控制台语句；`dota_run_lua` 现在对这样的代码明确报错。
+- **`dota_launch_game` 把正常的地图加载误报为卡在 INIT。**
+- **`dota_restart` 在重启生效前就返回**：现在等到重载真正开始才返回。
 
 - **`file_edit` 写坏含 `$` 的文件**：`new_string` 里的 `$'`、`$&`、`$1` 现在按字面写入，不再被展开。
 - **借 `addon` 绕过 FileOps 路径边界**：`.`/`..` 或含 `/`、`\`、`:` 的 addon 名会被拒绝。所有 FileOps 与资产工具共用同一个 addon 解析入口。

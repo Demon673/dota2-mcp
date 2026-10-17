@@ -1,37 +1,51 @@
 ---
 name: dota2-game-phases
-description: Use when a launched custom game gets stuck in a game-rules phase (INIT, CUSTOM_GAME_SETUP, HERO_SELECTION, PRE_GAME, etc.) after dota_launch_game, or when you need to understand/advance the current game_state. Gives per-phase normal durations and how to advance each.
+description: Use when a launched custom game sits in a game-rules phase (INIT, CUSTOM_GAME_SETUP, HERO_SELECTION, STRATEGY_TIME, PRE_GAME, etc.) and you need a playable match to test in, or need to understand the current game_state. Gives the standard flow (one tool) plus what each phase means.
 ---
 
-# Dota 2 Game-Rules Phases — what stuck means and how to advance
+# Dota 2 Game-Rules Phases — standard flow to a playable match
 
 status_json reports `server.game_state` as `DOTA_GAMERULES_STATE_*`.
-dota_launch_game watches it and reports when one phase stops advancing
-for 15s. This doc is the full reference for that report.
 
-## SOP when stuck
+## Standard flow
 
-1. console_output (level 3, channel "VScript") — a stuck phase is most
-   often your addon's own Lua erroring. Fix the addon first.
-2. Advance the phase per the table below (usually one dota_run_lua call).
-3. If it won't advance after that, it IS an addon bug — go back to 1.
+| Goal | Calls |
+|---|---|
+| First test run | `dota_launch_game` → `dota_advance_to_game` |
+| Re-test after editing Lua/KV/Panorama | `dota_restart` → `dota_advance_to_game` |
+| Re-test with a specific hero | `dota_advance_to_game` with `hero: "npc_dota_hero_<name>"` |
 
-## Phase table
+`dota_advance_to_game` drives the game from whatever phase it observes to
+GAME_IN_PROGRESS with a hero for every player, and reports the steps it
+took and each player's hero. It does not depend on how the addon is
+written. Use it instead of hand-written `dota_run_lua` phase calls.
 
-| game_state | normal | how to advance when stuck |
-|---|---|---|
-| INIT | duration of map load | Normal during map load — big maps can take minutes. Never finishing → console_output channel ResourceSystem (missing/uncompiled assets → dota_compile_asset) |
-| WAIT_FOR_PLAYERS_TO_LOAD | seconds | Usually self-resolves; console_output shows which client never loads |
-| CUSTOM_GAME_SETUP | until addon ends it | `dota_run_lua` code: `GameRules:FinishCustomGameSetup()` — if it re-sticks, addon setup code is erroring (see SOP 1) |
-| HERO_SELECTION | addon-defined | Assign heroes via dota_run_lua, or GameRules:SetHeroSelectionTime(0) in addon code |
-| STRATEGY_TIME | timed | Auto-advances; GameRules:SetStrategyTime(0) to shorten |
-| TEAM_SHOWCASE | timed | Auto-advances; GameRules:SetShowcaseTime(0) to shorten |
-| WAIT_FOR_MAP_TO_LOAD | seconds | Check console_output channel ResourceSystem — map likely not compiled (dota_compile_asset) |
-| PRE_GAME | timed | Auto-advances; GameRules:SetPreGameTime(0) to shorten |
-| GAME_IN_PROGRESS | — target state | — |
-| POST_GAME | until restart | dota_restart to run again |
+If it returns a stuck report instead, the addon's own code is blocking
+that phase: read the errors in the report (or console_output level 3,
+channel "VScript"), fix the addon, then `dota_restart` and repeat.
 
-Notes:
-- Lua method names verified against the engine's script_help2 dump.
-- A phase being stuck is usually information, not an MCP failure: the
-  MCP reports state + remedy and lets you decide.
+## What the tool does per phase
+
+| game_state | action |
+|---|---|
+| INIT, WAIT_FOR_PLAYERS_TO_LOAD, WAIT_FOR_MAP_TO_LOAD | Wait: map loading, can take minutes on big maps. Never finishing → console_output channel ResourceSystem (missing/uncompiled assets → dota_compile_asset) |
+| CUSTOM_GAME_SETUP | Zero the strategy/showcase/pre-game timers, `GameRules:FinishCustomGameSetup()` |
+| HERO_SELECTION | Every player without a hero: `player:MakeRandomHeroSelection()`; with `hero`, every player: `player:SetSelectedHero(hero)` |
+| STRATEGY_TIME, TEAM_SHOWCASE | Zero the timers; the game advances on its own |
+| PRE_GAME | Heroes spawn on entering it. If it does not advance within a few seconds, `GameRules:ForceGameStart()` |
+| GAME_IN_PROGRESS | Target state: report each player's hero |
+| POST_GAME | Stop: call dota_restart |
+
+Timer changes are runtime-only; the next map load uses the addon's own
+values again.
+
+## Pitfalls
+
+- `GameRules:ForceGameStart()` before PRE_GAME puts the game in
+  GAME_IN_PROGRESS with **no hero** spawned. Such a match is useless for
+  testing; the tool only calls it from PRE_GAME.
+- `PlayerResource:SetSelectedHero(id, name)` records the name but does not
+  end hero selection. Pick through the player controller
+  (`PlayerResource:GetPlayer(id)`) instead.
+- A single console statement over about 510 bytes is silently dropped by
+  the engine; `dota_run_lua` rejects code that would exceed it.

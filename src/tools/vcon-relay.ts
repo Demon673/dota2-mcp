@@ -37,6 +37,9 @@ const INIT_FRAME_TYPES = new Set(["AINF", "CHAN", "CVRB", "CFGV", "ADON"]);
 /** 活性探针文本：静默超时后 relay 发 `echo __mcp_ping__`，回显行对 MCP/GUI 双向过滤 */
 const PROBE_TEXT = "__mcp_ping__";
 
+/** MCP 输出收集的边界标记 `__mcp_<8hex>_begin|end`（index.ts 生成）：永不转发 GUI，也不进 MCP 日志 */
+export const MCP_MARKER_RE = /^__mcp_[0-9a-f]{8}_(begin|end)$/;
+
 export interface LivenessOpts {
   probeIntervalMs: number;
   silenceMs: number;
@@ -506,7 +509,7 @@ export class VConRelay extends EventEmitter {
       port: DOTA_PORT,
       rawPrntEditor: (msg) => {
         const text = msg.text.trim();
-        if (text === PROBE_TEXT) return false; // 探针回显不转发 GUI
+        if (text === PROBE_TEXT || MCP_MARKER_RE.test(text)) return false; // 探针回显与收集标记不转发 GUI
         // MCP 标记之间的输出：静默丢弃，不转发 GUI
         if (this._mcpMarkerSuppress) return false;
         // MCP 标记行本身也不转发（ai_disabled = false / ai_disabled = true）

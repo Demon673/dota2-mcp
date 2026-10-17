@@ -174,7 +174,8 @@ Client → server command type: `CMND` (null-terminated UTF-8).
 | `dota_status` | `status`/`status_json` + file scan | Entry point/navigation: connection, vconsole, addon/maps, live status, next-step guidance (never throws) |
 | `dota_launch_game` | `dota_launch_custom_game` | Launch (auto-completes the addon); polls to GAME_IN_PROGRESS, returns advancement guidance on a stuck phase |
 | `dota_disconnect` | `disconnect` | Disconnect |
-| `dota_restart` | `restart` | Reload the map |
+| `dota_advance_to_game` | `dota_run_lua` channel (GameRules / player controller) | Standard flow: any loaded pre-game phase → GAME_IN_PROGRESS with a hero per player |
+| `dota_restart` | `restart` | Reload the map; waits until the reload has begun |
 | `dota_open_vconsole` | spawn vconsole2.exe | Open the vconsole window (the explicit path when the AssetBrowser button is disabled by the engine) |
 
 **Console communication**
