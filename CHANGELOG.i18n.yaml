@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write CHANGELOG.md
 CHANGELOG.md: eca2182c3930f4c0fbd8f9b51c081acdeafe966a
-CHANGELOG.zh.md: f940ff8518a32627819ab88dcee565cd0c049ca8
+CHANGELOG.zh.md: 4fcb43c728d445337157526eb54bd4541449aba7

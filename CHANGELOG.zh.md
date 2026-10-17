@@ -7,7 +7,7 @@
 ### 修复
 
 - **`file_edit` 写坏含 `$` 的文件**：`new_string` 里的 `$'`、`$&`、`$1` 现在按字面写入，不再被展开。
-- **借 `addon` 绕过 FileOps 路径边界**：为 `.`/`..` 或含 `/`、`\`、`:` 的 addon 名被拒绝。所有 FileOps 与资产工具共用同一个 addon 解析入口。
+- **借 `addon` 绕过 FileOps 路径边界**：`.`/`..` 或含 `/`、`\`、`:` 的 addon 名会被拒绝。所有 FileOps 与资产工具共用同一个 addon 解析入口。
 - **非 ASCII 控制台文本**：VConsole2 输出与命令改为 UTF-8，中文 `print` 输出和非 ASCII Lua 不再乱码。
 - **过期游戏状态**：查询没有回应时，`dota_status` / `dota_launch_game` 不再回落到日志里旧的 `status_json`。
 - **工具结果混入其他输出**：控制台类工具只保留每次调用的 begin/end 回显标记之间的行，隔离其他会话与游戏自身的打印。

@@ -2,6 +2,7 @@
 // 严格门控模型场景: 1) 无 GUI 只探测不连接 + auto-open 就绪沿 2) GUI 接入才连+初始化帧
 // 3) 活性探针 pong 存活/无 pong 判死(GUI 在才重连) 4) GUI 断开即断 Dota 回探测态
 // 5) Dota 消失 ready:false；回来→新就绪沿再 auto-open 6) 进程在/禁用不 auto-open
+// 7) RelayClient 断线期间的命令丢弃不补发
 import net from "node:net";
 
 const BASE = 20000 + Math.floor(Math.random() * 20000);
@@ -189,6 +190,40 @@ relay3.setDotaPath("fake");
 await relay3.start();
 await sleep(1200);
 assert(spawnCalls === 2, "auto-open disabled -> no spawn");
+
+// 7) RelayClient 断线期间的命令直接丢弃，重连后不补发（补发过期的 restart 比丢掉更糟）
+{
+  const { RelayClient } = await import("../dist/relay-client.js");
+  const lines = [];
+  const socks = [];
+  const ctrl = net.createServer((s) => {
+    socks.push(s);
+    let buf = "";
+    s.on("data", (d) => {
+      buf += d.toString();
+      let i;
+      while ((i = buf.indexOf("\n")) !== -1) {
+        const line = buf.slice(0, i);
+        buf = buf.slice(i + 1);
+        lines.push(line);
+        if (line.startsWith("HELLO")) s.write(JSON.stringify({ type: "hello-ok" }) + "\n");
+      }
+    });
+    s.on("error", () => {});
+  });
+  await new Promise((r) => ctrl.listen(BASE + 3, "127.0.0.1", r));
+  const client = new RelayClient({ port: BASE + 3, token: null });
+  await client.connect();
+  socks[0].destroy();
+  await sleep(100);
+  client.sendCommand("echo dropped");
+  await waitFor(() => socks.length >= 2 && lines.filter((l) => l.startsWith("HELLO")).length >= 2, 5000, "client re-handshake");
+  client.sendCommand("echo live");
+  await waitFor(() => lines.includes("CMD:echo live"), 2000, "command after reconnect delivered");
+  assert(!lines.includes("CMD:echo dropped"), "command sent while disconnected is not replayed after reconnect");
+  client.destroy();
+  ctrl.close();
+}
 
 relay2.close();
 relay3.close();

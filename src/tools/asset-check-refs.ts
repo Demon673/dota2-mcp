@@ -53,14 +53,14 @@ function resolveOneRef(dotaPath: string, addon: string, ref: string, from: strin
   return { report: { ref: clean, from, resolved: null, issue: "not_found" }, kind: "broken", nextSource: null };
 }
 
-/** 反编译一个资产（文本；vtex 跳过——纹理无引用）。失败返回空串（调用方按未编译处理）。 */
-function decompileText(exe: string, p: string): string {
+/** 反编译一个资产为文本。失败返回 null（与「成功但无内容」的空串区分开）。 */
+function decompileText(exe: string, p: string): string | null {
   try {
     const tmp = path.join(tmpdir(), "dota2-mcp", "checkrefs", path.basename(p) + "." + process.pid + ".txt");
     const text = decompileToText(exe, p, tmp);
     rmSync(tmp, { force: true });
     return text;
-  } catch { return ""; }
+  } catch { return null; }
 }
 
 /** 单资产递归引用检查。 */
@@ -82,8 +82,8 @@ export async function checkRefs(dotaPath: string, addon: string, resolvedPath: s
     if (visited.has(src) || depth > maxDepth) continue;
     visited.add(src);
     const text = decompileText(vrf.executable, src);
-    // 根资产都打不开（路径错/文件坏）不能报成「0 个问题」
-    if (!text && src === resolvedPath) {
+    // 根资产都打不开（路径错/文件坏）不能报成「0 个问题」；子资产打不开按无引用跳过
+    if (text === null && src === resolvedPath) {
       return { ok: false, text: "asset_check_refs: VRF CLI could not decompile " + resolvedPath + " (wrong path or unreadable asset)" };
     }
     if (!text) continue;

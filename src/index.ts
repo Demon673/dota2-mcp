@@ -34,6 +34,13 @@ function getVersion(): string {
   }
 }
 
+/** collectOutput 的边界标记：生成与识别共用这一处定义 */
+const MCP_MARKER_RE = /^__mcp_[0-9a-f]{8}_(begin|end)$/;
+function newMcpMarkers(): { begin: string; end: string } {
+  const id = crypto.randomBytes(4).toString("hex");
+  return { begin: `__mcp_${id}_begin`, end: `__mcp_${id}_end` };
+}
+
 // Stdio MCP 服务器必须保证 stdout 只输出 JSON-RPC，任何 console.log/info 都重定向到 stderr
 console.log = (...args: any[]) => console.error(...args);
 console.info = (...args: any[]) => console.error(...args);
@@ -171,7 +178,7 @@ async function main(): Promise<void> {
     });
     // 事件驱动：relay 收到 PRNT 时立即同步到本地缓冲
     r.on("prnt", (msg: any) => {
-      if (/^__mcp_[0-9a-f]+_(begin|end)$/.test(String(msg.text).trim())) return; // collectOutput 的边界标记
+      if (MCP_MARKER_RE.test(String(msg.text).trim())) return;
       prntLog.push({ text: msg.text, verbosity: msg.verbosity, channel: msg.channel || "" });
       if (prntLog.length > 10000) {
         prntLog.shift();
@@ -654,9 +661,9 @@ Once connected, call dota_status again.` }] };
         return { content: [{ type: "text", text: `Already in game: ${initial.map} (${initial.game_state})` }] };
       }
       // 已加载的是别的地图（如上一局停在 POST_GAME）也要发命令，否则只会干等到卡相位报告
-      // status_json 的 map 格式未经活体核对，去目录和扩展名再比
-      const loadedMap = path.basename(initial.map).replace(/\.[^.]+$/, "");
-      if (!initial.loading && (!initial.loaded || loadedMap !== m)) {
+      // 两侧都去目录、只去地图扩展名（名字里可以有点）、忽略大小写再比
+      const mapKey = (s: string) => path.basename(s).replace(/\.(vmap|vpk)$/i, "").toLowerCase();
+      if (!initial.loading && (!initial.loaded || mapKey(initial.map) !== mapKey(m))) {
         relay.sendCommand(`dota_launch_custom_game ${a} ${m}`);
       }
 
@@ -819,17 +826,26 @@ Once connected, call dota_status again.` }] };
     return extractLastStatusJson(await collectOutput("status_json", { waitMs, settleMs: 150 }));
   }
 
-  /** 直接监听 PRNT 事件收集命令输出（避免 prntLog 滚动导致 slice 失效）。
-   * 命令前后各回显一个唯一标记，只收两标记之间的行：隔离共享 daemon 的其他会话和游戏自身的打印。
-   * ent_fire RunScriptCode 下一帧才执行（输出晚于紧随其后的 echo），这类命令传函数，
-   * 由 Lua 自己 print 结束标记。
-   * 支持 settleMs：收到第一批输出后，若 settleMs 毫秒内无新输出则提前返回（结束标记没到时的兜底）。 */
-  async function collectOutput(cmd: string | ((endMarker: string) => string), opts: { waitMs?: number; settleMs?: number } = {}): Promise<string[]> {
+  /** 收集一条控制台命令的输出：`echo <begin>; <cmd>; echo <end>` 作为一个 CMND 发出（整条原子执行，
+   * 其他会话的命令插不进来），只收两标记之间的行，隔离其他会话与游戏自身的打印。
+   * 契约：收到结束标记即返回——命令若把输出推迟到 echo 之后（下一帧才执行的命令），那部分会被截掉；
+   * 这类命令改用 collectLuaOutput。settleMs：收到首批输出后静默这么久即返回（结束标记没到时的兜底）。 */
+  function collectOutput(cmd: string, opts: { waitMs?: number; settleMs?: number } = {}): Promise<string[]> {
+    return collectBetweenMarkers((begin, end) => `echo ${begin}; ${cmd}; echo ${end}`, opts);
+  }
+
+  /** 在服务端 Lua 里执行代码并收集输出。ent_fire RunScriptCode 下一帧才执行，
+   * 所以结束标记由 Lua 自己 print；代码报错时结束标记不到，靠 settleMs 兜底。
+   * 双引号换成单引号，避免与 RunScriptCode 参数的引号冲突。 */
+  function collectLuaOutput(luaBody: string, opts: { waitMs?: number; settleMs?: number } = {}): Promise<string[]> {
+    const code = luaBody.replace(/"/g, "'");
+    return collectBetweenMarkers((begin, end) => `echo ${begin}; ent_fire 0 RunScriptCode "${code} print('${end}')"`, opts);
+  }
+
+  async function collectBetweenMarkers(buildCmd: (begin: string, end: string) => string, opts: { waitMs?: number; settleMs?: number }): Promise<string[]> {
     const { waitMs = 3000, settleMs } = opts;
     const r = relay; // respawn 会替换 relay，off 必须落在同一个对象上
-    const id = crypto.randomBytes(4).toString("hex");
-    const begin = `__mcp_${id}_begin`;
-    const end = `__mcp_${id}_end`;
+    const { begin, end } = newMcpMarkers();
     const collected: string[] = [];
     let inside = false;
     let finishEarly: (() => void) | null = null;
@@ -840,13 +856,7 @@ Once connected, call dota_status again.` }] };
       if (inside) collected.push(msg.text);
     };
     r.on("prnt", onPrnt);
-    r.sendCommand(`echo ${begin}`);
-    if (typeof cmd === "string") {
-      r.sendCommand(cmd);
-      r.sendCommand(`echo ${end}`);
-    } else {
-      r.sendCommand(cmd(end));
-    }
+    r.sendCommand(buildCmd(begin, end));
 
     return new Promise((resolve) => {
       let lastLen = 0;
@@ -1098,11 +1108,7 @@ Once connected, call dota_status again.` }] };
         return { content: [{ type: "text", text: "Provide either 'code' or 'expression'." }] };
       }
 
-      // 简单转义：把双引号换成单引号，避免 RunScriptCode 参数字符串冲突
-      const safeCode = luaBody.replace(/"/g, "'");
-
-      // 结束标记由 Lua 打印（RunScriptCode 下一帧才执行）；用户代码报错时它不会到，靠 settleMs 兜底
-      const execOut = await collectOutput((end) => `ent_fire 0 RunScriptCode "${safeCode} print('${end}')"`, { waitMs: 15000, settleMs: 400 });
+      const execOut = await collectLuaOutput(luaBody, { waitMs: 15000, settleMs: 400 });
 
       const markerIdx = execOut.findIndex(l => l.includes("[MCP-LUA] IsServer"));
       if (markerIdx === -1) {
@@ -1331,8 +1337,7 @@ Once connected, call dota_status again.` }] };
         ? " ParticleManager:SetParticleControl(pid, 0, Vector(" + position.join(",") + ")) "
         : " ";
       const luaBody = "print('[MCP-VFX] IsServer: ' .. tostring(IsServer())) local pid = ParticleManager:CreateParticle('" + pathSafe + "', " + attachName + ", nil)" + posLua + " print('[MCP-VFX] pid=' .. tostring(pid) .. ' attach=" + attachName + "')";
-      const safeCode = luaBody.replace(/"/g, "'");
-      const execOut = await collectOutput((end) => 'ent_fire 0 RunScriptCode "' + safeCode + " print('" + end + "')" + '"', { waitMs: 15000, settleMs: 400 });
+      const execOut = await collectLuaOutput(luaBody, { waitMs: 15000, settleMs: 400 });
       const lines = execOut.filter((l) => l.includes("[MCP-VFX]") || /error|failed|missing/i.test(l));
       return { content: [{ type: "text", text: lines.join("\n") || "Sent. Read console_output (channels Particles/ResourceSystem) for load errors." }] };
     }
@@ -1346,8 +1351,7 @@ Once connected, call dota_status again.` }] };
     async ({ particle_id }) => {
       requireConsole();
       const luaBody = "print('[MCP-VFX] destroy pid=' .. tostring(" + particle_id + ")) local ok = ParticleManager:DestroyParticle(" + particle_id + ", false) print('[MCP-VFX] destroyed pid=" + particle_id + " ok=' .. tostring(ok))";
-      const safeCode = luaBody.replace(/"/g, "'");
-      const execOut = await collectOutput((end) => 'ent_fire 0 RunScriptCode "' + safeCode + " print('" + end + "')" + '"', { waitMs: 15000, settleMs: 400 });
+      const execOut = await collectLuaOutput(luaBody, { waitMs: 15000, settleMs: 400 });
       const lines = execOut.filter((l) => l.includes("[MCP-VFX]") || /error|failed/i.test(l));
       return { content: [{ type: "text", text: lines.join("\n") || "Sent. Check console_output for errors." }] };
     }

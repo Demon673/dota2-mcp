@@ -23,6 +23,7 @@ function frame(type, payload) {
 const prnt = (text) => frame("PRNT", Buffer.concat([Buffer.alloc(28), Buffer.from(text + "\0", "utf-8")]));
 
 // 假 Dota：每条 CMND 按 ; 拆分执行；begin 之前和 end 之后各插一行噪声，模拟游戏自身/其他会话的打印；其余命令回一行中文
+const received = []; // 假 Dota 收到的 CMND 原文（UTF-8 解码），用于断言出站编码
 const dota = net.createServer((sock) => {
   let buf = Buffer.alloc(0);
   sock.on("data", (d) => {
@@ -30,6 +31,7 @@ const dota = net.createServer((sock) => {
     while (buf.length >= 12 && buf.length >= buf.readUInt32BE(6)) {
       const len = buf.readUInt32BE(6);
       const cmd = buf.subarray(12, len).toString("utf-8").replace(/\0/g, "");
+      received.push(cmd);
       buf = buf.subarray(len);
       for (const part of cmd.split(";").map((s) => s.trim()).filter(Boolean)) {
         if (part.startsWith("echo ")) {
@@ -67,6 +69,12 @@ assert(!/__mcp_[0-9a-f]+_/.test(text), "markers stripped: " + text);
 
 const log = await call("tools/call", { name: "console_output", arguments: { lines: 50 } });
 assert(!/__mcp_[0-9a-f]+_/.test(log.result.content[0].text), "markers kept out of console_output");
+
+// 出站：中文命令按 UTF-8 编码到达引擎（ascii 编码会截掉高位字节）
+const sent = await call("tools/call", { name: "console_send", arguments: { commands: "echo 中文出站" } });
+assert(!sent.result.isError, "console_send ok");
+await sleep(500);
+assert(received.some((c) => c.includes("echo 中文出站")), "outbound command UTF-8 intact: " + JSON.stringify(received.slice(-2)));
 
 gui.destroy();
 dota.close();

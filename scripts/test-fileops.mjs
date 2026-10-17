@@ -1,14 +1,25 @@
 // 离线 FileOps 冒烟：file_read/write/edit/delete + 路径边界（不依赖 Dota 进程）
-// 用真实 Dota 目录 + DOTA2_TEST_ADDON=dota2mcptest（addon 目录须存在；daemon 不必运行）
+// DOTA2_TEST_ADDON（默认 dota2mcptest）。本机装了 Steam 时用真实 Dota 目录（注册表优先，addon 目录须存在）；
+// 没有 Steam 的机器（CI runner）经 STEAM_PATH 落到临时搭的最小 Steam 库
+import { mkdtempSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
 
 const BASE = 20000 + Math.floor(Math.random() * 20000);
+const addonName = process.env.DOTA2_TEST_ADDON || "dota2mcptest";
+const fakeSteam = mkdtempSync(path.join(tmpdir(), "fileops-steam-"));
+const fakeDota = path.join(fakeSteam, "steamapps", "common", "dota 2 beta");
+for (const d of [["game", "dota"], ["game", "dota_addons", addonName], ["content", "dota_addons", addonName]]) {
+  mkdirSync(path.join(fakeDota, ...d), { recursive: true });
+}
 const env = {
   ...process.env,
   DOTA2_VCON_DOTA_PORT: String(BASE),
   DOTA2_VCON_GUI_PORT: String(BASE + 1),
   DOTA2_VCON_CTRL_PORT: String(BASE + 2),
-  DOTA2_TEST_ADDON: process.env.DOTA2_TEST_ADDON || "dota2mcptest",
+  DOTA2_TEST_ADDON: addonName,
+  STEAM_PATH: process.env.STEAM_PATH || fakeSteam,
 };
 const { call, notify } = spawnMcpServer({ timeoutMs: 45000, env });
 function callText(result) {
