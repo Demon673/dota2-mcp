@@ -19,7 +19,7 @@ const tools = await call("tools/list", {});
 const names = tools.result.tools.map(t => t.name);
 assert(!names.includes("project_info"), "project_info removed");
 assert(names.includes("dota_open_vconsole"), "dota_open_vconsole registered");
-assert(names.length === 32, `32 tools total (got ${names.length})`);
+assert(names.length === 33, `33 tools total (got ${names.length})`);
 
 const status = await call("tools/call", { name: "dota_status", arguments: {} });
 const statusText = status.result.content[0].text;

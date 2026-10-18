@@ -24,6 +24,7 @@ import * as consoleBridge from "./tools/console-bridge.js";
 import { ensureVrf, DEFAULT_VERSION } from "./tools/vrf-ensure.js";
 import { inspectAsset } from "./tools/asset-inspect.js";
 import { checkRefs } from "./tools/asset-check-refs.js";
+import { captureScreenshot } from "./tools/screenshot.js";
 import * as daemon from "./daemon-utils.js";
 
 function getVersion(): string {
@@ -411,6 +412,7 @@ Then call dota_status again.`;
       `Game has been stuck in ${state || "(unknown state)"} for ${Math.round(stuckMs / 1000)}s.`,
       `How to advance: ${guidance}`,
       errors.length > 0 ? `Recent errors:\n${errors.join("\n")}` : "No recent VScript/error output.",
+      `To see what the game is showing: call dota_screenshot.`,
       `Full phase guide: call dota2_skill with name "dota2-game-phases".`,
     ].join("\n");
   }
@@ -788,6 +790,26 @@ Once connected, call dota_status again.` }] };
   );
 
   // Tool: 打开 vconsole 窗口（AssetBrowser 按钮被引擎禁用时的显式路径）
+  // Tool: 游戏截图（不受 vconsole 门控：截图就是用来排查控制台没反应、画面卡在哪的）
+  server.tool("dota_screenshot",
+    "Use to see what the Dota 2 game is actually showing — e.g. when a launch or phase seems stuck, console output says nothing, or you need to check UI or visuals. Takes a game screenshot of the Dota 2 game window from outside the game (Windows.Graphics.Capture, no console command), so it works when the game or console does not respond, needs no vconsole, and never steals focus. A hung game returns its last frame flagged hung: true. A minimized window is restored without focus, captured, and minimized again (restore: false to disable). Only the game viewport is captured, never the rest of the screen. Windows only.",
+    {
+      max_width: z.number().int().min(64).max(7680).optional().describe("Scale the image down to at most this width in pixels. Default 1280."),
+      format: z.enum(["jpeg", "png"]).optional().describe("Image format. Default jpeg (quality 80)."),
+      restore: z.boolean().optional().describe("Restore a minimized window (without focus) to capture it, then minimize it again. Default true."),
+    },
+    async ({ max_width, format, restore }) => {
+      const fmt = format ?? "jpeg";
+      const r = await captureScreenshot({ maxWidth: max_width ?? 1280, format: fmt, restore: restore ?? true, dotaPath });
+      return {
+        content: r.image
+          ? [{ type: "image" as const, data: r.image.data, mimeType: r.image.mimeType }, { type: "text" as const, text: r.text }]
+          : [{ type: "text" as const, text: r.text }],
+        isError: !r.ok,
+      };
+    }
+  );
+
   server.tool("dota_open_vconsole",
     "Use to open the VConsole2 window for the user when console tools report 'vconsole 未打开'. Launches vconsole2.exe directly (the AssetBrowser vconsole button is disabled by the engine while this MCP holds port 29000) and waits for it to attach to the relay. Console tools require an attached vconsole (explicit contract).",
     {},

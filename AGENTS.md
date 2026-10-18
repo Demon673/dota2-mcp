@@ -176,6 +176,7 @@ Client → server command type: `CMND` (null-terminated UTF-8).
 | `dota_disconnect` | `disconnect` | Disconnect |
 | `dota_advance_to_game` | `dota_run_lua` channel (GameRules / player controller) | Standard flow: any loaded pre-game phase → GAME_IN_PROGRESS with a hero per player |
 | `dota_restart` | `restart` | Reload the map; waits until the reload has begun |
+| `dota_screenshot` | none (Windows.Graphics.Capture helper) | Game screenshot of the game window from outside the game; ungated, works when the game hangs |
 | `dota_open_vconsole` | spawn vconsole2.exe | Open the vconsole window (the explicit path when the AssetBrowser button is disabled by the engine) |
 
 **Console communication**

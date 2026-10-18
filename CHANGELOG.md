@@ -6,6 +6,7 @@ English | [中文](CHANGELOG.zh.md)
 
 ### Added
 
+- **`dota_screenshot`**: captures the Dota 2 game window in the background and returns the image to the agent. It needs no console or vconsole, works when the game hangs (flagged `hung: true`), never steals focus, and restores a minimized window only for the capture. Windows only; the capture helper is compiled on first use with the system C# compiler.
 - **`dota_advance_to_game`**: one call takes a loaded game from any pre-game phase to GAME_IN_PROGRESS with a hero for every player (random, or a given `hero`), acting only on the observed game state. Standard flow: `dota_launch_game` or `dota_restart`, then `dota_advance_to_game`. The `dota2-game-phases` skill and stuck-phase guidance now point to it.
 
 ### Fixed
