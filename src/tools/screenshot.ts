@@ -278,14 +278,15 @@ static class DotaCapture {
         session.StartCapture();
         // Poll the free-threaded pool (WinRT event += needs System.Runtime.WindowsRuntime, unavailable without the SDK).
         var start = DateTime.UtcNow;
-        int deadlineMs = restored ? 2000 : 1500;
+        // A restored window gets 300 ms for a newer frame, keeping the latest; Dota restored without focus
+        // usually renders none, and the frame DWM hands over at once is the window's content (measured live).
+        int settleMs = restored ? 300 : 0;
         Direct3D11CaptureFrame got = null;
-        while (got == null && (DateTime.UtcNow - start).TotalMilliseconds < deadlineMs) {
+        while ((DateTime.UtcNow - start).TotalMilliseconds < 2000) {
           var f = pool.TryGetNextFrame();
-          if (f == null) { await Task.Delay(5); continue; }
-          // A just-restored window can still show its pre-minimize frame: drop frames for the first 300 ms.
-          if (restored && (DateTime.UtcNow - start).TotalMilliseconds < 300) { f.Dispose(); continue; }
-          got = f;
+          if (f != null) { if (got != null) got.Dispose(); got = f; }
+          if (got != null && (DateTime.UtcNow - start).TotalMilliseconds >= settleMs) break;
+          if (f == null) await Task.Delay(5);
         }
         if (got == null) { Fail("no_frame", "No frame arrived from the Dota 2 window."); return 3; }
         using (var frame = got) {

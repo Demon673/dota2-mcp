@@ -18,7 +18,7 @@ Status: implemented
 - **协议**：`helper <outPath> <maxWidth> <jpeg|png> <restore 0|1>`，或 `helper --minimize`，在 UTF-8 的 stdout 上逐行输出 JSON，最后一行是结果：`ok`、`width`、`height`、`hung`、`restored`，或 `ok: false` 加 `error`（`no_window`、`minimized`、`no_frame`、`internal`）与 `message`。恢复最小化窗口前先输出 `{"restoring":true}`。`DOTA2_CAPTURE_HELPER` 可替换辅助程序（`.js`/`.mjs` 路径用当前 node 运行）；这是离线测试替换的唯一接入点。
 - **隔离**：辅助程序作为子进程运行，超时 5 秒即被杀掉。被杀的辅助程序跑不到自己的重新最小化，所以它若已输出 `restoring`，工具会运行 `helper --minimize`，不激活地把窗口重新最小化。截图失败时删除输出文件。工具不受 vconsole 门控，relay 断开时也能用。
 - **游戏卡死**：`IsHungAppWindow` 为真时照常返回图片，附 `hung: true` 和一条说明。
-- **窗口最小化**：`restore`（默认 `true`）时，辅助程序用 `SW_SHOWNOACTIVATE` 恢复窗口，丢弃前 300 ms 的帧，最多等 2 秒拿到一帧，截图后用 `SW_SHOWMINNOACTIVE` 重新最小化。未最小化的窗口立即截图。`restore: false` 时，或保存的视频设置表明是独占全屏（`setting.fullscreen "1"`）时，最小化的窗口只报告、不恢复。
+- **窗口最小化**：`restore`（默认 `true`）时，辅助程序用 `SW_SHOWNOACTIVATE` 恢复窗口，保留 300 ms 内到达的最新一帧（活体实测：不激活恢复的 Dota 不会渲染新帧，而 Windows 立即交出的那一帧就是窗口的正确内容），截图后用 `SW_SHOWMINNOACTIVE` 重新最小化。未最小化的窗口立即截图。`restore: false` 时，或保存的视频设置表明是独占全屏（`setting.fullscreen "1"`）时，最小化的窗口只报告、不恢复。
 - **输出**：缩放到 `max_width`（默认 1280），默认 `jpeg` 质量 80，或 `png`，作为 MCP image 内容连同保存路径返回。文件存到 `os.tmpdir()/dota2-mcp/screenshots/`（`DOTA2_SCREENSHOT_DIR` 可覆盖），保留最近 20 张；清理只涉及工具自己生成的文件名。
 - **没有 Dota 窗口**：报错，绝不改为截取屏幕。**平台**：只支持 Windows。
 - **其他工具**：共用的卡相位报告会提到 `dota_screenshot`；没有工具会自动附带截图。
@@ -39,6 +39,6 @@ Status: implemented
 ## Testing
 
 - `scripts/test-screenshot.mjs`（离线，Windows 和 Linux 都能跑）：经 stdio 驱动真实的 MCP server，`DOTA2_CAPTURE_HELPER` 指向一个假的 node 辅助程序。它断言 image 内容和保存路径、`max_width`/`format`/`restore` 能传到辅助程序及其默认值、`hung: true` 标注、最小化窗口被恢复、`restore: false`、没有窗口和超时三种错误、恢复之后超时会重新最小化、失败后不留残缺文件、报告成功但图片缺失时返回工具错误，以及只保留自己生成的最新 20 个文件——全程没有 Dota、vconsole 或 relay 连接。它还在进程内断言：由假 `video.txt` 触发的独占全屏错误、没有窗口时报错里给出真实的 `dota2.exe` 路径、启动失败的原因，以及在非 Windows runner 上的仅支持 Windows 错误。
-- 活体（Windows 11，Dota 2 带 `-tools`）：系统 `csc.exe` 编译出了辅助程序；对主菜单窗口截图，返回的 1280×741 JPEG 和 640×370 PNG 只包含游戏视口，开发者的前台窗口没有变化。
+- 活体（Windows 11，Dota 2 带 `-tools`，无边框窗口停在主菜单）：系统 `csc.exe` 编译出了辅助程序。可见窗口 0.34 秒返回 1280×741 JPEG，也能返回 640×370 PNG，都只包含游戏视口。最小化的窗口被恢复、约 0.6 秒截完、再重新最小化，开发者的前台窗口全程不变；`restore: false` 报告窗口已最小化。恢复路径第一次活体运行返回 `no_frame`：唯一的一帧落在当时 300 ms 的丢帧窗口里被扔掉了，所以现在改为保留最新一帧。
 
-未覆盖：Dota 2 忽略来自外部的最小化请求（`SW_SHOWMINNOACTIVE` 与 `WM_SYSCOMMAND SC_MINIMIZE`），所以恢复路径只对假辅助程序跑过；截取卡死的游戏、Windows 换上"无响应"占位窗口后 WGC 返回的画面、截图边框是否真的被隐藏，都尚未活体验证。
+未经活体覆盖：截取卡死的游戏、Windows 换上"无响应"占位窗口后 WGC 返回的画面、截图边框是否被隐藏，以及超时后的重新最小化。
