@@ -103,7 +103,7 @@ function detectDotaPathManual(): string | null {
 export function isProcessRunning(imageName: string): boolean {
   try {
     if (process.platform === "win32") {
-      const out = execSync(`tasklist /FI "IMAGENAME eq ${imageName}" /NH`, { encoding: "utf-8" });
+      const out = execSync(`tasklist /FI "IMAGENAME eq ${imageName}" /NH`, { encoding: "utf-8", windowsHide: true });
       return out.includes(imageName);
     }
     try {
@@ -114,6 +114,7 @@ export function isProcessRunning(imageName: string): boolean {
       try {
         const out = execSync(`tasklist.exe /FI "IMAGENAME eq ${imageName}" /NH`, {
           encoding: "utf-8",
+          windowsHide: true,
           stdio: ["pipe", "pipe", "pipe"],
         });
         return out.includes(imageName);
