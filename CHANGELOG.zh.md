@@ -6,7 +6,7 @@
 
 ### 新增
 
-- **`dota_screenshot`**：在后台截取 Dota 2 游戏窗口画面并返回给 agent。不需要控制台或 vconsole，游戏卡死时也能截（标注 `hung: true`），不抢焦点，最小化的窗口只在截图时临时恢复。仅支持 Windows；截图辅助程序在首次使用时用系统自带的 C# 编译器编译。
+- **`dota_screenshot`**：在后台截取 Dota 2 游戏窗口画面并返回给 agent。不需要控制台或 vconsole，Windows 报告游戏无响应时仍尝试返回最后一帧（标注 `hung: true`），不抢焦点，最小化的窗口只在截图时临时恢复。仅支持 Windows；截图辅助程序在首次使用时用系统自带的 C# 编译器编译。
 - **`dota_advance_to_game`**：一次调用把已加载的游戏从任一开局前相位推进到 GAME_IN_PROGRESS，每个玩家都有英雄（随机，或指定 `hero`），只按观测到的游戏状态行动。标准流程：`dota_launch_game` 或 `dota_restart`，然后 `dota_advance_to_game`。`dota2-game-phases` skill 与卡相位指引现在都指向它。
 
 ### 修复

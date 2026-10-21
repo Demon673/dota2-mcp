@@ -76,6 +76,7 @@ Optional advanced configuration:
 | `DOTA2_VCON_GUI_PORT` | `29001` | Port forwarded to the vconsole2 GUI |
 | `DOTA2_VCON_CTRL_PORT` | `29002` | MCP control port |
 | `DOTA2_VCON_AUTO_OPEN_VCONSOLE` | `1` | Auto-open vconsole2.exe when Dota readiness is detected (rising edge) and no vconsole2 process exists; `0` disables |
+| `DOTA2_SCREENSHOT_DIR` | `os.tmpdir()/dota2-mcp/screenshots` | Where `dota_screenshot` saves images; it keeps only its own 20 newest |
 
 ## Key findings
 
@@ -176,7 +177,7 @@ Client → server command type: `CMND` (null-terminated UTF-8).
 | `dota_disconnect` | `disconnect` | Disconnect |
 | `dota_advance_to_game` | `dota_run_lua` channel (GameRules / player controller) | Standard flow: any loaded pre-game phase → GAME_IN_PROGRESS with a hero per player |
 | `dota_restart` | `restart` | Reload the map; waits until the reload has begun |
-| `dota_screenshot` | none (Windows.Graphics.Capture helper) | Game screenshot of the game window from outside the game; ungated, works when the game hangs |
+| `dota_screenshot` | none (Windows.Graphics.Capture helper) | Game screenshot of the game window from outside the game; ungated; tries to return the last frame when the game hangs (unverified live) |
 | `dota_open_vconsole` | spawn vconsole2.exe | Open the vconsole window (the explicit path when the AssetBrowser button is disabled by the engine) |
 
 **Console communication**

@@ -789,10 +789,9 @@ Once connected, call dota_status again.` }] };
     }
   );
 
-  // Tool: 打开 vconsole 窗口（AssetBrowser 按钮被引擎禁用时的显式路径）
   // Tool: 游戏截图（不受 vconsole 门控：截图就是用来排查控制台没反应、画面卡在哪的）
   server.tool("dota_screenshot",
-    "Use to see what the Dota 2 game is actually showing — e.g. when a launch or phase seems stuck, console output says nothing, or you need to check UI or visuals. Takes a game screenshot of the Dota 2 game window from outside the game (Windows.Graphics.Capture, no console command), so it works when the game or console does not respond, needs no vconsole, and never steals focus. A hung game returns its last frame flagged hung: true. A minimized window is restored without focus, captured, and minimized again (restore: false to disable). Only the game viewport is captured, never the rest of the screen. Windows only.",
+    "Use to see what the Dota 2 game is actually showing — e.g. when a launch or phase seems stuck, console output says nothing, or you need to check UI or visuals. Takes a game screenshot of the Dota 2 game window from outside the game (Windows.Graphics.Capture, no console command), so it works without a console connection, needs no vconsole, and never steals focus. If Windows reports the game as not responding, it still tries to return the window's last frame, flagged hung: true. A minimized window is restored without focus, captured, and minimized again (restore: false to disable). Only the game viewport is captured, never the rest of the screen. Windows only.",
     {
       max_width: z.number().int().min(64).max(7680).optional().describe("Scale the image down to at most this width in pixels. Default 1280."),
       format: z.enum(["jpeg", "png"]).optional().describe("Image format. Default jpeg (quality 80)."),
@@ -810,6 +809,7 @@ Once connected, call dota_status again.` }] };
     }
   );
 
+  // Tool: 打开 vconsole 窗口（AssetBrowser 按钮被引擎禁用时的显式路径）
   server.tool("dota_open_vconsole",
     "Use to open the VConsole2 window for the user when console tools report 'vconsole 未打开'. Launches vconsole2.exe directly (the AssetBrowser vconsole button is disabled by the engine while this MCP holds port 29000) and waits for it to attach to the relay. Console tools require an attached vconsole (explicit contract).",
     {},

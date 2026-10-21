@@ -1,9 +1,9 @@
 // dota_screenshot：游戏截图（game screenshot）——从游戏外部经 Windows.Graphics.Capture 截取 Dota 2 游戏视口窗口，
-// 不经控制台、不给游戏发消息，所以游戏卡死时也能拿到画面。截图辅助程序是下方内嵌的 C# 源码：首次使用时用 Windows
-// 自带的 .NET Framework csc 编译，按源码哈希缓存在 os.tmpdir()/dota2-mcp/capture/（仓库不附带二进制）。
+// 不经控制台、不给游戏发消息。截图辅助程序是下方内嵌的 C# 源码：首次使用时用 Windows 自带的 .NET Framework csc
+// 异步编译，按源码哈希缓存在 os.tmpdir()/dota2-mcp/capture/（仓库不附带二进制）。
 // 决策与备选方案见 .agents/notes/implemented/feature/2026-10-18-dota-screenshot.md。
 import { randomBytes, createHash } from "node:crypto";
-import { execFile, execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -23,44 +23,59 @@ export interface ScreenshotResult {
 
 const TIMEOUT_MS = 5000;
 const KEEP = 20;
+/** 本工具生成的文件名；prune 只删匹配它的文件（DOTA2_SCREENSHOT_DIR 可能指向用户自己的目录） */
+const SHOT_NAME = /^dota-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{4}\.(jpg|png)$/;
 
-/** 辅助程序协议：argv = outPath maxWidth jpeg|png restore(0|1)；stdout 一行 JSON。 */
+/** 辅助程序协议：argv = outPath maxWidth jpeg|png restore(0|1)，或 --minimize；stdout 每行一个 JSON，
+ *  最后一行是结果。恢复最小化窗口前先输出 {"restoring":true}。 */
 interface HelperReply {
-  ok: boolean;
-  path?: string;
+  ok?: boolean;
   width?: number;
   height?: number;
   hung?: boolean;
   restored?: boolean;
+  restoring?: boolean;
   error?: string;
   message?: string;
 }
 
-/** 编译（或复用缓存的）截图辅助程序，返回 exe 路径。编译失败抛错（含 csc 输出）。 */
-function ensureHelper(): string {
+interface RunResult { stdout: string; stderr: string; timedOut: boolean; error: string | null }
+
+function run(cmd: string, args: string[], timeout: number): Promise<RunResult> {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { timeout, windowsHide: true, encoding: "utf8" }, (err, stdout, stderr) => {
+      const e = err as (Error & { killed?: boolean; code?: unknown }) | null;
+      resolve({ stdout: stdout ?? "", stderr: stderr ?? "", timedOut: !!e?.killed, error: e ? e.message : null });
+    });
+  });
+}
+
+/** 编译（或复用缓存的）截图辅助程序，返回 exe 路径。异步执行：冷编译不阻塞 MCP 主进程。编译失败抛错（含 csc 输出）。 */
+async function ensureHelper(): Promise<string> {
   const hash = createHash("sha256").update(HELPER_SOURCE).digest("hex").slice(0, 12);
   const dir = path.join(tmpdir(), "dota2-mcp", "capture", hash);
   const exe = path.join(dir, "dota-capture.exe");
   if (existsSync(exe)) return exe;
   mkdirSync(dir, { recursive: true });
-  const src = path.join(dir, "dota-capture.cs");
+  // 每个编译者用自己的源文件与产物名：并发会话不会读到别人写了一半的 .cs
+  const tag = `${process.pid}.${randomBytes(3).toString("hex")}`;
+  const src = path.join(dir, `dota-capture.${tag}.cs`);
+  const tmpExe = path.join(dir, `dota-capture.${tag}.exe`);
   writeFileSync(src, HELPER_SOURCE);
   const root = process.env.SystemRoot || "C:\\Windows";
   const gac = (name: string) => path.join(root, "Microsoft.NET", "assembly", "GAC_MSIL", name, "v4.0_4.0.0.0__b03f5f7f11d50a3a", name + ".dll");
   const winmd = (name: string) => path.join(root, "System32", "WinMetadata", name + ".winmd");
   // 只引用每台 Windows 10/11 都有的 GAC facade 与拆分 winmd；SDK 才有的合并版 Windows.winmd 不可用
   const refs = [gac("System.Runtime"), gac("System.Threading.Tasks"), winmd("Windows.Foundation"), winmd("Windows.Graphics"), winmd("Windows.Storage")];
-  const tmpExe = path.join(dir, `dota-capture.${process.pid}.exe`);
-  try {
-    execFileSync(path.join(root, "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe"),
-      ["-nologo", "-optimize", "-platform:x64", `-out:${tmpExe}`, ...refs.map((r) => `-r:${r}`), src],
-      { encoding: "utf8", windowsHide: true, timeout: 60000 });
-  } catch (e) {
-    const err = e as { stdout?: string; message?: string };
-    throw new Error((err.stdout || err.message || "csc failed").trim().slice(0, 1500));
+  const r = await run(path.join(root, "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe"),
+    ["-nologo", "-optimize", "-platform:x64", `-out:${tmpExe}`, ...refs.map((x) => `-r:${x}`), src], 60000);
+  rmSync(src, { force: true });
+  if (existsSync(exe)) { rmSync(tmpExe, { force: true }); return exe; } // 别的会话先编译好了
+  if (r.error || !existsSync(tmpExe)) {
+    rmSync(tmpExe, { force: true });
+    throw new Error((r.stdout || r.error || "csc failed").trim().slice(0, 1500));
   }
-  // 并发会话可能同时编译：先到者落盘，后到者丢弃自己的产物
-  try { renameSync(tmpExe, exe); } catch { if (!existsSync(exe)) throw new Error("could not cache the compiled helper"); rmSync(tmpExe, { force: true }); }
+  try { renameSync(tmpExe, exe); } catch { rmSync(tmpExe, { force: true }); if (!existsSync(exe)) throw new Error("could not cache the compiled helper"); }
   return exe;
 }
 
@@ -72,16 +87,18 @@ function isExclusiveFullscreen(dotaPath: string): boolean {
   } catch { return false; }
 }
 
-/** 只保留最近 KEEP 张（文件名以 ISO 时间戳开头，按名排序即按时间排序） */
+/** 只保留本工具生成的最近 KEEP 张（文件名以 ISO 时间戳开头，按名排序即按时间排序） */
 function prune(dir: string): void {
-  const files = readdirSync(dir).filter((f) => f.startsWith("dota-")).sort();
+  const files = readdirSync(dir).filter((f) => SHOT_NAME.test(f)).sort();
   for (const f of files.slice(0, Math.max(0, files.length - KEEP))) rmSync(path.join(dir, f), { force: true });
 }
 
-function errorText(reply: HelperReply, exclusive: boolean): string {
+function errorText(reply: HelperReply, exclusive: boolean, dotaPath: string | null): string {
   switch (reply.error) {
-    case "no_window":
-      return "No Dota 2 game window found. Start Dota 2 first ({dota2Path}/game/bin/win64/dota2.exe -addon <addon> -tools). Nothing was captured.";
+    case "no_window": {
+      const exe = dotaPath ? path.join(dotaPath, "game", "bin", "win64", "dota2.exe") : "dota2.exe";
+      return `No Dota 2 game window found. Start Dota 2 first (${exe} -addon <addon> -tools). Nothing was captured.`;
+    }
     case "minimized":
       return exclusive
         ? "The Dota 2 window is minimized and the game runs in exclusive fullscreen, where restoring it would switch display modes. Switch Dota 2 to windowed or borderless mode, or restore the window yourself."
@@ -93,6 +110,14 @@ function errorText(reply: HelperReply, exclusive: boolean): string {
   }
 }
 
+function parseLines(stdout: string): HelperReply[] {
+  const out: HelperReply[] = [];
+  for (const line of stdout.split(/\r?\n/)) {
+    try { if (line.trim()) out.push(JSON.parse(line)); } catch { /* 非协议行 */ }
+  }
+  return out;
+}
+
 export async function captureScreenshot(opts: ScreenshotOptions): Promise<ScreenshotResult> {
   // DOTA2_CAPTURE_HELPER：替换截图辅助程序（离线测试用；.js/.mjs 用当前 node 运行）
   const override = process.env.DOTA2_CAPTURE_HELPER;
@@ -101,45 +126,53 @@ export async function captureScreenshot(opts: ScreenshotOptions): Promise<Screen
   }
   let helper: string;
   try {
-    helper = override || ensureHelper();
+    helper = override || await ensureHelper();
   } catch (e) {
-    return { ok: false, text: `Could not build the capture helper with the system C# compiler:\n${(e as Error).message}` };
+    return { ok: false, text: `Could not build the capture helper with the system C# compiler, so no screenshot is available:\n${(e as Error).message}` };
   }
+  const invoke = (args: string[], timeout: number) =>
+    /\.m?js$/i.test(helper) ? run(process.execPath, [helper, ...args], timeout) : run(helper, args, timeout);
 
   const dir = process.env.DOTA2_SCREENSHOT_DIR || path.join(tmpdir(), "dota2-mcp", "screenshots");
   mkdirSync(dir, { recursive: true });
   const ext = opts.format === "png" ? "png" : "jpg";
   const out = path.join(dir, `dota-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomBytes(2).toString("hex")}.${ext}`);
   const exclusive = opts.restore && !!opts.dotaPath && isExclusiveFullscreen(opts.dotaPath);
-  const args = [out, String(opts.maxWidth), opts.format, opts.restore && !exclusive ? "1" : "0"];
-  const [cmd, cmdArgs] = /\.m?js$/i.test(helper) ? [process.execPath, [helper, ...args]] : [helper, args];
+  const r = await invoke([out, String(opts.maxWidth), opts.format, opts.restore && !exclusive ? "1" : "0"], TIMEOUT_MS);
+  const replies = parseLines(r.stdout);
+  const fail = (text: string): ScreenshotResult => { rmSync(out, { force: true }); return { ok: false, text }; };
 
-  const run = await new Promise<{ stdout: string; stderr: string; timedOut: boolean }>((resolve) => {
-    execFile(cmd, cmdArgs, { timeout: TIMEOUT_MS, windowsHide: true, encoding: "utf8" }, (err, stdout, stderr) => {
-      resolve({ stdout: stdout ?? "", stderr: stderr ?? "", timedOut: !!(err as { killed?: boolean } | null)?.killed });
-    });
-  });
-  if (run.timedOut) {
-    return { ok: false, text: `Screenshot timed out after ${TIMEOUT_MS / 1000}s; the capture helper was killed. Nothing was captured.` };
+  if (r.timedOut) {
+    // 被杀的辅助程序跑不到自己的 finally：它若已恢复过窗口，由这里补一次不激活的最小化
+    let note = "";
+    if (replies.some((x) => x.restoring)) {
+      const m = await invoke(["--minimize"], TIMEOUT_MS);
+      note = m.timedOut || m.error ? " The window had been restored and could not be minimized again." : " The window had been restored; it was minimized again.";
+    }
+    return fail(`Screenshot timed out after ${TIMEOUT_MS / 1000}s; the capture helper was killed. Nothing was captured.${note}`);
   }
-  const last = run.stdout.trim().split(/\r?\n/).pop() ?? "";
-  let reply: HelperReply;
-  try { reply = JSON.parse(last); } catch {
-    return { ok: false, text: `Capture helper gave no result.${run.stderr ? `\n${run.stderr.trim().slice(0, 1000)}` : ""}` };
+  const reply = replies.filter((x) => x.ok !== undefined).pop();
+  if (!reply) {
+    const why = [r.error, r.stderr.trim()].filter(Boolean).join("\n").slice(0, 1000);
+    return fail(`Capture helper gave no result.${why ? `\n${why}` : ""}`);
   }
-  if (!reply.ok) return { ok: false, text: errorText(reply, exclusive) };
+  if (!reply.ok) return fail(errorText(reply, exclusive, opts.dotaPath));
 
-  const data = readFileSync(out).toString("base64");
+  let data: string;
+  try { data = readFileSync(out).toString("base64"); } catch (e) {
+    return fail(`Capture helper reported success but the image could not be read: ${(e as Error).message}`);
+  }
   prune(dir);
   const lines = [`Saved: ${out}`, `Size: ${reply.width}x${reply.height}`];
-  if (reply.hung) lines.push("hung: true — the Dota 2 window is not responding; this is its last frame.");
+  if (reply.hung) lines.push("hung: true — Windows reports the Dota 2 window as not responding; this image is the last frame the window showed.");
   if (reply.restored) lines.push("The window was minimized: restored without focus, captured, and minimized again.");
   return { ok: true, text: lines.join("\n"), image: { data, mimeType: opts.format === "png" ? "image/png" : "image/jpeg" } };
 }
 
 const HELPER_SOURCE = String.raw`// dota2-mcp game screenshot helper: Windows.Graphics.Capture on the Dota 2 game window.
-// Usage: dota-capture <outPath> <maxWidth> <jpeg|png> <restore 0|1>
-// Prints one JSON line: {"ok":true,...} or {"ok":false,"error":"<code>","message":"..."}.
+// Usage: dota-capture <outPath> <maxWidth> <jpeg|png> <restore 0|1>   |   dota-capture --minimize
+// Prints JSON lines; the last is the result: {"ok":true,...} or {"ok":false,"error":"<code>","message":"..."}.
+// Before restoring a minimized window it prints {"restoring":true}.
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -170,13 +203,22 @@ static class DotaCapture {
   [ComImport, Guid("3628E81B-3CAC-4C60-B7F4-23CE0E0C3356"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
   interface IGraphicsCaptureItemInterop {
     IntPtr CreateForWindow([In] IntPtr window, [In] ref Guid iid);
-    IntPtr CreateForMonitor([In] IntPtr monitor, [In] ref Guid iid);
   }
 
   const int SW_SHOWNOACTIVATE = 4, SW_SHOWMINNOACTIVE = 7;
 
   static int Main(string[] args) {
-    try { return Run(args).GetAwaiter().GetResult(); }
+    Console.OutputEncoding = new UTF8Encoding(false);
+    try {
+      // --minimize: the caller killed a capture that had restored the window; put it back.
+      if (args.Length == 1 && args[0] == "--minimize") {
+        IntPtr w = FindGameWindow();
+        if (w != IntPtr.Zero && !IsIconic(w)) ShowWindow(w, SW_SHOWMINNOACTIVE);
+        Console.WriteLine("{\"ok\":true}");
+        return 0;
+      }
+      return Run(args).GetAwaiter().GetResult();
+    }
     catch (Exception e) { Fail("internal", e.GetType().Name + ": " + e.Message); return 1; }
   }
 
@@ -184,7 +226,15 @@ static class DotaCapture {
     Console.WriteLine("{\"ok\":false,\"error\":\"" + code + "\",\"message\":\"" + Esc(message) + "\"}");
   }
 
-  static string Esc(string s) { return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", " ").Replace("\n", " "); }
+  static string Esc(string s) {
+    var sb = new StringBuilder();
+    foreach (char c in s) {
+      if (c == '\\' || c == '"') sb.Append('\\').Append(c);
+      else if (c < 0x20) sb.Append("\\u").Append(((int)c).ToString("x4"));
+      else sb.Append(c);
+    }
+    return sb.ToString();
+  }
 
   static IntPtr FindGameWindow() {
     var pids = new System.Collections.Generic.HashSet<uint>();
@@ -212,6 +262,8 @@ static class DotaCapture {
     bool restored = false;
     if (IsIconic(hwnd)) {
       if (!allowRestore) { Fail("minimized", "The Dota 2 window is minimized."); return 2; }
+      // Announce before restoring: if the caller kills us on timeout, finally never runs and it must re-minimize.
+      Console.WriteLine("{\"restoring\":true}");
       ShowWindow(hwnd, SW_SHOWNOACTIVATE);
       restored = true;
     }
@@ -261,7 +313,7 @@ static class DotaCapture {
           var bytes = new byte[size];
           reader.ReadBytes(bytes);
           File.WriteAllBytes(outPath, bytes);
-          Console.WriteLine("{\"ok\":true,\"path\":\"" + Esc(outPath) + "\",\"width\":" + ow + ",\"height\":" + oh +
+          Console.WriteLine("{\"ok\":true,\"width\":" + ow + ",\"height\":" + oh +
             ",\"hung\":" + (hung ? "true" : "false") + ",\"restored\":" + (restored ? "true" : "false") + "}");
           return 0;
         }
