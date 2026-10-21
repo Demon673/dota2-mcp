@@ -35,6 +35,10 @@ Supporting changes:
 - `collectLuaOutput` prints the relay's own toggle line (`ai_disabled =`) before and after the user code when MCP suppression is on, so deferred Lua output falls inside a suppression window. The user code runs under `xpcall(…, function(e) print(debug.traceback(e)) end)`, so a runtime error still prints the closing toggle and the end marker; without that, suppression would stick on and mute the GUI.
 - The relay never forwards lines matching `MCP_MARKER_RE` to the GUI. The regex now lives in `vcon-relay.ts` and `index.ts` imports it.
 - The engine silently drops any single console statement over about 510 bytes (an `echo` of 510 bytes ran, 530 did not; the limit is per `;` statement, not per line). `collectLuaOutput` rejects a wrapped `RunScriptCode` statement over `LUA_STATEMENT_MAX_BYTES` with an error that says how many bytes are available, instead of returning an empty result.
+- With `sv_cheats` off the engine ignores `ent_fire` and prints only `SV: Cheat command 'ent_fire' ignored.`. `collectLuaOutput` turns that line into an error naming `sv_cheats`, so `dota_run_lua` and `dota_advance_to_game` stop at once instead of reporting "Sent" or retrying until timeout.
+- While loading heavy assets the engine can leave `status_json` unanswered for several seconds. `dota_launch_game` and `dota_advance_to_game` skip a poll that got no answer instead of reading it as the state `(unknown)`.
+- `dota_launch_game` reports an error when the game is still at the main menu 15 s after the launch command.
+- When every player's hero is `nil` in GAME_IN_PROGRESS, `dota_advance_to_game` says the addon may create heroes itself and suggests `dota_screenshot`.
 
 ## Alternatives considered
 
@@ -53,5 +57,6 @@ Bought: from launch or restart, a playable match with a hero takes two tool call
 - `scripts/test-collect-output.mjs`: the fake Dota answers `ai_disabled` with its value and runs `RunScriptCode` prints 50 ms late. It asserts that `dota_run_lua` still returns the output, that neither the output nor any marker reaches the fake vconsole, and that a later game print does reach it. With the toggle lines removed from the build, the test fails.
 - `scripts/test-mcp-offline.mjs` counts 32 tools.
 - Live (Dota 2 with `-tools`, one addon whose own setup code errors): `dota_disconnect` then `dota_advance_to_game` returns the "no map loaded" error; `dota_launch_game` → `dota_advance_to_game` with `hero` reaches GAME_IN_PROGRESS with that hero; `dota_restart` → `dota_advance_to_game` takes 18–20 s and spawns a random hero. A Lua `error()` returns its traceback and the next call works normally. A 511-byte wrapped statement is rejected with the length error.
+- Live on a second addon, whose heroes are created after its own login UI: from the main menu `dota_launch_game` loaded the map in about 50 s and reported CUSTOM_GAME_SETUP as stuck; `dota_advance_to_game` reached GAME_IN_PROGRESS in 4 s with `hero=nil` and the hero note, and `dota_screenshot` showed the addon's login screen. During a 75 s cold load `status_json` went unanswered for 8 s. `dota_restart` worked from both CUSTOM_GAME_SETUP and GAME_IN_PROGRESS. With `sv_cheats 0`, `dota_run_lua` returned the `sv_cheats` error in 0.5 s.
 
 Not covered: no offline test drives `dota_advance_to_game` through its phases, and the flow has been run live on one addon with one human player and no bots.

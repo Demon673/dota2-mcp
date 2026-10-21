@@ -15,6 +15,8 @@ English | [中文](CHANGELOG.zh.md)
 - **Over-long Lua silently did nothing**: the engine drops a console statement over ~510 bytes; `dota_run_lua` now rejects such code with a clear error.
 - **`dota_launch_game` reported normal map loading as stuck in INIT.**
 - **`dota_restart` returned before the restart took effect**: it now waits until the reload has begun.
+- **Lua tools gave no error when `sv_cheats` was off**: the engine ignores `ent_fire` then; `dota_run_lua`, `dota_advance_to_game` and the VFX tools now fail at once with an error naming `sv_cheats`.
+- **`dota_launch_game` misread an unresponsive engine during map loading as a stuck phase**, and now reports a launch that left the game at the main menu.
 
 - **`file_edit` corrupted files containing `$`**: `$'`, `$&` and `$1` in `new_string` are now written literally instead of being expanded.
 - **FileOps path boundary bypass via `addon`**: addon names that are `.`/`..` or contain `/`, `\` or `:` are rejected. All FileOps and asset tools share one addon resolver.

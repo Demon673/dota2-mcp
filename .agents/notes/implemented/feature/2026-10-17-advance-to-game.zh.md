@@ -35,6 +35,10 @@ Status: implemented
 - MCP 屏蔽开启时，`collectLuaOutput` 在用户代码前后各打印一行 relay 自己的开关行（`ai_disabled =`），让推迟执行的 Lua 输出落进屏蔽窗口。用户代码在 `xpcall(…, function(e) print(debug.traceback(e)) end)` 下运行，运行时报错也会打印收尾开关行和结束标记；否则屏蔽会卡在开启态，让 GUI 静默。
 - relay 永不把匹配 `MCP_MARKER_RE` 的行转发给 GUI。这个正则现在定义在 `vcon-relay.ts`，由 `index.ts` 导入。
 - 引擎会静默丢弃超过约 510 字节的单条控制台语句（510 字节的 `echo` 能执行，530 字节不能；上限按 `;` 分隔的语句计，而非整行）。包装后的 `RunScriptCode` 语句超过 `LUA_STATEMENT_MAX_BYTES` 时，`collectLuaOutput` 报错并说明还剩多少字节可用，而不是返回空结果。
+- `sv_cheats` 关闭时引擎忽略 `ent_fire`，只打印 `SV: Cheat command 'ent_fire' ignored.`。`collectLuaOutput` 把这一行转成点名 `sv_cheats` 的错误，`dota_run_lua` 和 `dota_advance_to_game` 立即停下，而不是回复「Sent」或一直重试到超时。
+- 加载重资源时引擎可能数秒不应答 `status_json`。`dota_launch_game` 和 `dota_advance_to_game` 跳过没有应答的那次轮询，而不是把它读成 `(unknown)` 状态。
+- 启动命令发出 15 秒后游戏仍在主菜单时，`dota_launch_game` 报错。
+- GAME_IN_PROGRESS 中所有玩家的英雄都是 `nil` 时，`dota_advance_to_game` 说明 addon 可能自己创建英雄，并建议调用 `dota_screenshot`。
 
 ## Alternatives considered
 
@@ -53,5 +57,6 @@ Status: implemented
 - `scripts/test-collect-output.mjs`：假 Dota 对 `ai_disabled` 回显其值，并把 `RunScriptCode` 里的 print 推迟 50 ms 执行。它断言 `dota_run_lua` 仍能返回输出、输出和任何标记都不会到达假 vconsole、之后游戏自身的打印仍能到达。从构建产物里去掉开关行后，测试失败。
 - `scripts/test-mcp-offline.mjs` 计数 32 个工具。
 - 活体（Dota 2 带 `-tools`，一个自身 setup 代码会报错的 addon）：`dota_disconnect` 后调用 `dota_advance_to_game` 返回「没有加载地图」错误；`dota_launch_game` → 带 `hero` 的 `dota_advance_to_game` 进入 GAME_IN_PROGRESS，英雄正是指定的那个；`dota_restart` → `dota_advance_to_game` 用时 18–20 秒，生成随机英雄。Lua `error()` 返回其 traceback，下一次调用正常。包装后 511 字节的语句被长度错误拒绝。
+- 在第二个 addon 上活体运行（它在自己的登录界面之后才创建英雄）：从主菜单调用 `dota_launch_game`，约 50 秒加载完地图，并报告卡在 CUSTOM_GAME_SETUP；`dota_advance_to_game` 4 秒进入 GAME_IN_PROGRESS，返回 `hero=nil` 和英雄提示，`dota_screenshot` 显示的正是 addon 的登录界面。一次 75 秒的冷加载中，`status_json` 有 8 秒没有应答。`dota_restart` 在 CUSTOM_GAME_SETUP 和 GAME_IN_PROGRESS 下都正常。`sv_cheats 0` 时，`dota_run_lua` 0.5 秒返回 `sv_cheats` 错误。
 
 未覆盖：没有离线测试驱动 `dota_advance_to_game` 走完各相位；该流程只在一个 addon、一名真人玩家、无 bot 的情况下活体跑过。

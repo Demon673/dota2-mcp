@@ -685,7 +685,13 @@ Once connected, call dota_status again.` }] };
           return { content: [{ type: "text", text: `Dota 2 disconnected while launching. ${disconnectedReasonText()}` }] };
         }
         await new Promise(r => setTimeout(r, 2000));
-        const cur = parseGameState(await queryStatusJson(5000));
+        const status = await queryStatusJson(5000);
+        // 加载重资源时引擎可能数秒不应答（活体实测）：没读到不算相位变化
+        if (!status) continue;
+        const cur = parseGameState(status);
+        if (cur.phase === "menu" && Date.now() - startTime > 15000) {
+          return { content: [{ type: "text", text: `Dota 2 is still at the main menu ${Math.round((Date.now() - startTime) / 1000)}s after dota_launch_custom_game ${a} ${m}: the launch did not start. Check console_output (level 1) for why, and dota_screenshot for what the game shows.` }], isError: true };
+        }
         if (cur.game_state !== lastState) {
           lastState = cur.game_state;
           lastChangeAt = Date.now();
@@ -741,7 +747,9 @@ Once connected, call dota_status again.` }] };
         if (!relay.dotaConnected) {
           return { content: [{ type: "text", text: `Dota 2 disconnected. ${disconnectedReasonText()}` }] };
         }
-        const cur = parseGameState(await queryStatusJson(5000));
+        const status = await queryStatusJson(5000);
+        if (!status) { await new Promise(r => setTimeout(r, 1000)); continue; } // 引擎加载时可能数秒不应答
+        const cur = parseGameState(status);
         if (cur.game_state !== state) { state = cur.game_state; stateSince = Date.now(); }
         if (!cur.loaded && !cur.loading && cur.phase === "menu") {
           return { content: [{ type: "text", text: "No map is loaded. Call dota_launch_game first, then dota_advance_to_game." }], isError: true };
@@ -754,6 +762,8 @@ Once connected, call dota_status again.` }] };
             `In game: ${cur.map} (${state}).`,
             steps.length > 0 ? `Steps taken:\n${steps.map(s => "- " + s).join("\n")}` : "Already in progress; nothing to do.",
             players.length > 0 ? `Players:\n${players.join("\n")}` : "No valid players found.",
+            ...(players.length > 0 && players.every(p => p.endsWith("hero=nil"))
+              ? ["No player has a hero yet. The addon may create heroes itself (for example after its own UI); call dota_screenshot to see what the game shows."] : []),
           ].join("\n") }] };
         }
         if (state.includes("POST_GAME")) {
@@ -951,7 +961,7 @@ Once connected, call dota_status again.` }] };
    * 和结束标记。xpcall 保证运行时报错也会打印收尾开关与结束标记（否则 GUI 屏蔽卡死在开启态）；
    * 语法错误时整段都不执行，靠 settleMs 兜底。双引号换成单引号，避免与 RunScriptCode 参数的引号冲突。
    * 引擎静默丢弃超过 LUA_STATEMENT_MAX_BYTES 的单条控制台语句（活体实测），超长直接报错而不是返回空结果。 */
-  function collectLuaOutput(luaBody: string, opts: { waitMs?: number; settleMs?: number } = {}): Promise<string[]> {
+  async function collectLuaOutput(luaBody: string, opts: { waitMs?: number; settleMs?: number } = {}): Promise<string[]> {
     const code = luaBody.replace(/"/g, "'");
     const toggle = relay.mcpSuppressEnabled ? "print('ai_disabled =') " : "";
     const statement = (end: string) =>
@@ -960,7 +970,12 @@ Once connected, call dota_status again.` }] };
     if (bytes > LUA_STATEMENT_MAX_BYTES) {
       throw new McpError(ErrorCode.InvalidRequest, `Lua too long: ${bytes} bytes after wrapping, but the Dota console drops any single statement over ${LUA_STATEMENT_MAX_BYTES} bytes. Shorten the code (about ${LUA_STATEMENT_MAX_BYTES - (bytes - Buffer.byteLength(code, "utf8"))} bytes are available), split it into several calls, or put it in an addon script and call that.`);
     }
-    return collectBetweenMarkers((begin, end) => `echo ${begin}; ${statement(end)}`, opts);
+    const out = await collectBetweenMarkers((begin, end) => `echo ${begin}; ${statement(end)}`, opts);
+    // sv_cheats 关闭时引擎不执行 ent_fire，只打印这一行（活体实测）
+    if (out.some(l => l.includes("Cheat command 'ent_fire' ignored"))) {
+      throw new McpError(ErrorCode.InvalidRequest, "The Lua did not run: the engine ignored ent_fire because sv_cheats is off. Lua-based tools run server Lua through ent_fire, which is a cheat command. Run console_send 'sv_cheats 1' and try again; if sv_cheats keeps switching off, the addon itself is turning it off and needs a development exception.");
+    }
+    return out;
   }
 
   async function collectBetweenMarkers(buildCmd: (begin: string, end: string) => string, opts: { waitMs?: number; settleMs?: number }): Promise<string[]> {

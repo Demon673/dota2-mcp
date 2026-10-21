@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/feature/2026-10-17-advance-to-game.md
-2026-10-17-advance-to-game.md: c3d70f6332392481f87fb2b85305638692345e1a
-2026-10-17-advance-to-game.zh.md: 9c6d212ad0d422969d7f8afef09df47e5aa02623
+2026-10-17-advance-to-game.md: 97e66efcc5a3567d84135bc9174b612d8d29f27e
+2026-10-17-advance-to-game.zh.md: 103cad761a0beda523cece0c058369bb228b9d80

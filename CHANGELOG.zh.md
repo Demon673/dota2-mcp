@@ -15,6 +15,8 @@
 - **过长的 Lua 静默无效**：引擎会丢弃超过约 510 字节的控制台语句；`dota_run_lua` 现在对这样的代码明确报错。
 - **`dota_launch_game` 把正常的地图加载误报为卡在 INIT。**
 - **`dota_restart` 在重启生效前就返回**：现在等到重载真正开始才返回。
+- **`sv_cheats` 关闭时 Lua 类工具不报错**：此时引擎忽略 `ent_fire`；`dota_run_lua`、`dota_advance_to_game` 和 VFX 工具现在立即失败，错误里点名 `sv_cheats`。
+- **`dota_launch_game` 把地图加载期间引擎不应答误判为卡相位**；启动后游戏仍停在主菜单时，现在会明确报告。
 
 - **`file_edit` 写坏含 `$` 的文件**：`new_string` 里的 `$'`、`$&`、`$1` 现在按字面写入，不再被展开。
 - **借 `addon` 绕过 FileOps 路径边界**：`.`/`..` 或含 `/`、`\`、`:` 的 addon 名会被拒绝。所有 FileOps 与资产工具共用同一个 addon 解析入口。
