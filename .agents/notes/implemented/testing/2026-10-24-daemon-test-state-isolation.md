@@ -1,8 +1,8 @@
 # Agent Note: Isolated daemon state in offline tests
 
-Status: implemented
-
 English | [中文](2026-10-24-daemon-test-state-isolation.zh.md)
+
+Status: implemented
 
 ## Problem
 
@@ -15,7 +15,7 @@ Tests also killed only their MCP child, not the daemon it spawned. Because a run
 - `DOTA2_VCON_STATE_DIR` overrides the directory used for daemon token, pid, lock, and log files, and for the capture watcher's lock, source, and request files. The default remains `os.tmpdir()/dota2-mcp`, with the existing home-directory fallback. Override paths are resolved to absolute paths so a spawned daemon sees the same location as its parent.
 - Every offline script that spawns an MCP server uses its own temporary state directory. `test-daemon.mjs` tracks all its spawned children and kills them plus the pid-file process on every exit.
 - `spawnMcpServer` accepts `cleanupDaemon: true`, which requires an isolated state directory. Its cleanup kills the MCP child and the daemon or capture watcher recorded in that directory, and also runs when an assertion exits the process. Live scripts do not enable it.
-- Normal test exits remove their temporary directories. The daemon-respawn test waits 45 s for the initial port, matching the existing slow-start tolerance, and startup failures include MCP stderr and the relay log. Before starting, `test-daemon.mjs` briefly listens on every port in its intended block and chooses another block if any is occupied; `test-relay.mjs` does the same for its four consecutive ports instead of relying on random selection alone.
+- Normal test exits remove their temporary directories. The daemon-respawn test waits 45 s for the initial port, matching the existing slow-start tolerance, and startup failures include MCP stderr and the relay log. `lib-test-ports.mjs` briefly listens on every port in each requested block before the test starts, so relay, daemon, console, screenshot, file, asset, and MCP smoke tests do not rely on random selection alone.
 
 ## Alternatives considered
 

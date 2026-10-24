@@ -1,8 +1,8 @@
 # Agent Note: 聚焦的控制台与 API 工具结果
 
-Status: implemented
-
 [English](2026-10-24-focused-tool-results.md) | 中文
+
+Status: implemented
 
 ## Problem
 

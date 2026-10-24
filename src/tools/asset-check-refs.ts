@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { ensureVrf } from "./vrf-ensure.js";
 import { extractRefs, sortKeys, decompileToText } from "./asset-inspect.js";
+import { scrubbedEnv } from "./process-env.js";
 
 export interface RefReport {
   ref: string;
@@ -47,9 +48,10 @@ function packedEngineRef(dotaPath: string, clean: string, exe: string): { found:
     mkdirSync(workDir, { recursive: true });
     const stdout = execFileSync(exe, ["-i", vpk, "--vpk_list", "-f", compiled], {
       encoding: "utf-8", windowsHide: true, cwd: workDir, timeout: 15000, maxBuffer: 1024 * 1024,
-      env: { ...process.env, DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1" },
+      env: scrubbedEnv({ DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1" }),
     });
     const found = stdout.split(/\r?\n/).some(line => line.startsWith(compiled + " "));
+    if (packedRefCache.size >= 1000) packedRefCache.delete(packedRefCache.keys().next().value!); // 有界 FIFO，避免长期驻留无限增长
     packedRefCache.set(key, found);
     return { found, error: null };
   } catch (e) {
@@ -79,7 +81,7 @@ function resolveOneRef(dotaPath: string, addon: string, ref: string, from: strin
   if (existsSync(engineOut) || existsSync(path.join(dotaPath, "game", "dota", clean))) {
     return { report: { ref: clean, from, resolved: path.join(dotaPath, "game", "dota", clean), issue: null }, kind: "engine", nextSource: null };
   }
-  // 引擎也能加载其他 addon 已编译的共享资源（实见于 addon_template 的 basic_glow）。
+  // 引擎也能加载其他 addon 已编译的共享资源（实见于官方模板的基础材质）。
   for (const root of sharedRoots) {
     const sharedOut = compiledOf(path.join(root, clean));
     if (existsSync(sharedOut)) {
@@ -116,7 +118,7 @@ export async function checkRefs(dotaPath: string, addon: string, resolvedPath: s
     sharedRoots = readdirSync(addonsRoot, { withFileTypes: true })
       .filter(e => e.isDirectory())
       .map(e => path.join(addonsRoot, e.name))
-      .sort((a, b) => path.basename(a) === "addon_template" ? -1 : path.basename(b) === "addon_template" ? 1 : a.localeCompare(b));
+      .sort();
   } catch { /* 没有共享 addon 目录时仍可用 game/dota 解析 */ }
   const ok: RefReport[] = [];
   const uncompiled: RefReport[] = [];

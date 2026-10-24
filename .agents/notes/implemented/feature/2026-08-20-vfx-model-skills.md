@@ -29,4 +29,4 @@ Retrieval now also covers `###` subsections, Markdown data sections, and JSON do
 
 ## Testing
 
-`test-mcp-offline.mjs` covers nested outlines, sibling-bounded section retrieval, Markdown data sections, JSON array entries selected by `data_path`, and invalid paths. Live in tui12, an official particle returned a nonzero id and stopped successfully; the minimal custom glow compiled, appeared at the requested hero position in a real screenshot, disappeared after `vfx_preview_stop`, and produced no load errors. These checks distinguish runtime creation from actual visibility.
+`test-mcp-offline.mjs` covers nested outlines, sibling-bounded section retrieval, Markdown data sections, JSON array entries selected by `data_path`, and invalid paths. Live in a test addon, an official particle returned a nonzero id and stopped successfully; the minimal custom glow compiled, appeared at the requested hero position in a real screenshot, disappeared after `vfx_preview_stop`, and produced no load errors. These checks distinguish runtime creation from actual visibility.

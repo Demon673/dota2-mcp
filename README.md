@@ -140,7 +140,7 @@ Installation has two paths; pick whichever you prefer:
 | Tool | Purpose |
 |------|------|
 | `dota_status` | Get connection, vconsole, addon, map, and game status plus next-step suggestions. Call this first. |
-| `dota_screenshot` | Capture the Dota 2 game window in the background (needs no console; Windows only). A persistent helper caches the latest frame; cached results include `stale` and `captured_at`, so a hang after the helper started need not stop frame delivery. |
+| `dota_screenshot` | Capture the Dota 2 game window in the background (needs no console; Windows only). Returns the game viewport with `stale` and `captured_at` when the image is an older cached frame, so a hang need not leave you without any image. |
 | `dota_open_vconsole` | Open the vconsole2 window (console-class tools need it open). |
 | `dota_launch_game` | Launch a custom game map (waits to enter the match; returns the phase and how to advance when stuck). |
 | `dota_disconnect` | Disconnect the current game. |

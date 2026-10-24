@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-`src/tools/asset-check-refs.ts` 的 `checkRefs()` 用 VRF CLI 反编译目标，广度优先遍历 `resource:` 引用，深度上限 `max_depth`（默认 3）+ visited 集合防环。每个引用依次检查当前 addon（`content/dota_addons/{addon}/` 源 + `game/dota_addons/{addon}/` 编译产物，产物 = 源 + `_c`）、`game/dota/`、其他 addon 共享的编译产物，最后按精确路径查询 `pak01_dir.vpk`。按 #10 契约分四桶：`ok`（源与产物都在）、`uncompiled`（源在产物缺——「改了没编译」信号）、`engine_refs`（核心或共享引擎资产、不下钻）、`broken`（哪里都找不到，或明确的 VPK 查询失败）。VPK 查询使用 VRF `--vpk_list`，15 秒超时并按文件 mtime 缓存，而不是建立整包索引。VRF 与 VPK 子进程都在临时工作目录运行，`exceptions.txt` 不会泄漏到调用方仓库。VRF pin 为 20.1，支持当前引擎的 KV 类型 26。输出 JSON 键排序去重、diff 稳定。工具离线不门控；复用 asset-inspect 的 `extractRefs`。
+`src/tools/asset-check-refs.ts` 的 `checkRefs()` 用 VRF CLI 反编译目标，广度优先遍历 `resource:` 引用，深度上限 `max_depth`（默认 3）+ visited 集合防环。每个引用依次检查当前 addon（`content/dota_addons/{addon}/` 源 + `game/dota_addons/{addon}/` 编译产物，产物 = 源 + `_c`）、`game/dota/`、其他 addon 共享的编译产物，最后按精确路径查询 `pak01_dir.vpk`。按 #10 契约分四桶：`ok`（源与产物都在）、`uncompiled`（源在产物缺——「改了没编译」信号）、`engine_refs`（核心或共享引擎资产、不下钻）、`broken`（哪里都找不到，或明确的 VPK 查询失败）。VPK 查询使用 VRF `--vpk_list`，15 秒超时并使用有界的、按文件 mtime 变化的 FIFO 缓存，而不是建立整包索引。VRF 与 VPK 子进程都在临时工作目录和已清除常见凭据的环境中运行，`exceptions.txt` 不会泄漏到调用方仓库。VRF pin 为 20.1，支持当前引擎的 KV 类型 26。输出 JSON 键排序去重、diff 稳定。工具离线不门控；复用 asset-inspect 的 `extractRefs`。
 
 ## Alternatives considered
 

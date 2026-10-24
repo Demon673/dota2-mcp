@@ -16,6 +16,7 @@ English | [中文](CHANGELOG.zh.md)
 - **Over-long Lua silently did nothing**: the engine drops a console statement over ~510 bytes; `dota_run_lua` now rejects such code with a clear error.
 - **`dota_launch_game` reported normal map loading as stuck in INIT.**
 - **`dota_restart` returned before the restart took effect**: it now waits until the reload has begun.
+- **Restart and subprocess hardening**: `dota_restart` uses a real 20 s wall-clock deadline rather than multiplying slow status polls. Screenshot and VRF subprocesses drop common credential variables, and the VPK lookup cache is bounded.
 - **Lua tools gave no error when `sv_cheats` was off**: the engine ignores `ent_fire` then; `dota_run_lua`, `dota_advance_to_game` and the VFX tools now fail at once with an error naming `sv_cheats`.
 - **`dota_launch_game` misread an unresponsive engine during map loading as a stuck phase**, and now reports a launch that left the game at the main menu.
 - **API queries returned full engine dumps**: `dota_api_lua`, `dota_api_panorama_js`, `dota_api_css`, and `dota_api_events` filter matching entries. Entity and modifier dumps also accept a substring filter; `dota_dump_modifiers` defaults to active server modifiers rather than the client registry.

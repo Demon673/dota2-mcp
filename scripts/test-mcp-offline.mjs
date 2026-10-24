@@ -4,9 +4,11 @@ import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { scrubbedEnv } from "../dist/tools/process-env.js";
+import { freePortBlock } from "./lib-test-ports.mjs";
 
 const stateDir = mkdtempSync(path.join(tmpdir(), "mcp-offline-state-"));
-const BASE = 20000 + Math.floor(Math.random() * 20000);
+const BASE = await freePortBlock(3);
 const env = {
   ...process.env,
   DOTA2_VCON_DOTA_PORT: String(BASE),
@@ -14,6 +16,10 @@ const env = {
   DOTA2_VCON_CTRL_PORT: String(BASE + 2),
   DOTA2_VCON_STATE_DIR: stateDir,
 };
+process.env.TEST_MCP_SCRUB_TOKEN = "must-not-pass";
+const cleanEnv = scrubbedEnv({ EXTRA_CHECK: "kept" });
+delete process.env.TEST_MCP_SCRUB_TOKEN;
+assert(cleanEnv.TEST_MCP_SCRUB_TOKEN === undefined && cleanEnv.EXTRA_CHECK === "kept", "subprocess env drops credentials but keeps explicit config");
 const { call, notify, kill } = spawnMcpServer({ timeoutMs: 45000, env, cleanupDaemon: true });
 await call("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "smoke", version: "0" } });
 notify("notifications/initialized");

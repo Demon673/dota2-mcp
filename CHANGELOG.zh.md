@@ -16,6 +16,7 @@
 - **过长的 Lua 静默无效**：引擎会丢弃超过约 510 字节的控制台语句；`dota_run_lua` 现在对这样的代码明确报错。
 - **`dota_launch_game` 把正常的地图加载误报为卡在 INIT。**
 - **`dota_restart` 在重启生效前就返回**：现在等到重载真正开始才返回。
+- **重启与子进程加固**：`dota_restart` 使用真实的 20 秒墙钟 deadline，不再因慢状态轮询累加超时。截图与 VRF 子进程会移除常见凭据变量，VPK 查询缓存也有上限。
 - **`sv_cheats` 关闭时 Lua 类工具不报错**：此时引擎忽略 `ent_fire`；`dota_run_lua`、`dota_advance_to_game` 和 VFX 工具现在立即失败，错误里点名 `sv_cheats`。
 - **`dota_launch_game` 把地图加载期间引擎不应答误判为卡相位**；启动后游戏仍停在主菜单时，现在会明确报告。
 - **API 查询返回整份引擎转储**：`dota_api_lua`、`dota_api_panorama_js`、`dota_api_css` 和 `dota_api_events` 现在只返回匹配条目。实体与 modifier 转储也支持子串过滤；`dota_dump_modifiers` 默认列出服务端生效的 modifier，而不是客户端注册表。

@@ -13,30 +13,10 @@ import * as net from "net";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-
-// 先确认整段端口空闲，再关闭临时监听并开始测试；随机选段本身不能避免 EADDRINUSE
-async function freePortBlock() {
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const base = 20000 + Math.floor(Math.random() * 20000);
-    const servers = [];
-    let available = true;
-    for (let offset = 0; offset <= 10000; offset += 1000) {
-      const server = net.createServer();
-      const ok = await new Promise((resolve) => {
-        server.once("error", () => resolve(false));
-        server.listen(base + offset, "127.0.0.1", () => resolve(true));
-      });
-      if (!ok) { available = false; break; }
-      servers.push(server);
-    }
-    await Promise.all(servers.map((s) => new Promise((r) => s.close(r))));
-    if (available) return base;
-  }
-  throw new Error("no free daemon test port block");
-}
+import { freePortBlock } from "./lib-test-ports.mjs";
 
 // 独立状态目录：绝不删除活体 daemon 的 token/pid/lock
-const CTRL_PORT = await freePortBlock();
+const CTRL_PORT = await freePortBlock(11, 1000);
 const GUI_PORT = CTRL_PORT + 1000;
 const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "dota2-mcp-daemon-test-"));
 process.env.DOTA2_VCON_STATE_DIR = stateDir;

@@ -19,6 +19,7 @@ import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
 import { VConRelay, MCP_MARKER_RE } from "./tools/vcon-relay.js";
+import { scrubbedEnv } from "./tools/process-env.js";
 import { RelayClient } from "./relay-client.js";
 import * as consoleBridge from "./tools/console-bridge.js";
 import { ensureVrf, DEFAULT_VERSION } from "./tools/vrf-ensure.js";
@@ -513,6 +514,10 @@ Then call dota_status again.`;
     return out;
   }
 
+  function markdownHeadings(body: string): string[] {
+    return body.split(/\r?\n/).map(l => l.match(/^(#{2,3})\s+(.+)$/)?.[2] ?? null).filter((x): x is string => !!x);
+  }
+
   function markdownSection(body: string, section: string): { headings: string[]; candidates: string[]; text: string | null } {
     const lines = body.split(/\r?\n/);
     const parsed = lines.map(l => l.match(/^(#{2,3})\s+(.+)$/));
@@ -555,7 +560,7 @@ Then call dota_status again.`;
       if (data_path && section) {
         return { content: [{ type: "text", text: "Use either section (Markdown) or data_path (JSON), not both." }] };
       }
-      const headings = markdownSection(skill.body, "").headings;
+      const headings = markdownHeadings(skill.body);
       if (outline) {
         return { content: [{ type: "text", text: `Sections of ${skill.name}:\n${headings.map(h => "- " + h).join("\n")}` }] };
       }
@@ -904,9 +909,12 @@ Once connected, call dota_status again.` }] };
       const before = parseGameState(await queryStatusJson(5000)).game_state;
       relay.sendCommand("restart");
       // restart 不是立即生效：在它生效前读到的仍是旧相位，紧随其后的 dota_advance_to_game 会误判「已在游戏中」
-      for (let i = 0; i < 40; i++) {
-        await new Promise(r => setTimeout(r, 500));
-        const cur = parseGameState(await queryStatusJson(5000));
+      const deadline = Date.now() + 20000;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, Math.min(500, Math.max(0, deadline - Date.now()))));
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
+        const cur = parseGameState(await queryStatusJson(Math.min(5000, remaining)));
         if (cur.loading || cur.game_state !== before) {
           return { content: [{ type: "text", text: `Restarting current map (now ${cur.loading ? "loading" : cur.game_state}). Next: dota_advance_to_game.` }] };
         }
@@ -1400,6 +1408,7 @@ Once connected, call dota_status again.` }] };
       const proc = spawn(exePath, finalArgs, {
         detached: !waitForExit,
         windowsHide: false,
+        env: scrubbedEnv(),
       });
       let stdout = "";
       let stderr = "";

@@ -8,6 +8,7 @@ import { execFile, spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, renameSync, openSync, closeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { scrubbedEnv } from "./process-env.js";
 
 export interface ScreenshotOptions {
   maxWidth: number;
@@ -47,7 +48,7 @@ interface RunResult { stdout: string; stderr: string; timedOut: boolean; error: 
 
 function run(cmd: string, args: string[], timeout: number): Promise<RunResult> {
   return new Promise((resolve) => {
-    execFile(cmd, args, { timeout, windowsHide: true, encoding: "utf8" }, (err, stdout, stderr) => {
+    execFile(cmd, args, { timeout, windowsHide: true, encoding: "utf8", env: scrubbedEnv() }, (err, stdout, stderr) => {
       const e = err as (Error & { killed?: boolean; code?: unknown }) | null;
       resolve({ stdout: stdout ?? "", stderr: stderr ?? "", timedOut: !!e?.killed, error: e ? e.message : null });
     });
@@ -245,10 +246,7 @@ async function ensureWatcher(helper: string): Promise<void> {
     }
     if (!child) {
       const logFd = openSync(path.join(dir, "watcher.log"), "a");
-      const env = { ...process.env };
-      for (const key of Object.keys(env)) {
-        if (/KEY|SECRET|TOKEN|PASSWORD/i.test(key)) delete env[key];
-      }
+      const env = scrubbedEnv();
       try {
         child = spawn(invocation.cmd, invocation.args, { detached: true, stdio: ["ignore", logFd, logFd], windowsHide: true, env });
       } finally { closeSync(logFd); }

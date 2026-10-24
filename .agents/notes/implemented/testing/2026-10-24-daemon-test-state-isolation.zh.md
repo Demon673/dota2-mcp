@@ -1,8 +1,8 @@
 # Agent Note: 离线测试中的守护进程状态隔离
 
-Status: implemented
-
 [English](2026-10-24-daemon-test-state-isolation.md) | 中文
+
+Status: implemented
 
 ## Problem
 
@@ -15,7 +15,7 @@ Status: implemented
 - `DOTA2_VCON_STATE_DIR` 覆盖守护进程 token、pid、lock 与日志文件，以及截图 watcher 的锁、来源和请求文件所用的目录。默认值仍是 `os.tmpdir()/dota2-mcp`，并保留既有的主目录回退。覆盖路径会被解析为绝对路径，使启动的守护进程看到与父进程相同的位置。
 - 每个启动 MCP 服务器的离线脚本都使用自己的临时状态目录。`test-daemon.mjs` 跟踪它启动的所有子进程，并在每次退出时把它们连同 pid 文件中记录的进程一并杀掉。
 - `spawnMcpServer` 接受 `cleanupDaemon: true`，该选项要求使用隔离的状态目录。其清理逻辑会杀掉 MCP 子进程和该目录中记录的守护进程或截图 watcher，并且在断言导致进程退出时同样执行。活体脚本不会启用它。
-- 正常退出的测试会删除各自的临时目录。守护进程重新启动测试会等待 45 s 让初始端口就绪，与既有的慢启动容忍度一致；启动失败信息会附带 MCP stderr 与 relay 日志。开始前，`test-daemon.mjs` 会短暂监听预期端口段中的每个端口，只要有一个被占用就改选另一段；`test-relay.mjs` 也对连续的四个端口做同样检查，而不是只依赖随机选择。
+- 正常退出的测试会删除各自的临时目录。守护进程重新启动测试会等待 45 s 让初始端口就绪，与既有的慢启动容忍度一致；启动失败信息会附带 MCP stderr 与 relay 日志。`lib-test-ports.mjs` 会在测试开始前短暂监听申请端口段中的每个端口，因此 relay、daemon、控制台、截图、文件、资产和 MCP 冒烟测试都不再只依赖随机选段。
 
 ## Alternatives considered
 

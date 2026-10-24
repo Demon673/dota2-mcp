@@ -6,10 +6,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
+import { freePortBlock } from "./lib-test-ports.mjs";
 
 const stateDir = mkdtempSync(path.join(tmpdir(), "collect-output-state-"));
 
-const BASE = 20000 + Math.floor(Math.random() * 20000);
+const BASE = await freePortBlock(3);
 const env = {
   ...process.env,
   DOTA2_VCON_DOTA_PORT: String(BASE),
@@ -56,6 +57,7 @@ const samples = {
 // 假 Dota：每条 CMND 按 ; 拆分执行；begin 之前和 end 之后各插一行噪声，模拟游戏自身/其他会话的打印；其余命令回一行中文
 const received = []; // 假 Dota 收到的 CMND 原文（UTF-8 解码），用于断言出站编码
 let aiDisabled = false;
+let statusSilent = false;
 let dotaSock = null;
 const dota = net.createServer((sock) => {
   dotaSock = sock;
@@ -98,8 +100,9 @@ const dota = net.createServer((sock) => {
           for (const line of samples.serverModifiers) sock.write(prnt(line));
         } else if (part === "cl_dump_modifier_list") {
           for (const line of samples.clientModifiers) sock.write(prnt(line));
+        } else if (part === "status_json" && statusSilent) {
+          // 无应答场景：restart 的墙钟 deadline 必须覆盖这些慢轮询
         } else {
-          sock.write(prnt(`${part} - 中文帮助行`));
         }
       }
     }
@@ -172,6 +175,14 @@ assert(!/__mcp_[0-9a-f]+_/.test(guiText()), "collection markers never reach vcon
 dotaSock.write(prnt("game_print_after_mcp"));
 await sleep(300);
 assert(guiText().includes("game_print_after_mcp"), "game's own output still reaches vconsole afterwards");
+
+statusSilent = true;
+const restartStarted = Date.now();
+const restart = await call("tools/call", { name: "dota_restart", arguments: {} }, 30000);
+const restartElapsed = Date.now() - restartStarted;
+assert(textOf(restart).includes("within 20s") && restartElapsed >= 19000 && restartElapsed < 30000,
+  `restart uses a wall-clock deadline, not 40 x 5s polls (elapsed ${restartElapsed}ms)`);
+statusSilent = false;
 
 gui.destroy();
 dota.close();

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/bug-fix/2026-10-24-focused-tool-results.md
-2026-10-24-focused-tool-results.md: 90f900ebcad5b63ca061285c6b6f706a4fdb21b2
-2026-10-24-focused-tool-results.zh.md: deda60877a1f4ceceeb2447f211b4a699892d399
+2026-10-24-focused-tool-results.md: 07a2ee3645b80eae5877d26ae6975ae4dd3dbb9a
+2026-10-24-focused-tool-results.zh.md: 97c6a167b6e07087876057df175488bf0de80c57

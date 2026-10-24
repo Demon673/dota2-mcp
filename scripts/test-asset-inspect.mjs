@@ -4,6 +4,7 @@ import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
 import { mkdtempSync, writeFileSync, chmodSync, rmSync, mkdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { freePortBlock } from "./lib-test-ports.mjs";
 
 // 假 VRF CLI 在 Windows 上执行不了：无扩展名脚本报 ENOENT、伪装 .exe 不是合法 PE、
 // .cmd/.bat 需 shell。本冒烟因此仅覆盖 POSIX（EXE_BASE 见 vrf-ensure.ts:27）。
@@ -83,7 +84,7 @@ const cliPath = path.join(vDir, "Source2Viewer-CLI");
 writeFileSync(cliPath, fakeCli);
 chmodSync(cliPath, 0o755);
 
-const BASE = 20000 + Math.floor(Math.random() * 20000);
+const BASE = await freePortBlock(3);
 const env = {
   ...process.env,
   DOTA2_VCON_DOTA_PORT: String(BASE),

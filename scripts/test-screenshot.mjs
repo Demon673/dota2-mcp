@@ -6,6 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
+import { freePortBlock } from "./lib-test-ports.mjs";
 
 const work = mkdtempSync(path.join(tmpdir(), "screenshot-test-"));
 const modeFile = path.join(work, "mode.txt");
@@ -80,12 +81,13 @@ if (process.argv[2] === "--watch") {
 }
 `);
 
+const BASE = await freePortBlock(2);
 const env = {
   ...process.env,
   DOTA2_CAPTURE_HELPER: helper,
   DOTA2_SCREENSHOT_DIR: shotDir,
   DOTA2_VCON_STATE_DIR: path.join(work, "daemon-state"),
-  DOTA2_VCON_DOTA_PORT: "1", DOTA2_VCON_GUI_PORT: String(20000 + Math.floor(Math.random() * 20000)),
+  DOTA2_VCON_DOTA_PORT: "1", DOTA2_VCON_GUI_PORT: String(BASE),
 };
 env.DOTA2_VCON_CTRL_PORT = String(Number(env.DOTA2_VCON_GUI_PORT) + 1);
 const { call, notify, kill } = spawnMcpServer({ timeoutMs: 45000, env, cleanupDaemon: true });

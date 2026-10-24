@@ -4,29 +4,9 @@
 // 5) Dota 消失 ready:false；回来→新就绪沿再 auto-open 6) 进程在/禁用不 auto-open
 // 7) RelayClient 断线期间的命令丢弃不补发
 import net from "node:net";
+import { freePortBlock } from "./lib-test-ports.mjs";
 
-// 先确认 BASE..BASE+3 都空闲；随机选段本身不能避免 EADDRINUSE。
-async function freePortBlock() {
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const base = 20000 + Math.floor(Math.random() * 20000);
-    const servers = [];
-    let available = true;
-    for (let offset = 0; offset <= 3; offset++) {
-      const server = net.createServer();
-      const ok = await new Promise((resolve) => {
-        server.once("error", () => resolve(false));
-        server.listen(base + offset, "127.0.0.1", () => resolve(true));
-      });
-      if (!ok) { available = false; break; }
-      servers.push(server);
-    }
-    await Promise.all(servers.map((s) => new Promise((r) => s.close(r))));
-    if (available) return base;
-  }
-  throw new Error("no free relay test port block");
-}
-
-const BASE = await freePortBlock();
+const BASE = await freePortBlock(4);
 process.env.DOTA2_VCON_DOTA_PORT = String(BASE);
 process.env.DOTA2_VCON_GUI_PORT = String(BASE + 1);
 process.env.DOTA2_VCON_CTRL_PORT = String(BASE + 2);

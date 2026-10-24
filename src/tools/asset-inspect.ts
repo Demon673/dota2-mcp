@@ -4,6 +4,7 @@ import { readFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ensureVrf } from "./vrf-ensure.js";
+import { scrubbedEnv } from "./process-env.js";
 
 export interface InspectOptions {
   includeRaw?: boolean;
@@ -33,7 +34,7 @@ export function decompileToText(exe: string, resolvedPath: string, outFile: stri
     windowsHide: true,
     cwd: path.dirname(outFile), // VRF 失败会写 exceptions.txt，不能落在调用方工作目录
     maxBuffer: 64 * 1024 * 1024,
-    env: { ...process.env, DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1" },
+    env: scrubbedEnv({ DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1" }),
   });
   return readFileSync(outFile, "utf-8");
 }

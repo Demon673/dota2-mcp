@@ -1,8 +1,8 @@
 # Agent Note: Focused console and API tool results
 
-Status: implemented
-
 English | [中文](2026-10-24-focused-tool-results.zh.md)
+
+Status: implemented
 
 ## Problem
 

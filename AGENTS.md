@@ -77,6 +77,7 @@ Optional advanced configuration:
 | `DOTA2_VCON_CTRL_PORT` | `29002` | MCP control port |
 | `DOTA2_VCON_AUTO_OPEN_VCONSOLE` | `1` | Auto-open vconsole2.exe when Dota readiness is detected (rising edge) and no vconsole2 process exists; `0` disables |
 | `DOTA2_VCON_STATE_DIR` | `os.tmpdir()/dota2-mcp` | Daemon token/pid/lock/log and capture-watcher state; offline tests override it with an isolated temporary directory |
+| `DOTA2_CAPTURE_DISABLE_WATCHER` | `0` | `1` disables automatic capture-watcher startup (offline console tests); an explicit `dota_screenshot` call still starts it |
 | `DOTA2_SCREENSHOT_DIR` | `os.tmpdir()/dota2-mcp/screenshots` | Where `dota_screenshot` saves images; it keeps only its own 20 newest |
 
 ## Key findings
@@ -316,7 +317,4 @@ Editing the English side of a paired document requires updating the Chinese coun
 
 ## TODO — Roadmap
 
-- [ ] **BuildTools** — npm/tstl/rollup build integration + scaffolding generation
-- [ ] **dota_map_error** — static tstl source-line mapping tool (proposal: `.agents/notes/proposed/feature/2026-08-05-dota-map-error-tool.md`)
-- [ ] Verify the actual output of `script_find` / `script_dump_all` while the game is running
-- [ ] Test dota_launch_game across various addon/map combinations
+- [ ] Active follow-up work is tracked in [docs/TODO.md](docs/TODO.md), including production-grade VFX recipes, remaining live coverage, and the existing BuildTools / `dota_map_error` roadmap.

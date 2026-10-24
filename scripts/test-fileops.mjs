@@ -5,8 +5,9 @@ import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
+import { freePortBlock } from "./lib-test-ports.mjs";
 
-const BASE = 20000 + Math.floor(Math.random() * 20000);
+const BASE = await freePortBlock(3);
 const addonName = process.env.DOTA2_TEST_ADDON || "dota2mcptest";
 const fakeSteam = mkdtempSync(path.join(tmpdir(), "fileops-steam-"));
 const fakeDota = path.join(fakeSteam, "steamapps", "common", "dota 2 beta");
