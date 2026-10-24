@@ -23,7 +23,7 @@ export interface VrfOptions {
 
 const REPO = "ValveResourceFormat/ValveResourceFormat";
 /** 版本 pin，唯一真源：scripts/check-vrf-version.mjs 只读这一行并与上游最新 release 比对。 */
-export const DEFAULT_VERSION = "20.0";
+export const DEFAULT_VERSION = "20.1";
 const EXE_BASE = process.platform === "win32" ? "Source2Viewer-CLI.exe" : "Source2Viewer-CLI";
 
 /** 本机平台 → VRF release 资产名（cli-{os}-{arch}.zip）。 */

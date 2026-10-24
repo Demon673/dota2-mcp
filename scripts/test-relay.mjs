@@ -5,7 +5,28 @@
 // 7) RelayClient 断线期间的命令丢弃不补发
 import net from "node:net";
 
-const BASE = 20000 + Math.floor(Math.random() * 20000);
+// 先确认 BASE..BASE+3 都空闲；随机选段本身不能避免 EADDRINUSE。
+async function freePortBlock() {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const base = 20000 + Math.floor(Math.random() * 20000);
+    const servers = [];
+    let available = true;
+    for (let offset = 0; offset <= 3; offset++) {
+      const server = net.createServer();
+      const ok = await new Promise((resolve) => {
+        server.once("error", () => resolve(false));
+        server.listen(base + offset, "127.0.0.1", () => resolve(true));
+      });
+      if (!ok) { available = false; break; }
+      servers.push(server);
+    }
+    await Promise.all(servers.map((s) => new Promise((r) => s.close(r))));
+    if (available) return base;
+  }
+  throw new Error("no free relay test port block");
+}
+
+const BASE = await freePortBlock();
 process.env.DOTA2_VCON_DOTA_PORT = String(BASE);
 process.env.DOTA2_VCON_GUI_PORT = String(BASE + 1);
 process.env.DOTA2_VCON_CTRL_PORT = String(BASE + 2);
@@ -27,13 +48,14 @@ async function waitFor(cond, timeoutMs, what) {
   process.exit(1);
 }
 
-function frame(type, payloadLen = 44) {
+function frame(type, payload = 44) {
+  const body = Buffer.isBuffer(payload) ? payload : Buffer.alloc(payload);
   const head = Buffer.alloc(12);
   head.write(type, 0, 4, "ascii");
   head.writeUInt16BE(212, 4);
-  head.writeUInt32BE(12 + payloadLen, 6);
+  head.writeUInt32BE(12 + body.length, 6);
   head.writeUInt16BE(0, 10);
-  return Buffer.concat([head, Buffer.alloc(payloadLen)]);
+  return Buffer.concat([head, body]);
 }
 function prntFrame(text) {
   const body = Buffer.concat([Buffer.alloc(28), Buffer.from(text, "ascii"), Buffer.from([0])]);
@@ -46,6 +68,11 @@ function prntFrame(text) {
 }
 
 const INIT = ["AINF", "CHAN", "CVRB", "CFGV", "ADON"];
+// 一个真实结构的 CHAN 帧：count(2) + 24 字节固定字段 + 34 字节名称
+const chanPayload = Buffer.alloc(60);
+chanPayload.writeInt16BE(1, 0);
+chanPayload.writeUInt32BE(7, 2);
+chanPayload.write("VScript", 26, "utf8");
 // fake Dota：可关闭/重启；统计「持有连接」（存活≥400ms）与「探针连接」（秒关）
 let replyToProbe = false;
 let gotProbe = false;
@@ -58,7 +85,7 @@ function startServer() {
       const t0 = Date.now();
       let held = false;
       sock._heldTimer = setTimeout(() => { held = true; stats.held.add(sock); stats.real++; }, 400);
-      for (const t of INIT) sock.write(frame(t, t === "AINF" ? 128 : 44));
+      for (const t of INIT) sock.write(frame(t, t === "CHAN" ? chanPayload : t === "AINF" ? 128 : 44));
       sock.on("data", (d) => {
         if (d.includes("__mcp_ping__")) {
           gotProbe = true;
@@ -138,6 +165,13 @@ while (guiBuf.length >= 12) {
   guiBuf = guiBuf.subarray(len);
 }
 assert(JSON.stringify(got) === JSON.stringify(INIT), `GUI received init frames: ${got.join(",")}`);
+
+// 晚接入的瘦客户端必须直接从 hello-ok 得到已注册通道，不能等下一次 CHAN
+const { RelayClient } = await import("../dist/relay-client.js");
+const lateClient = new RelayClient({ port: BASE + 2, token: null });
+await lateClient.connect();
+assert(lateClient.getChannels().includes("VScript"), "late thin client receives existing channels in hello-ok");
+lateClient.destroy();
 
 // ── 场景 3：连接态活性探测：pong 保活 → 无 pong 判死 → GUI 在故重连 ──
 replyToProbe = true;

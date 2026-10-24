@@ -14,21 +14,52 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 
-// 用随机端口避免撞真实 relay / 残留 daemon
-const CTRL_PORT = 29200 + Math.floor(Math.random() * 500);
+// 先确认整段端口空闲，再关闭临时监听并开始测试；随机选段本身不能避免 EADDRINUSE
+async function freePortBlock() {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const base = 20000 + Math.floor(Math.random() * 20000);
+    const servers = [];
+    let available = true;
+    for (let offset = 0; offset <= 10000; offset += 1000) {
+      const server = net.createServer();
+      const ok = await new Promise((resolve) => {
+        server.once("error", () => resolve(false));
+        server.listen(base + offset, "127.0.0.1", () => resolve(true));
+      });
+      if (!ok) { available = false; break; }
+      servers.push(server);
+    }
+    await Promise.all(servers.map((s) => new Promise((r) => s.close(r))));
+    if (available) return base;
+  }
+  throw new Error("no free daemon test port block");
+}
+
+// 独立状态目录：绝不删除活体 daemon 的 token/pid/lock
+const CTRL_PORT = await freePortBlock();
 const GUI_PORT = CTRL_PORT + 1000;
+const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "dota2-mcp-daemon-test-"));
+process.env.DOTA2_VCON_STATE_DIR = stateDir;
 process.env.DOTA2_VCON_CTRL_PORT = String(CTRL_PORT);
 process.env.DOTA2_VCON_GUI_PORT = String(GUI_PORT);
-const stateDir = path.join(os.tmpdir(), "dota2-mcp");
-fs.mkdirSync(stateDir, { recursive: true });
 const tokenPath = path.join(stateDir, "relay.token");
 const pidPath = path.join(stateDir, "relay.pid");
+const children = new Set();
+function spawnTracked(...args) {
+  const child = spawn(...args);
+  children.add(child);
+  child.on("exit", () => children.delete(child));
+  return child;
+}
 
 function cleanup() {
+  for (const child of children) { try { process.kill(child.pid); } catch {} }
+  try { const pid = Number(fs.readFileSync(pidPath, "utf8")); if (pid > 0) process.kill(pid); } catch {}
   for (const f of [tokenPath, pidPath, path.join(stateDir, "relay.lock")]) {
     try { fs.unlinkSync(f); } catch {}
   }
 }
+process.on("exit", cleanup);
 
 function connectClient(name) {
   return new Promise((resolve, reject) => {
@@ -103,7 +134,7 @@ async function main() {
 
   // 1. spawn daemon
   console.log("[test] spawning relay daemon...");
-  const child = spawn(process.execPath, ["dist/relay-main.js"], {
+  const child = spawnTracked(process.execPath, ["dist/relay-main.js"], {
     detached: true, stdio: "ignore", windowsHide: true,
     env: { ...process.env },  // 传递 DOTA2_VCON_CTRL_PORT / GUI_PORT
   });
@@ -241,7 +272,7 @@ async function main() {
     else console.log("[test] PASS sendCommand drops while disconnected");
 
     // restart daemon
-    const child2 = spawn(process.execPath, ["dist/relay-main.js"], {
+    const child2 = spawnTracked(process.execPath, ["dist/relay-main.js"], {
       detached: true, stdio: "ignore", windowsHide: true,
       env: { ...process.env },
     });
@@ -274,7 +305,7 @@ async function main() {
       s.on("close", () => clearTimeout(timer));
     });
     await new Promise((res) => fakeDota.listen(DOTA_FAKE_PORT, "127.0.0.1", res));
-    const child3 = spawn(process.execPath, ["dist/relay-main.js"], {
+    const child3 = spawnTracked(process.execPath, ["dist/relay-main.js"], {
       detached: true, stdio: "ignore", windowsHide: true,
       env: { ...process.env,
         DOTA2_VCON_DOTA_PORT: String(DOTA_FAKE_PORT),
@@ -298,7 +329,7 @@ async function main() {
     const DOTA3 = CTRL_PORT + 5000;
     const CTRL3 = CTRL_PORT + 6000;
     const GUI3 = CTRL3 + 1000;
-    const child4 = spawn(process.execPath, ["dist/relay-main.js"], {
+    const child4 = spawnTracked(process.execPath, ["dist/relay-main.js"], {
       detached: true, stdio: "ignore", windowsHide: true,
       env: { ...process.env,
         DOTA2_VCON_DOTA_PORT: String(DOTA3),
@@ -376,7 +407,7 @@ async function main() {
     const C10 = CTRL_PORT + 8000;
     const G10 = C10 + 1000;
     const D10 = C10 + 2000;
-    const child5 = spawn(process.execPath, ["dist/index.js"], {
+    const child5 = spawnTracked(process.execPath, ["dist/index.js"], {
       stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
       env: { ...process.env,
         DOTA2_VCON_CTRL_PORT: String(C10),
@@ -395,7 +426,7 @@ async function main() {
         const s = new net.Socket();
         s.connect(C10, "127.0.0.1", () => { s.destroy(); res(); });
         s.on("error", () => {
-          if (Date.now() - t0 > 15000) return rej(new Error("index.js daemon never listened"));
+          if (Date.now() - t0 > 45000) return rej(new Error("index.js daemon never listened\n" + stderr10));
           setTimeout(tick, 300);
         });
       };
@@ -462,8 +493,15 @@ async function main() {
   }
 
   cleanup();
+  fs.rmSync(stateDir, { recursive: true, force: true });
   console.log("[test] done");
   process.exit(0);
 }
 
-main().catch((e) => { console.error("[test] FATAL:", e); cleanup(); process.exit(1); });
+main().catch((e) => {
+  console.error("[test] FATAL:", e);
+  try { console.error("[test] relay.log tail:\n" + fs.readFileSync(path.join(stateDir, "relay.log"), "utf8").slice(-4000)); } catch {}
+  cleanup();
+  fs.rmSync(stateDir, { recursive: true, force: true });
+  process.exit(1);
+});

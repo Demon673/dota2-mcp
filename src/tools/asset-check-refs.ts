@@ -1,6 +1,7 @@
 // asset_check_refs：单资产递归引用完整性检查（wayfinder #10 契约）
-// 两级解析：addon（content 源 + game 产物）→ game/dota（引擎资产）；编译状态单列 uncompiled。
-import { existsSync, rmSync } from "node:fs";
+// 引用解析：addon（content 源 + game 产物）→ game/dota → 共享 addon 产物 → 核心 VPK；编译状态单列 uncompiled。
+import { existsSync, rmSync, readdirSync, statSync, mkdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ensureVrf } from "./vrf-ensure.js";
@@ -30,13 +31,41 @@ function compiledOf(sourcePath: string): string {
   return m ? m[1] + m[2] + "_c" : sourcePath + "_c";
 }
 
+const packedRefCache = new Map<string, boolean>();
+/** 核心 VPK 里的资源在磁盘上没有独立文件；用 VRF 精确查询，避免把官方引用误报为 broken。 */
+function packedEngineRef(dotaPath: string, clean: string, exe: string): { found: boolean; error: string | null } {
+  const vpk = path.join(dotaPath, "game", "dota", "pak01_dir.vpk");
+  if (!existsSync(vpk)) return { found: false, error: null };
+  const compiled = compiledOf(clean).replace(/\\/g, "/");
+  let key: string;
+  try { key = `${vpk}|${statSync(vpk).mtimeMs}|${compiled}`; }
+  catch (e) { return { found: false, error: (e as Error).message }; }
+  const cached = packedRefCache.get(key);
+  if (cached !== undefined) return { found: cached, error: null };
+  try {
+    const workDir = path.join(tmpdir(), "dota2-mcp", "checkrefs");
+    mkdirSync(workDir, { recursive: true });
+    const stdout = execFileSync(exe, ["-i", vpk, "--vpk_list", "-f", compiled], {
+      encoding: "utf-8", windowsHide: true, cwd: workDir, timeout: 15000, maxBuffer: 1024 * 1024,
+      env: { ...process.env, DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1" },
+    });
+    const found = stdout.split(/\r?\n/).some(line => line.startsWith(compiled + " "));
+    packedRefCache.set(key, found);
+    return { found, error: null };
+  } catch (e) {
+    return { found: false, error: `engine VPK lookup failed: ${(e as Error).message.split("\n")[0]}` };
+  }
+}
+
 /** 引用解析：
  *  1. addon 源存在 + 产物存在 → ok
  *  2. addon 源存在 + 产物缺失 → uncompiled
  *  3. addon 不存在 → game/dota 存在（源或产物）→ engine_ref
- *  4. 都不存在 → broken
+ *  4. 上述都缺失 → 其他 addon 的编译产物存在 → engine_ref
+ *  5. 再查核心 pak01_dir.vpk → engine_ref
+ *  6. 都不存在 → broken
  */
-function resolveOneRef(dotaPath: string, addon: string, ref: string, from: string,): { report: RefReport; kind: "ok" | "uncompiled" | "engine" | "broken"; nextSource: string | null } {
+function resolveOneRef(dotaPath: string, addon: string, ref: string, from: string, sharedRoots: string[], vrfExe: string): { report: RefReport; kind: "ok" | "uncompiled" | "engine" | "broken"; nextSource: string | null } {
   const clean = ref.replace(/^resource:/, "").replace(/\\/g, "/");
   const addonSrc = path.join(dotaPath, "content", "dota_addons", addon, clean);
   const addonOut = compiledOf(path.join(dotaPath, "game", "dota_addons", addon, clean));
@@ -50,7 +79,18 @@ function resolveOneRef(dotaPath: string, addon: string, ref: string, from: strin
   if (existsSync(engineOut) || existsSync(path.join(dotaPath, "game", "dota", clean))) {
     return { report: { ref: clean, from, resolved: path.join(dotaPath, "game", "dota", clean), issue: null }, kind: "engine", nextSource: null };
   }
-  return { report: { ref: clean, from, resolved: null, issue: "not_found" }, kind: "broken", nextSource: null };
+  // 引擎也能加载其他 addon 已编译的共享资源（实见于 addon_template 的 basic_glow）。
+  for (const root of sharedRoots) {
+    const sharedOut = compiledOf(path.join(root, clean));
+    if (existsSync(sharedOut)) {
+      return { report: { ref: clean, from, resolved: sharedOut, issue: null }, kind: "engine", nextSource: null };
+    }
+  }
+  const packed = packedEngineRef(dotaPath, clean, vrfExe);
+  if (packed.found) {
+    return { report: { ref: clean, from, resolved: path.join(dotaPath, "game", "dota", "pak01_dir.vpk"), issue: null }, kind: "engine", nextSource: null };
+  }
+  return { report: { ref: clean, from, resolved: null, issue: packed.error ?? "not_found" }, kind: "broken", nextSource: null };
 }
 
 /** 反编译一个资产为文本。失败返回 null（与「成功但无内容」的空串区分开）。 */
@@ -70,6 +110,14 @@ export async function checkRefs(dotaPath: string, addon: string, resolvedPath: s
     return { ok: false, text: "asset_check_refs needs the VRF CLI: " + vrf.message };
   }
   const maxDepth = opts.maxDepth ?? 3;
+  const addonsRoot = path.join(dotaPath, "game", "dota_addons");
+  let sharedRoots: string[] = [];
+  try {
+    sharedRoots = readdirSync(addonsRoot, { withFileTypes: true })
+      .filter(e => e.isDirectory())
+      .map(e => path.join(addonsRoot, e.name))
+      .sort((a, b) => path.basename(a) === "addon_template" ? -1 : path.basename(b) === "addon_template" ? 1 : a.localeCompare(b));
+  } catch { /* 没有共享 addon 目录时仍可用 game/dota 解析 */ }
   const ok: RefReport[] = [];
   const uncompiled: RefReport[] = [];
   const engineRefs: RefReport[] = [];
@@ -89,7 +137,7 @@ export async function checkRefs(dotaPath: string, addon: string, resolvedPath: s
     if (!text) continue;
     for (const ref of extractRefs(text)) {
       if (!isAssetRef(ref)) continue;
-      const r = resolveOneRef(dotaPath, addon, ref, src);
+      const r = resolveOneRef(dotaPath, addon, ref, src, sharedRoots, vrf.executable);
       if (r.kind === "ok") ok.push(r.report);
       else if (r.kind === "uncompiled") uncompiled.push(r.report);
       else if (r.kind === "engine") engineRefs.push(r.report);

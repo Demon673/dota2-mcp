@@ -140,11 +140,11 @@ Installation has two paths; pick whichever you prefer:
 | Tool | Purpose |
 |------|------|
 | `dota_status` | Get connection, vconsole, addon, map, and game status plus next-step suggestions. Call this first. |
-| `dota_screenshot` | Capture the Dota 2 game window in the background (needs no console; Windows only). |
+| `dota_screenshot` | Capture the Dota 2 game window in the background (needs no console; Windows only). A persistent helper caches the latest frame; cached results include `stale` and `captured_at`, so a hang after the helper started need not stop frame delivery. |
 | `dota_open_vconsole` | Open the vconsole2 window (console-class tools need it open). |
 | `dota_launch_game` | Launch a custom game map (waits to enter the match; returns the phase and how to advance when stuck). |
 | `dota_disconnect` | Disconnect the current game. |
-| `dota_advance_to_game` | Advance a loaded game from any pre-game phase to a playable match with a hero for every player. |
+| `dota_advance_to_game` | Advance a loaded game from any pre-game phase to a playable match with a hero for every player (requires `sv_cheats=1`). |
 | `dota_restart` | Reload the current map (waits until the reload has started). |
 | `console_send` | Send a command to the Dota 2 console. |
 | `console_output` | Read console output. |
@@ -156,22 +156,22 @@ Installation has two paths; pick whichever you prefer:
 | `dota_api_panorama_js` | Query the Panorama JS API. |
 | `dota_api_css` | Query Panorama CSS properties. |
 | `dota_api_events` | Query Panorama events. |
-| `dota_api_help` | Query the official Lua API docs. |
-| `dota_run_lua` | Execute server Lua in the running game. |
-| `dota_dump_entities` | List entities in the current scene. |
-| `dota_dump_modifiers` | List modifiers. |
+| `dota_api_help` | Inspect a Lua class/scope (global functions use `dota_api_lua`). |
+| `dota_run_lua` | Execute server Lua in the running game (requires `sv_cheats=1`). |
+| `dota_dump_entities` | List entities in the current scene (optional substring filter). |
+| `dota_dump_modifiers` | List active server modifiers by default, or registered client types (optional substring filter). |
 | `dota_entity_inspect` | Inspect an entity's Lua scope. |
 | `dota_compile_asset` | Compile Source 2 assets. |
 | `vrf_ensure` | Ensure the VRF CLI is available (detect / download / sha256 verify / cache; offline-safe). |
 | `asset_inspect` | Decompile an asset and return a structured summary. |
 | `asset_check_refs` | Check a single asset's recursive reference integrity. |
-| `vfx_preview` | Spawn a particle preview in-game (returns its pid). |
-| `vfx_preview_stop` | Destroy preview particle instances. |
+| `vfx_preview` | Spawn a particle preview in-game (returns its pid; requires `sv_cheats=1`). |
+| `vfx_preview_stop` | Destroy preview particle instances (requires `sv_cheats=1`). |
 | `file_read` | Read a text file inside the addon. |
 | `file_write` | Write a file inside the addon. |
 | `file_edit` | Replace old_string→new_string in an addon file (exactly one match). |
 | `file_delete` | Delete a file inside the addon. |
-| `dota2_skill` | Retrieve built-in development skills (vfx/model formats, game phases, runtime dev). |
+| `dota2_skill` | Retrieve built-in development skills (vfx/model formats, game phases, runtime dev), with outline/section retrieval and targeted JSON `data_path` queries to avoid unnecessary full-text context. |
 
 ## FAQ
 

@@ -6,8 +6,9 @@
 
 ### 新增
 
-- **`dota_screenshot`**：在后台截取 Dota 2 游戏窗口画面并返回给 agent。不需要控制台或 vconsole，Windows 报告游戏无响应时仍尝试返回最后一帧（标注 `hung: true`），不抢焦点，最小化的窗口只在截图时临时恢复。仅支持 Windows；截图辅助程序在首次使用时用系统自带的 C# 编译器编译。
+- **`dota_screenshot`**：在后台截取 Dota 2 游戏窗口画面并返回给 agent。多个 MCP 会话共享的常驻助手在控制台连接 Dota 或首次调用工具时启动，在内存里缓存最新帧。缓存结果带 `captured_at` 和 `stale: true`，所以助手启动后即使游戏卡死、Windows 不再供帧，也能返回已有画面。不需要控制台或 vconsole，不抢焦点，最小化的窗口只在截图时临时恢复。仅支持 Windows；辅助程序在首次使用时用系统自带的 C# 编译器编译。
 - **`dota_advance_to_game`**：一次调用把已加载的游戏从任一开局前相位推进到 GAME_IN_PROGRESS，每个玩家都有英雄（随机，或指定 `hero`），只按观测到的游戏状态行动。标准流程：`dota_launch_game` 或 `dota_restart`，然后 `dota_advance_to_game`。`dota2-game-phases` skill 与卡相位指引现在都指向它。
+- **按需读取 skill**：`dota2_skill` 的目录包含 `###` 小节，`section` 同时支持 skill 正文和 Markdown 数据文件，JSON 数据支持 `e_combos.top10` 这类点路径 `data_path`。仍保留全文和整文件读取，但 VFX/模型制作不再依赖这些大结果。
 
 ### 修复
 
@@ -17,6 +18,13 @@
 - **`dota_restart` 在重启生效前就返回**：现在等到重载真正开始才返回。
 - **`sv_cheats` 关闭时 Lua 类工具不报错**：此时引擎忽略 `ent_fire`；`dota_run_lua`、`dota_advance_to_game` 和 VFX 工具现在立即失败，错误里点名 `sv_cheats`。
 - **`dota_launch_game` 把地图加载期间引擎不应答误判为卡相位**；启动后游戏仍停在主菜单时，现在会明确报告。
+- **API 查询返回整份引擎转储**：`dota_api_lua`、`dota_api_panorama_js`、`dota_api_css` 和 `dota_api_events` 现在只返回匹配条目。实体与 modifier 转储也支持子串过滤；`dota_dump_modifiers` 默认列出服务端生效的 modifier，而不是客户端注册表。
+- **晚接入的瘦客户端用 `console_channels` 查不到通道**：守护进程握手现在带上已经从 Dota 注册的通道表。
+- **Lua 与 VFX 结果错误**：标量 `expression` 直接打印结果；工具描述改用有效 API 示例并写明 `sv_cheats=1` 要求；`vfx_preview_stop` 不再把 `DestroyParticle` 的 void 返回值写成 `ok=nil`。
+- **卡死截图失败的原因含糊**：持续无响应导致 Windows.Graphics.Capture 不再供帧时，`dota_screenshot` 返回常驻缓存，并明确标注 `stale` 和采集时间。如果从未缓存到帧，则报告真实原因，而不是提示窗口正在启动或位于其他桌面。它不会改为截取屏幕或返回没有旧帧标记的旧图片。
+- **截图新鲜度被高估**：watcher 不再定时重建捕获会话，新会话不能把同一张旧窗口画面重新标成新帧。后台画面保持旧帧标记，直到既有会话真正交付新帧。
+- **VFX 最小模板无法渲染**：现在包含经过实机验证的 `C_OP_RenderSprites` 路径，工作流除检查非零粒子 PID 外，还要求比较创建和停止后的截图。旧演练中放错块的 emitter 和错误发射字段已修正。
+- **VRF 与粒子引用兼容性**：VRF pin 升级到 20.1，可读取当前引擎的 KV 类型 26。`asset_check_refs` 现在会解析共享 addon 产物和 `pak01_dir.vpk` 中的精确路径，不再把有效的引擎材质误报为 broken。`asset_inspect` 现在同时统计持续和瞬时 emitter。VRF 失败产物留在临时工作目录，不再写入调用方仓库。
 
 - **`file_edit` 写坏含 `$` 的文件**：`new_string` 里的 `$'`、`$&`、`$1` 现在按字面写入，不再被展开。
 - **借 `addon` 绕过 FileOps 路径边界**：`.`/`..` 或含 `/`、`\`、`:` 的 addon 名会被拒绝。所有 FileOps 与资产工具共用同一个 addon 解析入口。
@@ -24,6 +32,7 @@
 - **过期游戏状态**：查询没有回应时，`dota_status` / `dota_launch_game` 不再回落到日志里旧的 `status_json`。
 - **工具结果混入其他输出**：控制台类工具只保留每次调用的 begin/end 回显标记之间的行，隔离其他会话与游戏自身的打印。
 - **本地降级 relay 的 :29002 无认证**：现在执行与守护进程相同的 token 握手。
+- **离线守护进程测试破坏活体状态**：改用独立的 `DOTA2_VCON_STATE_DIR`，不再删除真实的 relay token、pid 和锁文件。
 - **VRF 失败被报告为成功**：CLI 失败或根资产无法反编译时，`asset_inspect` 与 `asset_check_refs` 返回错误。
 - **`dota_launch_game`** 在已加载其他地图时也会启动请求的地图。
 - **vconsole 重连**：被取代的 GUI socket 不再断掉在线连接；命令执行中途切换 MCP 屏蔽不再让 GUI 静默。

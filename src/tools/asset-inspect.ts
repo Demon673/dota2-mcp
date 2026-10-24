@@ -31,6 +31,7 @@ export function decompileToText(exe: string, resolvedPath: string, outFile: stri
   execFileSync(exe, ["-i", resolvedPath, "-o", outFile], {
     encoding: "utf-8",
     windowsHide: true,
+    cwd: path.dirname(outFile), // VRF 失败会写 exceptions.txt，不能落在调用方工作目录
     maxBuffer: 64 * 1024 * 1024,
     env: { ...process.env, DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1" },
   });
@@ -62,7 +63,7 @@ function buildSummary(assetType: string, text: string, pngInfo: { width: number;
   switch (assetType) {
     case "vpcf": return {
       particle_system_count: count(text, /_class\s*=\s*"CParticleSystemDefinition"/g),
-      emitter_count: count(text, /_class\s*=\s*"C_OP_InstantaneousEmitter"/g),
+      emitter_count: count(text, /_class\s*=\s*"C_OP_[A-Za-z0-9_]*Emitter"/g),
       operator_count: count(text, /_class\s*=\s*"C_OP_[A-Za-z0-9_]*"/g),
       initializer_count: count(text, /_class\s*=\s*"C_INIT_[A-Za-z0-9_]*"/g),
       child_refs: refs.filter((r) => r.endsWith(".vpcf")),

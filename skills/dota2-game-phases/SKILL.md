@@ -9,6 +9,8 @@ status_json reports `server.game_state` as `DOTA_GAMERULES_STATE_*`.
 
 ## Standard flow
 
+`dota_advance_to_game` executes server Lua, so it requires `sv_cheats=1` and an open vconsole.
+
 | Goal | Calls |
 |---|---|
 | First test run | `dota_launch_game` → `dota_advance_to_game` |

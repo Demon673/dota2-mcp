@@ -1,10 +1,11 @@
 // dota_screenshot：游戏截图（game screenshot）——从游戏外部经 Windows.Graphics.Capture 截取 Dota 2 游戏视口窗口，
 // 不经控制台、不给游戏发消息。截图辅助程序是下方内嵌的 C# 源码：首次使用时用 Windows 自带的 .NET Framework csc
-// 异步编译，按源码哈希缓存在 os.tmpdir()/dota2-mcp/capture/（仓库不附带二进制）。
+// 异步编译，按源码哈希缓存在 os.tmpdir()/dota2-mcp/capture/（仓库不附带二进制）。常驻助手以锁文件保证单例，
+// 持续缓存最后一帧；卡死时返回带 captured_at/stale 标记的缓存，而不是等待永远不到达的新帧。
 // 决策与备选方案见 .agents/notes/implemented/feature/2026-10-18-dota-screenshot.md。
 import { randomBytes, createHash } from "node:crypto";
-import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, renameSync } from "node:fs";
+import { execFile, spawn } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, renameSync, openSync, closeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -26,8 +27,8 @@ const KEEP = 20;
 /** 本工具生成的文件名；prune 只删匹配它的文件（DOTA2_SCREENSHOT_DIR 可能指向用户自己的目录） */
 const SHOT_NAME = /^dota-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{4}\.(jpg|png)$/;
 
-/** 辅助程序协议：argv = outPath maxWidth jpeg|png restore(0|1)，或 --minimize；stdout 每行一个 JSON，
- *  最后一行是结果。恢复最小化窗口前先输出 {"restoring":true}。 */
+/** 常驻协议：helper --watch <dir> <helperPath>，v2 锁记录 PID+路径；请求为 <id>.request（四行），
+ *  回复为 <id>.reply（JSON；可先写 accepted/restoring 进度）。helper --minimize 用于助手丢失后的补最小化。 */
 interface HelperReply {
   ok?: boolean;
   width?: number;
@@ -35,6 +36,9 @@ interface HelperReply {
   hung?: boolean;
   restored?: boolean;
   restoring?: boolean;
+  accepted?: boolean;
+  stale?: boolean;
+  captured_at?: string;
   error?: string;
   message?: string;
 }
@@ -104,18 +108,231 @@ function errorText(reply: HelperReply, exclusive: boolean, dotaPath: string | nu
         ? "The Dota 2 window is minimized and the game runs in exclusive fullscreen, where restoring it would switch display modes. Switch Dota 2 to windowed or borderless mode, or restore the window yourself."
         : "The Dota 2 window is minimized (restore: false). Call again with restore: true to restore it without focus, capture, and minimize it again.";
     case "no_frame":
-      return "The Dota 2 window produced no frame to capture. It may be hidden on another desktop or still starting.";
+      return reply.hung
+        ? "The Dota 2 window is not responding, and Windows.Graphics.Capture supplied no frame for this call. Nothing was captured. A sustained hang can stop frame delivery even if an earlier capture succeeded."
+        : "The Dota 2 window produced no frame to capture. It may be hidden on another desktop or still starting.";
     default:
       return `Capture failed: ${reply.message ?? reply.error ?? "unknown error"}`;
   }
 }
 
-function parseLines(stdout: string): HelperReply[] {
-  const out: HelperReply[] = [];
-  for (const line of stdout.split(/\r?\n/)) {
-    try { if (line.trim()) out.push(JSON.parse(line)); } catch { /* 非协议行 */ }
+interface WatchOutcome {
+  reply: HelperReply | null;
+  timedOut: boolean;
+  error: string | null;
+  note: string;
+}
+
+function watchDir(): string {
+  const root = process.env.DOTA2_VCON_STATE_DIR
+    ? path.resolve(process.env.DOTA2_VCON_STATE_DIR)
+    : path.join(tmpdir(), "dota2-mcp");
+  return path.join(root, "capture-watcher");
+}
+
+function processAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; }
+}
+
+interface WatcherInfo { raw: string; pid: number; source: string; version: number }
+function readWatcherInfo(dir: string): WatcherInfo | null {
+  try {
+    const raw = readFileSync(path.join(dir, "watcher.lock"), "utf8");
+    const lines = raw.trim().split(/\r?\n/);
+    if (lines[0] === "v2") {
+      return { raw, pid: Number(lines[1]), source: lines.slice(2).join("\n"), version: 2 };
+    }
+    // v1 只有 PID，来源在独立文件；读取它只为安全替换旧助手。
+    let source = "";
+    try { source = readFileSync(path.join(dir, "watcher.source"), "utf8"); } catch { }
+    return { raw, pid: Number(raw.trim()), source, version: 1 };
+  } catch { return null; }
+}
+
+function validPid(pid: number): boolean { return Number.isInteger(pid) && pid > 0; }
+function fakeWatcher(source: string): boolean { return /\.m?js$/i.test(source); }
+function sameHelper(a: string, b: string): boolean {
+  const left = path.resolve(a), right = path.resolve(b);
+  return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+}
+
+// 正式 C# 助手在整个生命周期内以 FileShare.Read 持有锁；申请写打开成功即说明锁已随进程死亡释放。
+// 这样即使 Windows 已复用锁里的 PID，也不会把无关进程当成助手杀掉。假 Node 助手只用于测试，走 PID 检查。
+function lockHeld(lock: string): boolean {
+  try { const fd = openSync(lock, "r+"); closeSync(fd); return false; }
+  catch (e) { return (e as NodeJS.ErrnoException).code !== "ENOENT"; }
+}
+function ownerAlive(dir: string, info: WatcherInfo): boolean {
+  const lock = path.join(dir, "watcher.lock");
+  if (process.platform === "win32" && !validPid(info.pid) && lockHeld(lock)) return true;
+  if (info.source && fakeWatcher(info.source)) return validPid(info.pid) && processAlive(info.pid);
+  if (process.platform === "win32") {
+    if (!lockHeld(lock)) return false;
+    return validPid(info.pid) ? processAlive(info.pid) : true; // CreateNew 后、PID 写入前也算启动中
   }
-  return out;
+  return validPid(info.pid) && processAlive(info.pid);
+}
+function liveWatcher(dir: string): number | null {
+  const info = readWatcherInfo(dir);
+  if (!info || !validPid(info.pid) || (info.version === 2 && !info.source)) return null;
+  return ownerAlive(dir, info) ? info.pid : null;
+}
+
+function removeWatcherLock(dir: string, expectedRaw: string): boolean {
+  const current = readWatcherInfo(dir);
+  if (!current) return true;
+  if (current.raw !== expectedRaw || ownerAlive(dir, current)) return false;
+  const lock = path.join(dir, "watcher.lock");
+  const stale = `${lock}.stale-${process.pid}-${randomBytes(4).toString("hex")}`;
+  try {
+    // 先原子改名再删除：另一个会话即使在清理后立刻创建新锁，也不会被本进程误删。
+    renameSync(lock, stale);
+    rmSync(stale, { force: true });
+    return true;
+  } catch { return !existsSync(lock); }
+}
+
+async function stopWatcher(dir: string): Promise<boolean> {
+  const info = readWatcherInfo(dir);
+  if (!info) return true;
+  const lock = path.join(dir, "watcher.lock");
+  const heldMode = process.platform === "win32" && !(info.source && fakeWatcher(info.source));
+  let killed = false;
+  if (validPid(info.pid) && ownerAlive(dir, info)) {
+    try { process.kill(info.pid); killed = true; } catch { /* 已退出 */ }
+  }
+  for (let i = 0; killed && i < 80; i++) {
+    if (heldMode ? !lockHeld(lock) : !processAlive(info.pid)) break;
+    await new Promise(r => setTimeout(r, 25));
+  }
+  const stopped = heldMode ? !lockHeld(lock) : !validPid(info.pid) || !processAlive(info.pid);
+  return stopped && removeWatcherLock(dir, info.raw);
+}
+
+function helperInvocation(helper: string, args: string[]): { cmd: string; args: string[] } {
+  return fakeWatcher(helper)
+    ? { cmd: process.execPath, args: [helper, ...args] }
+    : { cmd: helper, args };
+}
+
+function watcherLog(dir: string): string {
+  try { return readFileSync(path.join(dir, "watcher.log"), "utf8").slice(-1000).trim(); } catch { return ""; }
+}
+
+/** 全机共享一个常驻助手。v2 锁把 PID 与助手路径绑定到同一次启动，来源判断不再依赖独立文件的写入时序。 */
+async function ensureWatcher(helper: string): Promise<void> {
+  const dir = watchDir();
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const desiredSource = path.resolve(helper);
+  const invocation = helperInvocation(helper, ["--watch", dir, desiredSource]);
+  const state: { error: Error | null; exited: boolean } = { error: null, exited: false };
+  let child: import("node:child_process").ChildProcess | null = null;
+
+  for (let i = 0; i < 100; i++) {
+    const info = readWatcherInfo(dir);
+    if (info && liveWatcher(dir)) {
+      if (sameHelper(info.source, desiredSource)) return;
+      if (!await stopWatcher(dir)) throw new Error("The previous capture helper could not be stopped.");
+      continue;
+    }
+    if (info && ownerAlive(dir, info)) {
+      await new Promise(r => setTimeout(r, 50)); // 另一个会话已创建锁，等它写完并就绪
+      continue;
+    }
+    if (info && !removeWatcherLock(dir, info.raw)) {
+      await new Promise(r => setTimeout(r, 50));
+      continue;
+    }
+    if (!child) {
+      const logFd = openSync(path.join(dir, "watcher.log"), "a");
+      const env = { ...process.env };
+      for (const key of Object.keys(env)) {
+        if (/KEY|SECRET|TOKEN|PASSWORD/i.test(key)) delete env[key];
+      }
+      try {
+        child = spawn(invocation.cmd, invocation.args, { detached: true, stdio: ["ignore", logFd, logFd], windowsHide: true, env });
+      } finally { closeSync(logFd); }
+      child.once("error", (e) => { state.error = e; });
+      child.once("exit", () => { state.exited = true; });
+      child.unref();
+    }
+    if (state.error) throw state.error;
+    if (state.exited) {
+      const why = watcherLog(dir);
+      throw new Error(`Capture helper exited before it was ready.${why ? `\n${why}` : ""}`);
+    }
+    await new Promise(r => setTimeout(r, 50));
+  }
+  try { child?.kill(); } catch { /* 已退出 */ }
+  const why = watcherLog(dir);
+  throw new Error(`Capture helper did not become ready within 5s.${why ? `\n${why}` : ""}`);
+}
+
+export async function startScreenshotWatcher(): Promise<void> {
+  const override = process.env.DOTA2_CAPTURE_HELPER;
+  if (!override && process.platform !== "win32") return;
+  const helper = override || await ensureHelper();
+  await ensureWatcher(helper);
+}
+
+function readReply(file: string): HelperReply | null {
+  try {
+    const text = readFileSync(file, "utf8");
+    return text.trim() ? JSON.parse(text) as HelperReply : null;
+  } catch { return null; }
+}
+
+async function minimizeAfterRestore(helper: string, restoring: boolean): Promise<string> {
+  if (!restoring) return "";
+  const invocation = helperInvocation(helper, ["--minimize"]);
+  const m = await run(invocation.cmd, invocation.args, TIMEOUT_MS);
+  return m.timedOut || m.error
+    ? " The window had been restored and could not be minimized again."
+    : " The window had been restored; it was minimized again.";
+}
+
+async function watchCapture(helper: string, out: string, maxWidth: number, format: string, restore: boolean): Promise<WatchOutcome> {
+  await ensureWatcher(helper);
+  const dir = watchDir();
+  const id = randomBytes(8).toString("hex");
+  const request = path.join(dir, `${id}.request`);
+  const replyFile = path.join(dir, `${id}.reply`);
+  const tmp = path.join(dir, `${id}.${process.pid}.tmp`);
+  const cleanup = () => { rmSync(request, { force: true }); rmSync(replyFile, { force: true }); rmSync(tmp, { force: true }); };
+  writeFileSync(tmp, [out, String(maxWidth), format, restore ? "1" : "0"].join("\n"), { mode: 0o600 });
+  renameSync(tmp, request);
+
+  let restoring = false;
+  let accepted = false;
+  const start = Date.now();
+  while (Date.now() - start < TIMEOUT_MS) {
+    const reply = readReply(replyFile);
+    if (reply?.accepted) accepted = true;
+    if (reply?.restoring) { restoring = true; accepted = true; }
+    if (reply && (reply.ok !== undefined || reply.error)) {
+      cleanup();
+      return { reply, timedOut: false, error: null, note: "" };
+    }
+    if (!liveWatcher(dir)) {
+      cleanup();
+      const why = watcherLog(dir);
+      const note = await minimizeAfterRestore(helper, restoring);
+      return { reply: null, timedOut: false, error: `Capture helper exited while capturing.${why ? `\n${why}` : ""}`, note };
+    }
+    await new Promise(r => setTimeout(r, 25));
+  }
+
+  // 只有已开始处理的请求才可能卡死助手；仍在串行队列中的请求超时不能杀掉别人的共享助手。
+  let note = "";
+  if (accepted) {
+    const stopped = await stopWatcher(dir);
+    note = stopped ? " The capture helper was stopped." : " The capture helper could not be stopped cleanly.";
+  } else {
+    note = " The request was still queued; the shared capture helper was left running.";
+  }
+  cleanup();
+  note += await minimizeAfterRestore(helper, restoring);
+  return { reply: null, timedOut: true, error: null, note };
 }
 
 export async function captureScreenshot(opts: ScreenshotOptions): Promise<ScreenshotResult> {
@@ -130,32 +347,26 @@ export async function captureScreenshot(opts: ScreenshotOptions): Promise<Screen
   } catch (e) {
     return { ok: false, text: `Could not build the capture helper with the system C# compiler, so no screenshot is available:\n${(e as Error).message}` };
   }
-  const invoke = (args: string[], timeout: number) =>
-    /\.m?js$/i.test(helper) ? run(process.execPath, [helper, ...args], timeout) : run(helper, args, timeout);
 
   const dir = process.env.DOTA2_SCREENSHOT_DIR || path.join(tmpdir(), "dota2-mcp", "screenshots");
   mkdirSync(dir, { recursive: true });
   const ext = opts.format === "png" ? "png" : "jpg";
   const out = path.join(dir, `dota-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomBytes(2).toString("hex")}.${ext}`);
   const exclusive = opts.restore && !!opts.dotaPath && isExclusiveFullscreen(opts.dotaPath);
-  const r = await invoke([out, String(opts.maxWidth), opts.format, opts.restore && !exclusive ? "1" : "0"], TIMEOUT_MS);
-  const replies = parseLines(r.stdout);
   const fail = (text: string): ScreenshotResult => { rmSync(out, { force: true }); return { ok: false, text }; };
 
+  let r: WatchOutcome;
+  try {
+    r = await watchCapture(helper, out, opts.maxWidth, opts.format, opts.restore && !exclusive);
+  } catch (e) {
+    return fail(`Capture helper gave no result.\n${(e as Error).message}`);
+  }
   if (r.timedOut) {
-    // 被杀的辅助程序跑不到自己的 finally：它若已恢复过窗口，由这里补一次不激活的最小化
-    let note = "";
-    if (replies.some((x) => x.restoring)) {
-      const m = await invoke(["--minimize"], TIMEOUT_MS);
-      note = m.timedOut || m.error ? " The window had been restored and could not be minimized again." : " The window had been restored; it was minimized again.";
-    }
-    return fail(`Screenshot timed out after ${TIMEOUT_MS / 1000}s; the capture helper was killed. Nothing was captured.${note}`);
+    return fail(`Screenshot timed out after ${TIMEOUT_MS / 1000}s; the capture helper did not respond. Nothing was captured.${r.note}`);
   }
-  const reply = replies.filter((x) => x.ok !== undefined).pop();
-  if (!reply) {
-    const why = [r.error, r.stderr.trim()].filter(Boolean).join("\n").slice(0, 1000);
-    return fail(`Capture helper gave no result.${why ? `\n${why}` : ""}`);
-  }
+  if (r.error) return fail(`Capture helper gave no result.\n${r.error}${r.note}`);
+  const reply = r.reply;
+  if (!reply) return fail("Capture helper gave no result.");
   if (!reply.ok) return fail(errorText(reply, exclusive, opts.dotaPath));
 
   let data: string;
@@ -164,13 +375,18 @@ export async function captureScreenshot(opts: ScreenshotOptions): Promise<Screen
   }
   prune(dir);
   const lines = [`Saved: ${out}`, `Size: ${reply.width}x${reply.height}`];
-  if (reply.hung) lines.push("hung: true — Windows reports the Dota 2 window as not responding; this image is the last frame the window showed.");
+  if (reply.stale) {
+    const when = reply.captured_at || "an earlier time";
+    lines.push(`stale: true — no newer frame was available; this image was captured at ${when}.`);
+  }
+  if (reply.hung) lines.push("hung: true — Windows reports the Dota 2 window as not responding.");
   if (reply.restored) lines.push("The window was minimized: restored without focus, captured, and minimized again.");
   return { ok: true, text: lines.join("\n"), image: { data, mimeType: opts.format === "png" ? "image/png" : "image/jpeg" } };
 }
 
 const HELPER_SOURCE = String.raw`// dota2-mcp game screenshot helper: Windows.Graphics.Capture on the Dota 2 game window.
 // Usage: dota-capture <outPath> <maxWidth> <jpeg|png> <restore 0|1>   |   dota-capture --minimize
+//        dota-capture --watch <requestDir> <helperPath>  (persistent frame cache; *.request / *.reply files)
 // Prints JSON lines; the last is the result: {"ok":true,...} or {"ok":false,"error":"<code>","message":"..."}.
 // Before restoring a minimized window it prints {"restoring":true}.
 using System;
@@ -208,12 +424,14 @@ static class DotaCapture {
   const int SW_SHOWNOACTIVATE = 4, SW_SHOWMINNOACTIVE = 7;
 
   static int Main(string[] args) {
-    Console.OutputEncoding = new UTF8Encoding(false);
+    try { Console.OutputEncoding = new UTF8Encoding(false); } catch { } // detached watch 模式没有控制台 stdout
     try {
+      if (args.Length == 3 && args[0] == "--watch") return Watch(args[1], args[2]).GetAwaiter().GetResult();
       // --minimize: the caller killed a capture that had restored the window; put it back.
       if (args.Length == 1 && args[0] == "--minimize") {
         IntPtr w = FindGameWindow();
-        if (w != IntPtr.Zero && !IsIconic(w)) ShowWindow(w, SW_SHOWMINNOACTIVE);
+        if (w == IntPtr.Zero) { Fail("no_window", "No Dota 2 game window found."); return 2; }
+        if (!IsIconic(w)) ShowWindow(w, SW_SHOWMINNOACTIVE);
         Console.WriteLine("{\"ok\":true}");
         return 0;
       }
@@ -222,8 +440,8 @@ static class DotaCapture {
     catch (Exception e) { Fail("internal", e.GetType().Name + ": " + e.Message); return 1; }
   }
 
-  static void Fail(string code, string message) {
-    Console.WriteLine("{\"ok\":false,\"error\":\"" + code + "\",\"message\":\"" + Esc(message) + "\"}");
+  static void Fail(string code, string message, bool hung = false) {
+    Console.WriteLine("{\"ok\":false,\"error\":\"" + code + "\",\"message\":\"" + Esc(message) + "\"" + (hung ? ",\"hung\":true" : "") + "}");
   }
 
   static string Esc(string s) {
@@ -237,16 +455,24 @@ static class DotaCapture {
   }
 
   static IntPtr FindGameWindow() {
+    uint ignored;
+    return FindGameWindow(out ignored);
+  }
+
+  static IntPtr FindGameWindow(out uint windowPid) {
+    windowPid = 0;
     var pids = new System.Collections.Generic.HashSet<uint>();
-    foreach (var p in Process.GetProcessesByName("dota2")) pids.Add((uint)p.Id);
+    foreach (var p in Process.GetProcessesByName("dota2")) { pids.Add((uint)p.Id); p.Dispose(); }
     IntPtr found = IntPtr.Zero;
+    uint foundPid = 0;
     EnumWindows((h, l) => {
       uint pid; GetWindowThreadProcessId(h, out pid);
       if (!pids.Contains(pid) || !IsWindowVisible(h)) return true;
       var sb = new StringBuilder(64); GetWindowText(h, sb, 64);
-      if (sb.ToString() == "Dota 2") { found = h; return false; }
+      if (sb.ToString() == "Dota 2") { found = h; foundPid = pid; return false; }
       return true;
     }, IntPtr.Zero);
+    windowPid = foundPid;
     return found;
   }
 
@@ -288,33 +514,10 @@ static class DotaCapture {
           if (got != null && (DateTime.UtcNow - start).TotalMilliseconds >= settleMs) break;
           if (f == null) await Task.Delay(5);
         }
-        if (got == null) { Fail("no_frame", "No frame arrived from the Dota 2 window."); return 3; }
+        if (got == null) { Fail("no_frame", "No frame arrived from the Dota 2 window.", hung); return 3; }
         using (var frame = got) {
-          var bmp = await AsTask(SoftwareBitmap.CreateCopyFromSurfaceAsync(frame.Surface, BitmapAlphaMode.Ignore));
-          int w = bmp.PixelWidth, h = bmp.PixelHeight;
-          int ow = w, oh = h;
-          if (maxWidth > 0 && w > maxWidth) { ow = maxWidth; oh = (int)Math.Round((double)h * maxWidth / w); }
-          var stream = new InMemoryRandomAccessStream();
-          BitmapEncoder enc;
-          if (png) enc = await AsTask(BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, stream));
-          else {
-            var props = new BitmapPropertySet();
-            props.Add("ImageQuality", new BitmapTypedValue(0.8f, PropertyType.Single));
-            enc = await AsTask(BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, stream, props));
-          }
-          enc.SetSoftwareBitmap(bmp);
-          enc.BitmapTransform.ScaledWidth = (uint)ow;
-          enc.BitmapTransform.ScaledHeight = (uint)oh;
-          enc.BitmapTransform.InterpolationMode = BitmapInterpolationMode.Fant;
-          await AsTask(enc.FlushAsync());
-          stream.Seek(0);
-          var reader = new DataReader(stream.GetInputStreamAt(0));
-          uint size = (uint)stream.Size;
-          await AsTask(reader.LoadAsync(size));
-          var bytes = new byte[size];
-          reader.ReadBytes(bytes);
-          File.WriteAllBytes(outPath, bytes);
-          Console.WriteLine("{\"ok\":true,\"width\":" + ow + ",\"height\":" + oh +
+          var size = await EncodeFrame(frame, outPath, maxWidth, png);
+          Console.WriteLine("{\"ok\":true,\"width\":" + size[0] + ",\"height\":" + size[1] +
             ",\"hung\":" + (hung ? "true" : "false") + ",\"restored\":" + (restored ? "true" : "false") + "}");
           return 0;
         }
@@ -322,6 +525,258 @@ static class DotaCapture {
     } finally {
       if (restored) ShowWindow(hwnd, SW_SHOWMINNOACTIVE);
     }
+  }
+
+  static async Task<int[]> EncodeFrame(Direct3D11CaptureFrame frame, string outPath, int maxWidth, bool png) {
+    using (var bmp = await AsTask(SoftwareBitmap.CreateCopyFromSurfaceAsync(frame.Surface, BitmapAlphaMode.Ignore)))
+    using (var stream = new InMemoryRandomAccessStream()) {
+      int w = bmp.PixelWidth, h = bmp.PixelHeight;
+      int ow = w, oh = h;
+      if (maxWidth > 0 && w > maxWidth) { ow = maxWidth; oh = (int)Math.Round((double)h * maxWidth / w); }
+      BitmapEncoder enc;
+      if (png) enc = await AsTask(BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, stream));
+      else {
+        var props = new BitmapPropertySet();
+        props.Add("ImageQuality", new BitmapTypedValue(0.8f, PropertyType.Single));
+        enc = await AsTask(BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, stream, props));
+      }
+      enc.SetSoftwareBitmap(bmp);
+      enc.BitmapTransform.ScaledWidth = (uint)ow;
+      enc.BitmapTransform.ScaledHeight = (uint)oh;
+      enc.BitmapTransform.InterpolationMode = BitmapInterpolationMode.Fant;
+      await AsTask(enc.FlushAsync());
+      stream.Seek(0);
+      using (var reader = new DataReader(stream.GetInputStreamAt(0))) {
+        uint size = (uint)stream.Size;
+        await AsTask(reader.LoadAsync(size));
+        var bytes = new byte[size];
+        reader.ReadBytes(bytes);
+        File.WriteAllBytes(outPath, bytes);
+      }
+      return new[] { ow, oh };
+    }
+  }
+
+  sealed class CaptureReply {
+    public bool Ok, Hung, Restored, Stale;
+    public int Width, Height;
+    public string Error, Message, CapturedAt;
+    public string Json() {
+      if (!Ok) return "{\"ok\":false,\"error\":\"" + Error + "\",\"message\":\"" + Esc(Message) + "\"" + (Hung ? ",\"hung\":true" : "") + "}";
+      return "{\"ok\":true,\"width\":" + Width + ",\"height\":" + Height +
+        ",\"hung\":" + (Hung ? "true" : "false") + ",\"restored\":" + (Restored ? "true" : "false") +
+        ",\"stale\":" + (Stale ? "true" : "false") + ",\"captured_at\":\"" + Esc(CapturedAt) + "\"}";
+    }
+  }
+
+  sealed class CaptureRequest {
+    public string Id, OutPath;
+    public int MaxWidth;
+    public bool Png, AllowRestore;
+  }
+
+  sealed class CaptureState : IDisposable {
+    IntPtr hwnd;
+    uint pid;
+    GraphicsCaptureItem item;
+    IDirect3DDevice device;
+    Direct3D11CaptureFramePool pool;
+    GraphicsCaptureSession session;
+    Direct3D11CaptureFrame last;
+    DateTime capturedAt;
+    int version, sizeW, sizeH, lastW, lastH;
+
+    public bool HasPool { get { return pool != null; } }
+
+    void Open() {
+      // 窗口和 D3D 设备不变时复用，避免会话重建分配本机资源。
+      if (item == null) item = CreateItem(hwnd);
+      if (device == null) device = CreateDevice();
+      var initial = item.Size;
+      sizeW = initial.Width; sizeH = initial.Height;
+      pool = Direct3D11CaptureFramePool.CreateFreeThreaded(device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 3, initial);
+      session = pool.CreateCaptureSession(item);
+      TrySet(session, "IsCursorCaptureEnabled", false);
+      TrySet(session, "IsBorderRequired", false);
+      session.StartCapture();
+    }
+
+    public void Ensure(IntPtr h, uint p) {
+      if (hwnd != h || pid != p) { Dispose(); hwnd = h; pid = p; }
+      if (pool != null) {
+        var size = item.Size;
+        if (size.Width != sizeW || size.Height != sizeH) {
+          pool.Recreate(device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 3, size);
+          sizeW = size.Width; sizeH = size.Height;
+        }
+        return;
+      }
+      Open();
+    }
+
+    public void CloseSession() {
+      if (session != null) session.Dispose();
+      if (pool != null) pool.Dispose();
+      session = null; pool = null;
+    }
+
+    public void Pump() {
+      if (pool == null) return;
+      for (int i = 0; i < 16; i++) {
+        var frame = pool.TryGetNextFrame();
+        if (frame == null) break;
+        if (last != null) last.Dispose();
+        last = frame;
+        lastW = frame.ContentSize.Width; lastH = frame.ContentSize.Height;
+        capturedAt = DateTime.UtcNow;
+        version++;
+      }
+    }
+
+    async Task<bool> WaitForNew(int baseline, int settleMs) {
+      var start = DateTime.UtcNow;
+      while ((DateTime.UtcNow - start).TotalMilliseconds < 2000) {
+        Pump();
+        if (last != null && version > baseline && (DateTime.UtcNow - start).TotalMilliseconds >= settleMs) return true;
+        await Task.Delay(5);
+      }
+      Pump();
+      return last != null && version > baseline;
+    }
+
+    static CaptureReply Error(string code, string message, bool hung) {
+      return new CaptureReply { Ok = false, Error = code, Message = message, Hung = hung };
+    }
+
+    public async Task<CaptureReply> Capture(CaptureRequest req, string progressDir) {
+      uint p;
+      IntPtr h = FindGameWindow(out p);
+      if (h == IntPtr.Zero) return Error("no_window", "No Dota 2 game window found.", false);
+      bool hung = IsHungAppWindow(h);
+      bool restored = false;
+      if (IsIconic(h)) {
+        if (!req.AllowRestore) return Error("minimized", "The Dota 2 window is minimized.", hung);
+        if (progressDir != null) WriteWatchReply(progressDir, req.Id, "{\"restoring\":true}");
+        ShowWindow(h, SW_SHOWNOACTIVATE);
+        restored = true;
+      }
+      try {
+        Ensure(h, p);
+        int baseline = version;
+        Pump();
+        bool fresh = last != null;
+        if (restored) fresh = await WaitForNew(baseline, 300);
+        else if (last == null) fresh = await WaitForNew(baseline, 0);
+        hung = IsHungAppWindow(h);
+        if (last == null) return Error("no_frame", "No frame arrived from the Dota 2 window.", hung);
+        var size = await EncodeFrame(last, req.OutPath, req.MaxWidth, req.Png);
+        return new CaptureReply {
+          Ok = true, Width = size[0], Height = size[1], Hung = hung, Restored = restored,
+          Stale = (restored && !fresh) || lastW != sizeW || lastH != sizeH ||
+            (DateTime.UtcNow - capturedAt).TotalMilliseconds > 1000, CapturedAt = capturedAt.ToString("o")
+        };
+      } finally {
+        if (restored) ShowWindow(h, SW_SHOWMINNOACTIVE);
+      }
+    }
+
+    public void Dispose() {
+      CloseSession();
+      if (last != null) last.Dispose();
+      last = null; item = null; device = null;
+      hwnd = IntPtr.Zero; pid = 0; capturedAt = DateTime.MinValue; version = 0;
+      sizeW = 0; sizeH = 0; lastW = 0; lastH = 0;
+    }
+  }
+
+  static void WriteWatchReply(string dir, string id, string json) {
+    string tmp = Path.Combine(dir, id + ".reply.tmp");
+    string reply = Path.Combine(dir, id + ".reply");
+    File.WriteAllText(tmp, json, new UTF8Encoding(false));
+    if (File.Exists(reply)) File.Replace(tmp, reply, null);
+    else File.Move(tmp, reply);
+  }
+
+  static void CleanupWatchFiles(string dir) {
+    var cutoff = DateTime.UtcNow.AddMinutes(-1);
+    foreach (string pattern in new[] { "*.request", "*.reply", "*.tmp" }) {
+      foreach (string file in Directory.GetFiles(dir, pattern)) {
+        try { if (File.GetLastWriteTimeUtc(file) < cutoff) File.Delete(file); } catch { }
+      }
+    }
+  }
+
+  static async Task<int> Watch(string dir, string source) {
+    string lockPath = Path.Combine(dir, "watcher.lock");
+    FileStream lockStream;
+    try {
+      lockStream = new FileStream(lockPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read);
+    } catch (IOException) { return 0; } // 另一个会话已经持有常驻助手
+    int ownPid = Process.GetCurrentProcess().Id;
+    string lockText = "v2\n" + ownPid + "\n" + source;
+    var lockBytes = Encoding.UTF8.GetBytes(lockText);
+    lockStream.Write(lockBytes, 0, lockBytes.Length);
+    lockStream.Flush(true);
+    var state = new CaptureState();
+    DateTime lastRequest = DateTime.UtcNow;
+    DateTime nextWindowCheck = DateTime.MinValue;
+    DateTime nextCleanup = DateTime.MinValue;
+    try {
+      while (true) {
+        foreach (string file in Directory.GetFiles(dir, "*.request")) {
+          if (File.GetLastWriteTimeUtc(file) < DateTime.UtcNow.AddSeconds(-10)) {
+            try { File.Delete(file); } catch { }
+            continue; // 请求方已超时，不能在之后突然恢复窗口或写图
+          }
+          lastRequest = DateTime.UtcNow;
+          CaptureRequest req;
+          try {
+            var lines = File.ReadAllLines(file);
+            if (lines.Length < 4) { File.Delete(file); continue; }
+            req = new CaptureRequest {
+              Id = Path.GetFileNameWithoutExtension(file), OutPath = lines[0], MaxWidth = int.Parse(lines[1]),
+              Png = lines[2] == "png", AllowRestore = lines[3] == "1"
+            };
+          } catch { try { File.Delete(file); } catch { } continue; }
+          try { File.Delete(file); } catch { }
+          try { WriteWatchReply(dir, req.Id, "{\"accepted\":true}"); }
+          catch (Exception e) { Console.Error.WriteLine(e.Message); continue; }
+          CaptureReply reply;
+          try { reply = await state.Capture(req, dir); }
+          catch (Exception e) {
+            state.Dispose();
+            reply = new CaptureReply { Ok = false, Error = "internal", Message = e.GetType().Name + ": " + e.Message };
+          }
+          try { WriteWatchReply(dir, req.Id, reply.Json()); }
+          catch (Exception e) { Console.Error.WriteLine(e.Message); } // 单次回复写失败不能拖死共享 watcher
+        }
+        try { if (state.HasPool) state.Pump(); } catch { state.CloseSession(); }
+        if (DateTime.UtcNow >= nextWindowCheck) {
+          nextWindowCheck = DateTime.UtcNow.AddSeconds(1);
+          uint p;
+          IntPtr h = FindGameWindow(out p);
+          if (h == IntPtr.Zero) state.Dispose();
+          else if (!IsIconic(h)) {
+            try { state.Ensure(h, p); }
+            catch (Exception e) { state.CloseSession(); Console.Error.WriteLine(e.Message); }
+          }
+          var dotaProcesses = Process.GetProcessesByName("dota2");
+          bool dotaRunning = dotaProcesses.Length > 0;
+          foreach (var proc in dotaProcesses) proc.Dispose();
+          if (!dotaRunning && DateTime.UtcNow - lastRequest > TimeSpan.FromMinutes(5)) break;
+          if (DateTime.UtcNow >= nextCleanup) {
+            nextCleanup = DateTime.UtcNow.AddMinutes(1);
+            try { CleanupWatchFiles(dir); } catch { }
+          }
+        }
+        await Task.Delay(25);
+      }
+    } finally {
+      state.Dispose();
+      lockStream.Dispose();
+      try { if (File.ReadAllText(lockPath) == lockText) File.Delete(lockPath); } catch { }
+    }
+    return 0;
   }
 
   // WinRT async → Task without System.Runtime.WindowsRuntime (its extensions need the SDK-only unified Windows.winmd).

@@ -76,6 +76,7 @@ Optional advanced configuration:
 | `DOTA2_VCON_GUI_PORT` | `29001` | Port forwarded to the vconsole2 GUI |
 | `DOTA2_VCON_CTRL_PORT` | `29002` | MCP control port |
 | `DOTA2_VCON_AUTO_OPEN_VCONSOLE` | `1` | Auto-open vconsole2.exe when Dota readiness is detected (rising edge) and no vconsole2 process exists; `0` disables |
+| `DOTA2_VCON_STATE_DIR` | `os.tmpdir()/dota2-mcp` | Daemon token/pid/lock/log and capture-watcher state; offline tests override it with an isolated temporary directory |
 | `DOTA2_SCREENSHOT_DIR` | `os.tmpdir()/dota2-mcp/screenshots` | Where `dota_screenshot` saves images; it keeps only its own 20 newest |
 
 ## Key findings
@@ -175,9 +176,9 @@ Client → server command type: `CMND` (null-terminated UTF-8).
 | `dota_status` | `status`/`status_json` + file scan | Entry point/navigation: connection, vconsole, addon/maps, live status, next-step guidance (never throws) |
 | `dota_launch_game` | `dota_launch_custom_game` | Launch (auto-completes the addon); polls to GAME_IN_PROGRESS, returns advancement guidance on a stuck phase |
 | `dota_disconnect` | `disconnect` | Disconnect |
-| `dota_advance_to_game` | `dota_run_lua` channel (GameRules / player controller) | Standard flow: any loaded pre-game phase → GAME_IN_PROGRESS with a hero per player |
+| `dota_advance_to_game` | `dota_run_lua` channel (GameRules / player controller) | Standard flow: any loaded pre-game phase → GAME_IN_PROGRESS with a hero per player (requires `sv_cheats=1`) |
 | `dota_restart` | `restart` | Reload the map; waits until the reload has begun |
-| `dota_screenshot` | none (Windows.Graphics.Capture helper) | Game screenshot of the game window from outside the game; ungated; tries to return the last frame when the game hangs (unverified live) |
+| `dota_screenshot` | none (persistent Windows.Graphics.Capture helper) | Game screenshot from outside the game; ungated; shared watcher caches the latest frame and marks cached results `stale` with `captured_at` |
 | `dota_open_vconsole` | spawn vconsole2.exe | Open the vconsole window (the explicit path when the AssetBrowser button is disabled by the engine) |
 
 **Console communication**
@@ -197,15 +198,15 @@ Client → server command type: `CMND` (null-terminated UTF-8).
 | `dota_api_panorama_js` | `cl_panorama_script_help_2` | client |
 | `dota_api_css` | `dump_panorama_css_properties` | client |
 | `dota_api_events` | `dump_panorama_events` | client |
-| `dota_api_help` | combined | API lookup entry point/navigation |
+| `dota_api_help` | `script_help` | Lua class/scope inspection (global functions use `dota_api_lua`) |
 
 **Debugging**
 | Tool | Console command | Description |
 |------|-----------|------|
-| `dota_dump_entities` | `ent_dump` etc. | Entity dump |
-| `dota_dump_modifiers` | `dota_modifier_dump` / `cl_dump_modifier_list` | Modifier list |
+| `dota_dump_entities` | `dump_entity_report` | Entity dump with optional case-insensitive substring filter |
+| `dota_dump_modifiers` | `dota_modifier_dump` / `cl_dump_modifier_list` | Active server modifiers by default; optional client registry and substring filter |
 | `dota_entity_inspect` | `ent_script_dump` / `cl_ent_script_dump` | Entity script scope |
-| `dota_run_lua` | `script_exec` etc. | Execute a Lua snippet |
+| `dota_run_lua` | `ent_fire 0 RunScriptCode` | Execute a Lua snippet (requires `sv_cheats=1`) |
 
 **Resources**
 | Tool | Description |
@@ -213,9 +214,9 @@ Client → server command type: `CMND` (null-terminated UTF-8).
 | `dota_compile_asset` | Compiles assets via resourcecompiler / Source2Viewer-CLI |
 | `vrf_ensure` | Ensures the VRF CLI is available: detect / download the pinned version / sha256 verify / cache (offline-safe, only goes online when missing) |
 | `asset_inspect` | VRF decompile + structured summary (per-field for vpcf/vmdl/vmat/vtex; include_raw truncated at 4000) |
-| `asset_check_refs` | Single-asset recursive reference integrity: ok/uncompiled/engine_refs/broken four buckets + two-level resolution + cycle prevention |
+| `asset_check_refs` | Single-asset recursive reference integrity: ok/uncompiled/engine_refs/broken four buckets + addon/engine/shared-addon/core-VPK resolution + cycle prevention |
 
-**VFX preview (needs a running game + vconsole)**
+**VFX preview (needs a running game + vconsole + `sv_cheats=1`)**
 | Tool | Console command | Description |
 |------|-----------|------|
 | `vfx_preview` | `dota_run_lua` channel (ParticleManager:CreateParticle) | Spawn a particle preview in-game (runtime instance, not an asset file), returns pid |
@@ -232,7 +233,7 @@ Client → server command type: `CMND` (null-terminated UTF-8).
 **Skills**
 | Tool | Description |
 |------|------|
-| `dota2_skill` | Exposes built-in skills (name full text / section part / outline TOC / data machine-readable data file; `dota2-vfx` ships official particle-corpus stats `vpcf-stats.json` etc.) |
+| `dota2_skill` | Exposes built-in skills (full text / `##` or `###` section / outline TOC / data file; Markdown data supports `section`, JSON data supports dot-path `data_path`; `dota2-vfx` ships official particle-corpus stats `vpcf-stats.json` etc.) |
 
 ## Conventions
 

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/feature/2026-08-20-vfx-model-skills.md
-2026-08-20-vfx-model-skills.md: 70f8e4b8b202b2d6e46bc0c8e2f49721ba9d2e8b
-2026-08-20-vfx-model-skills.zh.md: a94ed14cecc7d92b72b0fe78e0ecbcc3f291e5e0
+2026-08-20-vfx-model-skills.md: 4f1f8ada7c132efc59a52d7725a94182289e110b
+2026-08-20-vfx-model-skills.zh.md: 9c245317cb864e6f4bf36d8d3cc4b7a241b2e083

@@ -6,8 +6,9 @@ English | [中文](CHANGELOG.zh.md)
 
 ### Added
 
-- **`dota_screenshot`**: captures the Dota 2 game window in the background and returns the image to the agent. It needs no console or vconsole, still tries to return the last frame when Windows reports the game as not responding (flagged `hung: true`), never steals focus, and restores a minimized window only for the capture. Windows only; the capture helper is compiled on first use with the system C# compiler.
+- **`dota_screenshot`**: captures the Dota 2 game window in the background and returns the image to the agent. A persistent helper shared across MCP sessions starts when the console connects to Dota or the tool first runs and caches the latest frame in memory. Cached results carry `captured_at` and `stale: true`, so a hang after the helper started does not require a new frame from Windows. It needs no console or vconsole, never steals focus, and restores a minimized window only for the capture. Windows only; the helper is compiled on first use with the system C# compiler.
 - **`dota_advance_to_game`**: one call takes a loaded game from any pre-game phase to GAME_IN_PROGRESS with a hero for every player (random, or a given `hero`), acting only on the observed game state. Standard flow: `dota_launch_game` or `dota_restart`, then `dota_advance_to_game`. The `dota2-game-phases` skill and stuck-phase guidance now point to it.
+- **Focused skill retrieval**: `dota2_skill` outlines include `###` subsections, `section` works for both skill prose and Markdown data, and JSON data accepts a dot-path `data_path` such as `e_combos.top10`. Full-body and whole-file reads remain available, but VFX/model authoring no longer needs them.
 
 ### Fixed
 
@@ -17,6 +18,13 @@ English | [中文](CHANGELOG.zh.md)
 - **`dota_restart` returned before the restart took effect**: it now waits until the reload has begun.
 - **Lua tools gave no error when `sv_cheats` was off**: the engine ignores `ent_fire` then; `dota_run_lua`, `dota_advance_to_game` and the VFX tools now fail at once with an error naming `sv_cheats`.
 - **`dota_launch_game` misread an unresponsive engine during map loading as a stuck phase**, and now reports a launch that left the game at the main menu.
+- **API queries returned full engine dumps**: `dota_api_lua`, `dota_api_panorama_js`, `dota_api_css`, and `dota_api_events` filter matching entries. Entity and modifier dumps also accept a substring filter; `dota_dump_modifiers` defaults to active server modifiers rather than the client registry.
+- **`console_channels` was empty for late thin clients**: the daemon handshake now includes the channels already registered with Dota.
+- **Lua and VFX result errors**: scalar `expression` values print directly, tool descriptions use valid API examples and document the `sv_cheats=1` requirement, and `vfx_preview_stop` no longer reports `DestroyParticle`'s void return as `ok=nil`.
+- **Hung screenshot failures were ambiguous**: when Windows.Graphics.Capture stops supplying frames during a sustained hang, `dota_screenshot` returns the persistent cache with an explicit `stale` marker and capture timestamp. If no frame has ever been cached, it reports that cause instead of suggesting the window is starting or on another desktop. It never substitutes a screen capture or an unmarked older image.
+- **Screenshot freshness was overstated**: the watcher no longer recreates capture sessions on a timer, so a newly created session cannot re-label the same old window image as a fresh frame. Background frames stay stale until the existing session actually delivers a new one.
+- **The VFX minimal template could not render anything**: it now includes a verified `C_OP_RenderSprites` path, and the workflow requires before/after screenshots in addition to a nonzero particle id. The old drill's misplaced emitter and incorrect spawn field were corrected.
+- **VRF and particle reference compatibility**: the pinned VRF is 20.1, which reads the current engine's KV type 26. `asset_check_refs` now resolves shared-addon outputs and exact paths in `pak01_dir.vpk` instead of reporting valid engine materials as broken. `asset_inspect` counts continuous as well as instantaneous emitters. VRF failure artifacts stay in temporary working directories instead of the caller's repository.
 
 - **`file_edit` corrupted files containing `$`**: `$'`, `$&` and `$1` in `new_string` are now written literally instead of being expanded.
 - **FileOps path boundary bypass via `addon`**: addon names that are `.`/`..` or contain `/`, `\` or `:` are rejected. All FileOps and asset tools share one addon resolver.
@@ -24,6 +32,7 @@ English | [中文](CHANGELOG.zh.md)
 - **Stale game state**: `dota_status` / `dota_launch_game` no longer fall back to an old `status_json` from the log when the query gets no answer.
 - **Tool results mixed with other output**: console tools keep only the lines between per-call begin/end echo markers, isolating other sessions and game prints.
 - **Local fallback relay had no auth on :29002**: it now requires the same token handshake as the daemon.
+- **Offline daemon tests corrupted live daemon state**: they use an isolated `DOTA2_VCON_STATE_DIR` instead of deleting the real relay token, pid, and lock files.
 - **VRF failures reported as success**: `asset_inspect` and `asset_check_refs` return an error when the CLI fails or the root asset cannot be decompiled.
 - **`dota_launch_game`** launches the requested map even when a different map is already loaded.
 - **vconsole reconnect**: a superseded GUI socket no longer drops the live connection. Toggling MCP suppression mid-command no longer mutes the GUI.

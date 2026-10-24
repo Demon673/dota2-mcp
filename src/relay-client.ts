@@ -114,6 +114,7 @@ export class RelayClient extends EventEmitter {
           this.addonName = msg.addon || "";
           this.maps = msg.maps || [];
           this.allMaps = msg.allMaps || [];
+          this.channels = msg.channels || [];
           this.sock!.write("STREAM\n");
           ok();
         } else if (msg.type === "hello-err") {

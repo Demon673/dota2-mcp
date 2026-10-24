@@ -7,6 +7,8 @@ description: Use when creating, editing, compiling, or previewing Dota 2 particl
 
 This skill owns the particle-effect workflow of the dota2-mcp toolchain: authoring `.vpcf` sources, compiling them, and verifying the result in a running game. It is self-contained for everyday particle work; deeper reference tables grow in the Template-verified field reference section.
 
+**Context budget:** start with `outline`, retrieve only the needed `section`, and use `data_path` for JSON statistics. The full body and full data files are compatibility paths, not the default authoring workflow.
+
 ## Core mental model: asset pipeline
 
 Dota 2 assets split across two trees under the Dota 2 install:
@@ -76,7 +78,7 @@ Root scalars: `m_nMaxParticles`, `m_nInitialParticles`, `m_ConstantColor` [R,G,B
 - `C_INIT_CreateWithinSphere`: `m_fRadiusMin/Max`, `m_fSpeedMin/Max`, `m_LocalCoordinateSystemSpeedMin/Max`, `m_nControlPointNumber`.
 - `C_INIT_CreateWithinBox`: `m_vecMin` / `m_vecMax`.
 - `C_INIT_CreateSequentialPath`: `m_flNumToAssign`, `m_PathParams`.
-- **Random* are editor shortcuts**, compiled to the generic `C_INIT_InitFloat` writing scalar properties: RandomLifeTime→field 1 (lifetime), RandomRadius→0 (radius), RandomRotation→4, RandomRotationSpeed→5, RandomAlpha→7 (stores 0..1). The full attribute index, with its empirical verification, is §3.4 of `dota2_skill(data='vpcf-official-findings.md')`; keep the two in step. Also RandomColor / RandomYawFlip / RandomTrailLength / InitialVelocityNoise / RemapParticleCountToScalar.
+- **Random* are editor shortcuts**, compiled to the generic `C_INIT_InitFloat` writing scalar properties: RandomLifeTime→field 1 (lifetime), RandomRadius→0 (radius), RandomRotation→4, RandomRotationSpeed→5, RandomAlpha→7 (stores 0..1). The full attribute index, with its empirical verification, is `dota2_skill(name='dota2-vfx', data='vpcf-official-findings.md', section='3.4 Random lifetime — there is no C_INIT_RandomLifeTime')`; keep the two in step. Also RandomColor / RandomYawFlip / RandomTrailLength / InitialVelocityNoise / RemapParticleCountToScalar.
 
 ### Common Operators (m_Operators) and ForceGenerators
 
@@ -87,7 +89,7 @@ Root scalars: `m_nMaxParticles`, `m_nInitialParticles`, `m_ConstantColor` [R,G,B
 
 ### Official corpus statistics (13,553 official particle samples, 16.5%, 100% decompiled successfully)
 
-Source: stratified-sample decompile of pak01_dir.vpk. **Full machine-readable statistics ship with the skill**: `dota2_skill(name='dota2-vfx', data='vpcf-stats.json')` returns the complete JSON (all 263 class frequencies, all combo signatures, 962 materials, full parameter quantiles); human-readable version `data='vpcf-official-findings.md'`.
+Source: stratified-sample decompile of pak01_dir.vpk. **Machine-readable statistics ship with the skill**: use `dota2_skill(name='dota2-vfx', data='vpcf-stats.json', data_path='e_combos.top10')` for only the recipe table, or another JSON dot-path for class frequencies, materials, or parameter quantiles. The human-readable report supports `data='vpcf-official-findings.md', section='<heading>'`; request only the relevant section rather than the full report.
 
 - **Advanced techniques**: child systems (`m_Children`) and control points are common in official content; constraints and forces are rare.
 
@@ -135,8 +137,8 @@ Source: GameTracking-Dota2 engine schema (507 header files, cross-validated agai
 
 1. **Write source file** — `file_write` to `content/dota_addons/<addon>/particles/<name>.vpcf` (KV3 as above), or `file_edit` to tweak an existing one. Editing a source does not require the game; FileOps tools are offline.
 2. **Compile** — `dota_compile_asset` with the source path. resourcecompiler emits `game/dota_addons/<addon>/particles/<name>.vpcf_c`. Non-zero exit or stderr means a source syntax error — read the reported line.
-3. **Preview** — with the game running (launch your map via `dota_launch_game` if needed) call `vfx_preview` with `particle_path: "particles/<name>.vpcf"` (content-root relative, no `_c`, no addon prefix) and `attach: 8` (PATTACH_WORLDORIGIN) plus an optional `position`. It returns a runtime particle id.
-4. **Verify** — do not trust the id alone: read `console_output` for load errors in the Particles/ResourceSystem channels. `pid=0` means the engine rejected the create call; a missing file prints a load failure line.
+3. **Preview** — with the game running (launch your map via `dota_launch_game` if needed) call `vfx_preview` with `particle_path: "particles/<name>.vpcf"` (content-root relative, no `_c`, no addon prefix) and `attach: 8` (PATTACH_WORLDORIGIN) plus a visible `position`, such as the player's hero origin. It returns a runtime particle id; the call executes server Lua through the `dota_run_lua` channel.
+4. **Verify visually and in the console** — do not trust the id alone. Read `console_output` for load errors in the Particles/ResourceSystem channels; `pid=0` means the create call failed. Take `dota_screenshot` with the effect visible, then call `vfx_preview_stop` and take another to confirm the runtime instance disappeared. A nonzero id proves creation, not visibility: check the renderer, control-point position, and camera. If the game is not presenting frames in the background, the screenshot's `stale` marker tells you the image is old. For continuous visual iteration, temporarily set `r_always_render_all_windows 1` and restore it to `0` afterward; the live template verification used this setting.
 5. **Stop preview** — `vfx_preview_stop` with the id (runtime instance only; the asset file stays).
 6. **Delete asset** — `file_delete` on the source (and recompile or leave stale outputs to `asset_check_refs`).
 
@@ -149,8 +151,9 @@ Source: GameTracking-Dota2 engine schema (507 header files, cross-validated agai
 | Compile | `dota_compile_asset` | resourcecompiler; sources → game/ `_c` |
 | Inspect compiled asset | `asset_inspect` | offline; VRF decompile + summary |
 | Check reference integrity | `asset_check_refs` | offline; ok/uncompiled/engine_refs/broken |
-| Preview in game | `vfx_preview` | gated (needs game + vconsole); returns pid |
-| Stop preview | `vfx_preview_stop` | gated |
+| Preview in game | `vfx_preview` | gated (needs game + vconsole + `sv_cheats=1`); returns pid |
+| Stop preview | `vfx_preview_stop` | gated (same requirements) |
+| Verify visibility | `dota_screenshot` | compare before/after and after stop; does not need console |
 | Read load errors | `console_output` | channels Particles / ResourceSystem |
 
 ## Common errors reference
@@ -161,39 +164,43 @@ Source: GameTracking-Dota2 engine schema (507 header files, cross-validated agai
 | Map never loads after addoninfo fixed | map not compiled | run resourcecompiler on `content/.../maps/<map>.vmap` (emits `game/maps/<map>.vpk`) before launching |
 | `vfx_preview` returns `pid=0` | engine rejected the create call (file missing/uncompiled/wrong path) | check the path is content-root relative without `_c`; compile the source; read console_output Particles/ResourceSystem for the load failure line |
 | Game stuck in `CUSTOM_GAME_SETUP` | addon never calls `GameRules:FinishCustomGameSetup()` (basic template doesn't) | `dota_run_lua` with code `GameRules:FinishCustomGameSetup()` |
-| Particle loads but shows nothing | control point position off-screen | pass a `position` to vfx_preview or use PATTACH_POINT with a control point |
+| Particle loads but shows nothing | missing renderer, control point position off-screen, or effect not in camera view | include `m_Renderers` (the minimal template shows `C_OP_RenderSprites`), pass a visible `position`, and compare `dota_screenshot` before/after creation |
 | Particle Editor preview shows nothing | `C_OP_InstantaneousEmitter` fires once at t=0 and the editor's static preview is past it | use `C_OP_ContinuousEmitter` for editor-visible particles; burst-style particles only show in the live game (or the editor's simulate/play) |
 | Editor preview shows nothing, asset crashes on preview | hand-written structure with guessed fields (e.g. `m_vecTexturesInput` on RenderSprites — that's RenderTrails' field; emitter placed in m_Operators instead of m_Emitters) | copy a known-good source asset and change parameters; never hand-write a structure you haven't seen in a working source |
 | `asset_check_refs` reports `uncompiled` | source exists, compiled output missing | run dota_compile_asset on the source |
 
 ## Minimal template
 
-A minimal world-origin burst system you can file_write and compile as a starting point:
+A minimal continuous glow verified live through write → compile → preview → screenshot → destroy. The renderer is required: emitters create simulation particles, but without `m_Renderers` nothing is drawn. Retrieve only this section with `dota2_skill(name='dota2-vfx', section='Minimal template')`; use `outline` and `section` for other prose, and `data_path` for small slices of JSON statistics instead of reading the whole skill or data file.
 
 ```
 <!-- kv3 encoding:text:version{e21c7f3c-8a33-41c5-9977-a76d3a32aa0d} format:generic:version{7412167c-06e9-4698-aff2-e63eb59037e7} -->
 {
   _class = "CParticleSystemDefinition"
-  m_nMaxParticles = 32
-  m_Children =
+  m_ConstantColor = [ 255, 0, 255, 255 ]
+  m_flConstantRadius = 160.0
+  m_flConstantLifespan = 10.0
+  m_nMaxParticles = 4
+  m_Operators =
+  [
+    { _class = "C_OP_BasicMovement" },
+    { _class = "C_OP_Decay" },
+  ]
+  m_Renderers =
   [
     {
-      _class = "CParticleSystemDefinition"
-      m_flConstantRadius = 4.0
-      m_Operators =
-      [
-        { _class = "C_OP_Decay" },
-        { _class = "C_OP_BasicMovement" },
-      ]
-      m_Initializers =
-      [
-        { _class = "C_INIT_RandomLifeTime" m_fLifetimeMin = 0.4 m_fLifetimeMax = 0.8 },
-      ]
-      m_Emitters =
-      [
-        { _class = "C_OP_ContinuousEmitter" m_flEmitRate = 16 },
-      ]
+      _class = "C_OP_RenderSprites"
+      m_bAdditive = true
+      m_hTexture = resource:"materials/particle/basic_glow.vtex"
     },
+  ]
+  m_Initializers =
+  [
+    { _class = "C_INIT_CreateWithinSphere" },
+  ]
+  m_Emitters =
+  [
+    { _class = "C_OP_ContinuousEmitter" m_flEmitRate = 1.0 },
   ]
 }
 ```

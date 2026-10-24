@@ -5,7 +5,7 @@ description: Use when creating, editing, compiling, or validating Dota 2 model a
 
 # Dota 2 Model Assets — Model Assets
 
-This skill owns the model-asset workflow of the dota2-mcp toolchain: authoring `.vmdl` / `.vmat` / `.vtex` sources, compiling them, and validating structure and references. All structural facts below are verified against the official corpus (`dota2_skill` data='model-stats.json': 3,161 vmdl + 2,549 vmat decompiles, 100% success).
+This skill owns the model-asset workflow of the dota2-mcp toolchain: authoring `.vmdl` / `.vmat` / `.vtex` sources, compiling them, and validating structure and references. Corpus metadata is available through `dota2_skill(name='dota2-model', data='model-stats.json', data_path='meta')`: 3,161 vmdl + 2,549 vmat decompiles, 100% success.
 
 ## Core mental model: asset pipeline
 
@@ -80,7 +80,7 @@ Texture sources (`.tga`/`.psd`) compile to `.vtex_c`. `asset_inspect` on a compi
 
 ## Complete field reference (official corpus statistics)
 
-Full statistics ship with the skill: `dota2_skill(name='dota2-model', data='model-stats.json')` (machine-readable) and `data='model-official-findings.md'` (readable report, 326 lines).
+Statistics ship with the skill: use `dota2_skill(name='dota2-model', data='model-stats.json', data_path='<path>')` for only the needed JSON values, or `data='model-official-findings.md', section='<heading>'` for one section of the readable report. Whole-file reads remain available but are not required for ordinary authoring.
 
 ## Workflow SOP
 

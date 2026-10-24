@@ -296,6 +296,7 @@ export class VConRelay extends EventEmitter {
         addon: this._addonName,
         maps: this._maps,
         allMaps: this._allMaps,
+        channels: this.getChannels(),
         mcpSuppress: this._mcpSuppressEnabled,
         guiPatterns: this._guiSuppressPatterns,
       }) + "\n");

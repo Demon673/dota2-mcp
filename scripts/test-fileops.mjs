@@ -1,7 +1,7 @@
 // 离线 FileOps 冒烟：file_read/write/edit/delete + 路径边界（不依赖 Dota 进程）
 // DOTA2_TEST_ADDON（默认 dota2mcptest）。本机装了 Steam 时用真实 Dota 目录（注册表优先，addon 目录须存在）；
 // 没有 Steam 的机器（CI runner）经 STEAM_PATH 落到临时搭的最小 Steam 库
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
@@ -19,9 +19,10 @@ const env = {
   DOTA2_VCON_GUI_PORT: String(BASE + 1),
   DOTA2_VCON_CTRL_PORT: String(BASE + 2),
   DOTA2_TEST_ADDON: addonName,
+  DOTA2_VCON_STATE_DIR: path.join(fakeSteam, "daemon-state"),
   STEAM_PATH: process.env.STEAM_PATH || fakeSteam,
 };
-const { call, notify } = spawnMcpServer({ timeoutMs: 45000, env });
+const { call, notify, kill } = spawnMcpServer({ timeoutMs: 45000, env, cleanupDaemon: true });
 function callText(result) {
   if (result.error) throw new Error("tool error: " + JSON.stringify(result.error).slice(0, 400));
   return result.result.content.map((c) => c.text).join("");
@@ -79,5 +80,8 @@ for (const bad of ["..", "../..", ADDON + "/../.."]) {
   expectError(r, "Invalid addon name");
 }
 
+kill();
+await sleep(300);
+rmSync(fakeSteam, { recursive: true, force: true });
 console.log("PASS");
 process.exit(0);
