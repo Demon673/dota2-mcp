@@ -35,8 +35,6 @@ export class RelayClient extends EventEmitter {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectAttempts = 0;
   private destroyed = false;
-  /** 断线期间缓冲的命令，重连成功后补发（上限 100 条防堆积） */
-  private pendingCommands: string[] = [];
   /** hello-ok 中携带的 addon/maps（瘦客户端模式下 _maps 等私有字段不可用，走这里） */
   addonName = "";
   maps: string[] = [];
@@ -116,10 +114,8 @@ export class RelayClient extends EventEmitter {
           this.addonName = msg.addon || "";
           this.maps = msg.maps || [];
           this.allMaps = msg.allMaps || [];
+          this.channels = msg.channels || [];
           this.sock!.write("STREAM\n");
-          // 补发断线期间缓冲的命令
-          for (const c of this.pendingCommands) this.sock!.write(`CMD:${c}\n`);
-          this.pendingCommands = [];
           ok();
         } else if (msg.type === "hello-err") {
           clearTimeout(timeout);
@@ -203,14 +199,10 @@ export class RelayClient extends EventEmitter {
     }
   }
 
-  /** 发送命令。断线期间缓冲，重连后补发（对调用方无感）。 */
+  /** 发送命令。断线期间直接丢弃：重连后补发过期命令（如 restart）比丢掉更危险，
+   *  且工具层的 requireConsole 已在断线时拦下调用。 */
   sendCommand(cmd: string): void {
-    if (this.connected && this.sock) {
-      this.sock.write(`CMD:${cmd}\n`);
-    } else {
-      this.pendingCommands.push(cmd);
-      if (this.pendingCommands.length > 100) this.pendingCommands.shift();
-    }
+    if (this.connected && this.sock) this.sock.write(`CMD:${cmd}\n`);
   }
 
   getChannels(): string[] {

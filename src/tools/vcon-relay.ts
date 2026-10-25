@@ -22,7 +22,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { EventEmitter } from "events";
 import { VConClient, PrntMessage } from "./vcon-bridge.js";
-import { pidPath } from "../daemon-utils.js";
+import { parsePort, pidPath } from "../daemon-utils.js";
 import { isDotaProcessRunning, isProcessRunning, spawnVconsole } from "./console-bridge.js";
 
 const DEFAULT_DOTA_PORT = 29000;  // Dota 2 VCon 端口
@@ -36,6 +36,9 @@ const INIT_FRAME_TYPES = new Set(["AINF", "CHAN", "CVRB", "CFGV", "ADON"]);
 
 /** 活性探针文本：静默超时后 relay 发 `echo __mcp_ping__`，回显行对 MCP/GUI 双向过滤 */
 const PROBE_TEXT = "__mcp_ping__";
+
+/** MCP 输出收集的边界标记 `__mcp_<8hex>_begin|end`（index.ts 生成）：永不转发 GUI，也不进 MCP 日志 */
+export const MCP_MARKER_RE = /^__mcp_[0-9a-f]{8}_(begin|end)$/;
 
 export interface LivenessOpts {
   probeIntervalMs: number;
@@ -53,16 +56,9 @@ export interface AutoOpenOpts {
   processRunningFn?: (imageName: string) => boolean;
 }
 
-function parsePort(name: string, fallback: number): number {
-  const v = process.env[name];
-  if (!v) return fallback;
-  const n = parseInt(v, 10);
-  return Number.isNaN(n) ? fallback : n;
-}
-
-const DOTA_PORT = parsePort("DOTA2_VCON_DOTA_PORT", DEFAULT_DOTA_PORT);
-const GUI_PORT = parsePort("DOTA2_VCON_GUI_PORT", DEFAULT_GUI_PORT);
-const CTRL_PORT = parsePort("DOTA2_VCON_CTRL_PORT", DEFAULT_CTRL_PORT);
+const DOTA_PORT = parsePort(process.env.DOTA2_VCON_DOTA_PORT, DEFAULT_DOTA_PORT);
+const GUI_PORT = parsePort(process.env.DOTA2_VCON_GUI_PORT, DEFAULT_GUI_PORT);
+const CTRL_PORT = parsePort(process.env.DOTA2_VCON_CTRL_PORT, DEFAULT_CTRL_PORT);
 
 /** 瘦客户端连接状态 */
 interface ClientConn {
@@ -167,6 +163,8 @@ export class VConRelay extends EventEmitter {
   /** 开关 MCP 命令输出的 GUI 屏蔽（默认开启） */
   setMcpSuppressEnabled(enabled: boolean): void {
     this._mcpSuppressEnabled = enabled;
+    // 标记之间切换时结束标记不再被识别，残留的 true 会让 GUI 永久收不到输出
+    this._mcpMarkerSuppress = false;
     console.error("[relay] MCP output GUI suppress:", enabled ? "enabled" : "disabled");
     this._broadcast({ type: "suppress", mcpSuppress: this._mcpSuppressEnabled, guiPatterns: [...this._guiSuppressPatterns] });
   }
@@ -298,6 +296,7 @@ export class VConRelay extends EventEmitter {
         addon: this._addonName,
         maps: this._maps,
         allMaps: this._allMaps,
+        channels: this.getChannels(),
         mcpSuppress: this._mcpSuppressEnabled,
         guiPatterns: this._guiSuppressPatterns,
       }) + "\n");
@@ -450,6 +449,8 @@ export class VConRelay extends EventEmitter {
   // ---- internal ----
 
   private _onGuiConnect(sock: net.Socket): void {
+    // 新连接取代旧连接（vconsole 重连时旧 socket 可能晚一步关闭）
+    if (this.guiSocket && this.guiSocket !== sock) this.guiSocket.destroy();
     this.guiSocket = sock;
     this._guiConnected = true;
     console.error("[relay] vconsole2 connected");
@@ -488,6 +489,7 @@ export class VConRelay extends EventEmitter {
     });
 
     sock.on("close", () => {
+      if (this.guiSocket !== sock) return; // 已被新连接取代：状态归新连接管
       this._guiConnected = false;
       this.guiSocket = null;
       // 严格门控：vconsole 断开即断开 Dota 连接（29000 释放，按钮恢复可用），回到探测态
@@ -508,7 +510,7 @@ export class VConRelay extends EventEmitter {
       port: DOTA_PORT,
       rawPrntEditor: (msg) => {
         const text = msg.text.trim();
-        if (text === PROBE_TEXT) return false; // 探针回显不转发 GUI
+        if (text === PROBE_TEXT || MCP_MARKER_RE.test(text)) return false; // 探针回显与收集标记不转发 GUI
         // MCP 标记之间的输出：静默丢弃，不转发 GUI
         if (this._mcpMarkerSuppress) return false;
         // MCP 标记行本身也不转发（ai_disabled = false / ai_disabled = true）

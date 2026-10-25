@@ -1,9 +1,10 @@
 // 离线 asset_inspect 冒烟：fake VRF CLI（按 -i 扩展名输出 fixture）+ 最小 PNG
 // 断言五类型摘要字段、include_raw 截断、unknown 透传。
 import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
-import { mkdtempSync, writeFileSync, chmodSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, chmodSync, rmSync, mkdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { freePortBlock } from "./lib-test-ports.mjs";
 
 // 假 VRF CLI 在 Windows 上执行不了：无扩展名脚本报 ENOENT、伪装 .exe 不是合法 PE、
 // .cmd/.bat 需 shell。本冒烟因此仅覆盖 POSIX（EXE_BASE 见 vrf-ensure.ts:27）。
@@ -22,6 +23,8 @@ m_Children =
 ]
 _class = "C_OP_InstantaneousEmitter"
 m_flSpawnRate = 100
+_class = "C_OP_ContinuousEmitter"
+m_flEmitRate = 16
 _class = "C_INIT_RandomLifeTime"
 _class = "C_OP_BasicMovement"
 m_Material = resource:"materials/particle/test_glow.vtex"
@@ -44,6 +47,7 @@ g_flRoughness = 0.8
 const fakeCli = `#!/usr/bin/env node
 import { writeFileSync } from "node:fs";
 const argv = process.argv.slice(2);
+writeFileSync(process.cwd() + "/fake-vrf-cwd.txt", "x");
 const i = argv.indexOf("-i");
 const o = argv.indexOf("-o");
 const input = i >= 0 ? argv[i + 1] : "";
@@ -62,6 +66,7 @@ if (input.endsWith(".vtex_c") || input.endsWith(".vtex")) {
   }
   process.exit(0);
 }
+if (input.includes("crash")) { process.stderr.write("fake vrf: cannot open input"); process.exit(1); }
 const body = ${JSON.stringify({ vpcf: vpcfFixture, vmdl: vmdlFixture, vmat: vmatFixture })};
 for (const [k, v] of Object.entries(body)) if (input.endsWith(k) || input.endsWith(k + "_c")) {
   if (out) { writeFileSync(out, v); } else { process.stdout.write(v); }
@@ -79,7 +84,7 @@ const cliPath = path.join(vDir, "Source2Viewer-CLI");
 writeFileSync(cliPath, fakeCli);
 chmodSync(cliPath, 0o755);
 
-const BASE = 20000 + Math.floor(Math.random() * 20000);
+const BASE = await freePortBlock(3);
 const env = {
   ...process.env,
   DOTA2_VCON_DOTA_PORT: String(BASE),
@@ -88,8 +93,9 @@ const env = {
   DOTA2_TEST_ADDON: process.env.DOTA2_TEST_ADDON || "dota2mcptest",
   VRF_CACHE_DIR: cache,
   VRF_VERSION: "9.9.9",
+  DOTA2_VCON_STATE_DIR: path.join(cache, "daemon-state"),
 };
-const { call, notify, kill } = spawnMcpServer({ timeoutMs: 45000, env });
+const { call, notify, kill } = spawnMcpServer({ timeoutMs: 45000, env, cleanupDaemon: true });
 await call("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "inspect", version: "0" } });
 notify("notifications/initialized");
 await sleep(12000);
@@ -98,15 +104,15 @@ const ADDON = env.DOTA2_TEST_ADDON;
 async function inspect(target, extra = {}) {
   const r = await call("tools/call", { name: "asset_inspect", arguments: { target, addon: ADDON, ...extra } });
   assert(!r.result.isError, "inspect " + target + " ok");
-  return JSON.parse(r.result.content[0].text);
+  return JSON.parse(r.result.content[0].text).data;
 }
 
 // vpcf
 const vp = await inspect("game/dota_addons/" + ADDON + "/particles/x.vpcf_c");
 assert(vp.asset_type === "vpcf", "vpcf asset_type");
 assert(vp.summary.particle_system_count === 1, "vpcf system count");
-assert(vp.summary.emitter_count === 1, "vpcf emitter count");
-assert(vp.summary.operator_count === 2, "vpcf operator count (C_OP_*)");
+assert(vp.summary.emitter_count === 2, "vpcf counts instantaneous and continuous emitters");
+assert(vp.summary.operator_count === 3, "vpcf operator count (C_OP_*)");
 assert(vp.summary.initializer_count === 1, "vpcf initializer count");
 assert(vp.summary.max_particles === 64, "vpcf max particles");
 assert(vp.summary.material_refs.includes("materials/particle/test_glow.vtex"), "vpcf material ref");
@@ -143,7 +149,16 @@ assert(un.notes.some((n) => n.includes("未知")), "unknown notes hint");
 const raw = await inspect("game/dota_addons/" + ADDON + "/particles/x.vpcf_c", { include_raw: true });
 assert(typeof raw.raw_decompiled === "string" && raw.raw_decompiled.length > 0, "raw included");
 
+// CLI 失败必须报错，不能把错误输出当反编译文本做出全 0 的「成功」摘要
+const failed = await call("tools/call", { name: "asset_inspect", arguments: { target: "game/dota_addons/" + ADDON + "/particles/crash.vpcf_c", addon: ADDON } });
+assert(failed.result.isError && failed.result.content[0].text.includes("cannot open input"), "VRF failure reported as error");
+const cwdMarker = path.join(tmpdir(), "dota2-mcp", "inspect", "fake-vrf-cwd.txt");
+assert(existsSync(cwdMarker), "VRF runs in its temporary output directory");
+assert(!existsSync(path.join(process.cwd(), "fake-vrf-cwd.txt")), "VRF artifacts do not leak into the repo working directory");
+rmSync(cwdMarker, { force: true });
+
 console.log("PASS");
-rmSync(cache, { recursive: true, force: true });
 kill();
+await sleep(300);
+rmSync(cache, { recursive: true, force: true });
 process.exit(0);

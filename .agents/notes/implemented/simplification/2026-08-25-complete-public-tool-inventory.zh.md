@@ -1,4 +1,4 @@
-# Agent Note: 把 README 的工具清单补全到全部 31 个工具
+# Agent Note: 把 README 的工具清单补全到全部 33 个工具
 
 [English](2026-08-25-complete-public-tool-inventory.md) | 中文
 
@@ -6,11 +6,11 @@ Status: implemented
 
 ## Problem
 
-README.md 的“Available tools”列出了 31 个工具里的 21 个——缺 vrf_ensure、asset_inspect、asset_check_refs、vfx_preview、vfx_preview_stop、四个 file_* 工具，以及 dota2_skill（这些都是 src/index.ts 里的生产符号）。两份手工维护的清单镜像着真正的权威（src/index.ts 的注册表）：README（公开、只讲用途）和 AGENTS.md（面向 agent 并带控制台命令）。公开的那份已经腐烂。
+README.md 的“Available tools”列出了 33 个工具里的 21 个——缺 vrf_ensure、asset_inspect、asset_check_refs、vfx_preview、vfx_preview_stop、四个 file_* 工具，以及 dota2_skill（这些都是 src/index.ts 里的生产符号）。两份手工维护的清单镜像着真正的权威（src/index.ts 的注册表）：README（公开、只讲用途）和 AGENTS.md（面向 agent 并带控制台命令）。公开的那份已经腐烂。
 
 ## Decision
 
-README.md 的 Available tools 表格现在列出了全部 31 个工具（两种语言的表格都补全了）。AGENTS.md 保留其面向 agent、每个工具带控制台命令的表格——按层级分类法，两份表格服务不同的受众，而本 note 就是记录下来的同步义务。
+README.md 的 Available tools 表格现在列出了全部 33 个工具（两种语言的表格都补全了）。AGENTS.md 保留其面向 agent、每个工具带控制台命令的表格——按层级分类法，两份表格服务不同的受众，而本 note 就是记录下来的同步义务。
 
 ## Alternatives considered
 

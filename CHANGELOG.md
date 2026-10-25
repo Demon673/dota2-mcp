@@ -2,6 +2,76 @@
 
 English | [中文](CHANGELOG.zh.md)
 
+## 2.0.0 (2026-10-25)
+
+### Added
+
+- **`dota_screenshot`**: captures the Dota 2 game window in the background and returns the image to the agent. A persistent helper shared across MCP sessions starts when the console connects to Dota or the tool first runs and caches the latest frame in memory. Cached results carry `captured_at` and `stale: true`, so a hang after the helper started does not require a new frame from Windows. It needs no console or vconsole, never steals focus, and restores a minimized window only for the capture. Windows only; the helper is compiled on first use with the system C# compiler.
+- **`dota_advance_to_game`**: one call takes a loaded game from any pre-game phase to GAME_IN_PROGRESS with a hero for every player (random, or a given `hero`), acting only on the observed game state. Standard flow: `dota_launch_game` or `dota_restart`, then `dota_advance_to_game`. The `dota2-game-phases` skill and stuck-phase guidance now point to it.
+- **Focused skill retrieval**: `dota2_skill` outlines include `###` subsections, `section` works for both skill prose and Markdown data, and JSON data accepts a dot-path `data_path` such as `e_combos.top10`. Full-body and whole-file reads remain available, but VFX/model authoring no longer needs them.
+- **`dota2-vfx` ships its first end-to-end recipe**: "Recipe: AoE telegraph + impact" covers the parent/child layout, the ground-aligned ring sprite, control point 0 as the marker position, the 1.5 s wind-up, the modifier hook that creates and destroys the instance, and a sprite budget with its timed evidence.
+- **`dota2-vfx` gains a projectile recipe**: "Recipe: Projectile + trail + impact" explains why a short-lived high-rate head rides control point 0 while a longer-lived trail is left behind, why the impact is spawned at the landing point instead of as a delayed child, and the per-tick control-point update an ability needs.
+- **`dota2-vfx` gains an aura recipe**: "Recipe: Persistent buff/debuff aura" covers `PATTACH_ABSORIGIN_FOLLOW` as the alternative to owning a control point, a loop whose per-particle fade reads as breathing, the instant-versus-fade choice in `DestroyParticle`, and where team colour lives when one asset cannot be tinted per team. It ships the `LinkLuaModifier` wiring too, verified with a real modifier whose creation, duration expiry and removal each clear the scene.
+- **`vfx_preview` reports whether the particle can be drawn**: it resolves the path as an addon asset and scans the addon's `scripts/vscripts` for a `PrecacheResource` that names it. An undeclared asset comes back with `precache: MISSING` and the exact line to add, instead of an apparently successful preview that draws nothing; engine assets are reported as loading from the game's own packages.
+- **`dota_record`**: records the game window (Windows.Graphics.Capture, so an occluded or unfocused game records correctly) to an MP4 and returns path, duration, fps and encoded size. Default 12 fps, capped at 30. When Windows stops presenting frames of an unfocused window, the tool asks the connected console for `r_always_render_all_windows 1`, retries once and restores the value; without a console it fails with the remedy. A minimized window fails explicitly.
+- **`dota_perf`**: captures frame times with a pinned PresentMon release (downloaded and sha256-verified on first use) and returns p50/p95/p99 with the sample count and duration; a `baseline` lets two runs be compared. PresentMon needs an elevated terminal — without one the tool explains that rather than returning an empty sample.
+- **`dota_test_run`**: runs assertion tests from `scripts/vscripts/tests/<name>.lua` inside the real game. Each test runs in its own console statement, so one failure does not stop the rest, and a hanging test is bounded per test and per run. Returns structured `{name,status,detail}` rows with pass/fail/timeout counts.
+
+### Changed
+
+Every tool now returns one contract shape: `{"ok":true, ...}` with a `lines`, `text` or `data` payload, or `{"ok":false, "code": "...", "message": "..."}` with `isError`. All 36 tools carry the four MCP annotations, and every description states when to use it, what it does, what it returns, its limits and related tools. Tool names are unchanged; old parameter names keep working as aliases for this release.
+
+| Area | Before 2.0 | 2.0 |
+|---|---|---|
+| Every result | bare text, or raw JSON for a few tools | `{ok:true, lines\|text\|data}` / `{ok:false, code, message}` |
+| Tool metadata | no annotations | four hints on all tools (`readOnly`/`destructive`/`idempotent`/`openWorld`) |
+| `console_output` | last N lines; every read repeated them | cursor-incremental; `tail` / `since_seq` / `from_start`, `next_seq` and `dropped` reported, filters never consume unmatched lines; `lines` stays as an alias of `tail`; the first call tails 50 |
+| `console_send` | `Sent N command(s)` only | returns the command's own output window and advances the cursor; later output stays readable through `console_output` |
+| `dota_status` | text summary with `running` / `allMaps` | `data` capability matrix (`daemon`, `vconsole`, `dota`, `phase`, `cheats`, `addon`, `map`, `available_actions`); `running` / `allMaps` removed |
+| `dota_restart` | text | 20 s without a change is now a `timeout` failure |
+| `file_read` | raw file content | `data:{path,bytes,text}` |
+| `dota2_skill` | raw JSON for `data_path` | the JSON lives in the `text` field |
+
+### Fixed
+
+- **Lua tool output leaked into vconsole**: `dota_run_lua` / `vfx_preview` output and collection markers no longer appear in the vconsole window; a Lua runtime error no longer leaves the window muted.
+- **Over-long Lua silently did nothing**: the engine drops a console statement over ~510 bytes; `dota_run_lua` now rejects such code with a clear error.
+- **`dota_launch_game` reported normal map loading as stuck in INIT.**
+- **`dota_restart` returned before the restart took effect**: it now waits until the reload has begun.
+- **Restart and subprocess hardening**: `dota_restart` uses a real 20 s wall-clock deadline rather than multiplying slow status polls. Screenshot and VRF subprocesses drop common credential variables, and the VPK lookup cache is bounded.
+- **Lua tools gave no error when `sv_cheats` was off**: the engine ignores `ent_fire` then; `dota_run_lua`, `dota_advance_to_game` and the VFX tools now fail at once with an error naming `sv_cheats`.
+- **`dota_launch_game` misread an unresponsive engine during map loading as a stuck phase**, and now reports a launch that left the game at the main menu.
+- **API queries returned full engine dumps**: `dota_api_lua`, `dota_api_panorama_js`, `dota_api_css`, and `dota_api_events` filter matching entries. Entity and modifier dumps also accept a substring filter; `dota_dump_modifiers` defaults to active server modifiers rather than the client registry.
+- **`console_channels` was empty for late thin clients**: the daemon handshake now includes the channels already registered with Dota.
+- **Lua and VFX result errors**: scalar `expression` values print directly, tool descriptions use valid API examples and document the `sv_cheats=1` requirement, and `vfx_preview_stop` no longer reports `DestroyParticle`'s void return as `ok=nil`.
+- **Hung screenshot failures were ambiguous**: when Windows.Graphics.Capture stops supplying frames during a sustained hang, `dota_screenshot` returns the persistent cache with an explicit `stale` marker and capture timestamp. If no frame has ever been cached, it reports that cause instead of suggesting the window is starting or on another desktop. It never substitutes a screen capture or an unmarked older image.
+- **Screenshot timeout budgets were ambiguous**: after the helper is ready, each call now shares one 5 s wall-clock deadline across watcher startup, capture, stop, and re-minimize. Cold compilation remains a separate one-time setup. If the deadline expires during restoration, the result explicitly says cleanup did not finish instead of waiting indefinitely.
+- **Screenshot freshness was overstated**: the watcher no longer recreates capture sessions on a timer, so a newly created session cannot re-label the same old window image as a fresh frame. Background frames stay stale until the existing session actually delivers a new one.
+- **The VFX minimal template could not render anything**: it now includes a verified `C_OP_RenderSprites` path, and the workflow requires before/after screenshots in addition to a nonzero particle id. The old drill's misplaced emitter and incorrect spawn field were corrected.
+- **Custom particles never appeared because they were not precached**: the client only draws systems it loaded at map start, so a path that is missing from the addon's `Precache(context)` returns a valid particle id and still shows a live entry in `cl_particles_dumpsimlist` while drawing nothing. The `dota2-vfx` skill now makes the precache entry a workflow step and a pitfall, and `vfx_preview` says so in its description. The same pass documents that resourcecompiler silently drops `m_nControlPointNumber` and any short `m_TransformInput` struct, so effects stayed at the world origin, and that a screenshot marked `stale: true` is an old frame rather than an empty scene.
+- **VRF and particle reference compatibility**: the pinned VRF is 20.1, which reads the current engine's KV type 26. `asset_check_refs` now resolves shared-addon outputs and exact paths in `pak01_dir.vpk` instead of reporting valid engine materials as broken. `asset_inspect` counts continuous as well as instantaneous emitters. VRF failure artifacts stay in temporary working directories instead of the caller's repository.
+
+- **`file_edit` corrupted files containing `$`**: `$'`, `$&` and `$1` in `new_string` are now written literally instead of being expanded.
+- **FileOps path boundary bypass via `addon`**: addon names that are `.`/`..` or contain `/`, `\` or `:` are rejected. All FileOps and asset tools share one addon resolver.
+- **Non-ASCII console text**: VConsole2 output and commands are UTF-8, so Chinese `print` output and non-ASCII Lua survive.
+- **Stale game state**: `dota_status` / `dota_launch_game` no longer fall back to an old `status_json` from the log when the query gets no answer.
+- **Tool results mixed with other output**: console tools keep only the lines between per-call begin/end echo markers, isolating other sessions and game prints.
+- **Local fallback relay had no auth on :29002**: it now requires the same token handshake as the daemon.
+- **Offline daemon tests corrupted live daemon state**: they use an isolated `DOTA2_VCON_STATE_DIR` instead of deleting the real relay token, pid, and lock files.
+- **VRF failures reported as success**: `asset_inspect` and `asset_check_refs` return an error when the CLI fails or the root asset cannot be decompiled.
+- **`dota_launch_game`** launches the requested map even when a different map is already loaded.
+- **vconsole reconnect**: a superseded GUI socket no longer drops the live connection. Toggling MCP suppression mid-command no longer mutes the GUI.
+- **Linux/macOS Steam detection**: default Steam roots are resolved from the home directory (`~` was never expanded).
+- **Packaging**: `prepack` compiles before packing.
+
+### Changed
+
+- Commands sent while the thin client is disconnected are dropped instead of replayed after reconnect.
+
+### Dependencies
+
+- Removed `find-steam-app` (it throws on the current `libraryfolders.vdf` format; manual parsing covers it).
+
 ## 1.6.0 (2026-08-20)
 
 ### Added (VFX & model capabilities, 9 new tools, 22 → 31)

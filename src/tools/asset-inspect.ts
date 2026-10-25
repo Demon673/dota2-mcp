@@ -4,6 +4,7 @@ import { readFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ensureVrf } from "./vrf-ensure.js";
+import { scrubbedEnv } from "./process-env.js";
 
 export interface InspectOptions {
   includeRaw?: boolean;
@@ -30,8 +31,10 @@ export function decompileToText(exe: string, resolvedPath: string, outFile: stri
   mkdirSync(path.dirname(outFile), { recursive: true });
   execFileSync(exe, ["-i", resolvedPath, "-o", outFile], {
     encoding: "utf-8",
+    windowsHide: true,
+    cwd: path.dirname(outFile), // VRF 失败会写 exceptions.txt，不能落在调用方工作目录
     maxBuffer: 64 * 1024 * 1024,
-    env: { ...process.env, DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1" },
+    env: scrubbedEnv({ DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1" }),
   });
   return readFileSync(outFile, "utf-8");
 }
@@ -61,7 +64,7 @@ function buildSummary(assetType: string, text: string, pngInfo: { width: number;
   switch (assetType) {
     case "vpcf": return {
       particle_system_count: count(text, /_class\s*=\s*"CParticleSystemDefinition"/g),
-      emitter_count: count(text, /_class\s*=\s*"C_OP_InstantaneousEmitter"/g),
+      emitter_count: count(text, /_class\s*=\s*"C_OP_[A-Za-z0-9_]*Emitter"/g),
       operator_count: count(text, /_class\s*=\s*"C_OP_[A-Za-z0-9_]*"/g),
       initializer_count: count(text, /_class\s*=\s*"C_INIT_[A-Za-z0-9_]*"/g),
       child_refs: refs.filter((r) => r.endsWith(".vpcf")),
@@ -126,18 +129,17 @@ export async function inspectAsset(dotaPath: string, resolvedPath: string, opts:
       const outDir = path.join(tmpdir(), "dota2-mcp", "inspect");
       mkdirSync(outDir, { recursive: true });
       pngPath = path.join(outDir, path.basename(resolvedPath).replace(/_c$/, "") + ".png");
-      execFileSync(vrf.executable, ["-i", resolvedPath, "-o", pngPath], { encoding: "utf-8", maxBuffer: 64 * 1024 * 1024, env: cliEnv });
+      execFileSync(vrf.executable, ["-i", resolvedPath, "-o", pngPath], { encoding: "utf-8", windowsHide: true, maxBuffer: 64 * 1024 * 1024, env: cliEnv });
     } else {
       // 反编译文本走 -o 文件（stdout 是分析摘要不是文本）；vtex 输出 PNG
       tmpOut = path.join(tmpdir(), "dota2-mcp", "inspect", path.basename(resolvedPath) + ".txt");
       stdout = decompileToText(vrf.executable, resolvedPath, tmpOut);
     }
   } catch (e) {
+    // 失败输出不能当反编译文本做摘要：会得到全 0 的「成功」结果
     const err = e as { stdout?: string; stderr?: string; message?: string };
-    stdout = (err.stdout ?? "") + (err.stderr ?? "") + (err.message ?? "");
-    if (!stdout.trim()) {
-      return { ok: false, text: "asset_inspect failed to run the VRF CLI" };
-    }
+    const detail = [err.stderr, err.stdout, err.message].filter((s) => s && s.trim()).join("\n");
+    return { ok: false, text: "asset_inspect: VRF CLI failed on " + resolvedPath + (detail ? "\n" + detail : "") };
   } finally {
     if (tmpOut) { try { rmSync(tmpOut, { force: true }); } catch { /* ignore */ } }
   }

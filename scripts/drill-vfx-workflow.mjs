@@ -27,20 +27,37 @@ const vpcf = `
 <!-- kv3 encoding:text:version{e21c7f3c-8a33-41c5-9977-a76d3a32aa0d} format:generic:version{7412167c-06e9-4698-aff2-e63eb59037e7} -->
 {
   _class = \"CParticleSystemDefinition\"
+  m_ConstantColor = [ 255, 0, 255, 255 ]
+  m_flConstantRadius = 160.0
+  m_flConstantLifespan = 10.0
   m_nMaxParticles = 48
-  m_flConstantRadius = 6.0
-  m_Children =
+  m_Operators =
+  [
+    { _class = \"C_OP_BasicMovement\" },
+    { _class = \"C_OP_Decay\" },
+  ]
+  m_Renderers =
   [
     {
-      _class = \"CParticleSystemDefinition\"
-      m_Operators =
-      [
-        { _class = \"C_OP_InstantaneousEmitter\" m_flSpawnRate = 48 },
-        { _class = \"C_INIT_RandomLifeTime\" m_fLifetimeMin = 0.5 m_fLifetimeMax = 1.0 },
-        { _class = \"C_OP_Decay\" },
-        { _class = \"C_OP_BasicMovement\" },
-      ]
+      _class = \"C_OP_RenderSprites\"
+      m_bAdditive = true
+      m_hTexture = resource:\"materials/particle/basic_glow.vtex\"
     },
+  ]
+  m_Initializers =
+  [
+    {
+      _class = \"C_INIT_CreateWithinSphere\"
+      m_TransformInput =
+      {
+        m_bUseOrientation = false
+        m_nControlPoint = 0
+      }
+    },
+  ]
+  m_Emitters =
+  [
+    { _class = \"C_OP_ContinuousEmitter\" m_flEmitRate = 1.0 },
   ]
 }
 `;

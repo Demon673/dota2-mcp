@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/feature/2026-10-25-tooling-result-contract.md
+2026-10-25-tooling-result-contract.md: 2007f245bb133313b9a9df4544a8fde1aa534e81
+2026-10-25-tooling-result-contract.zh.md: fcbb1e45dfe842b3708b046f9399a5ca07be5883

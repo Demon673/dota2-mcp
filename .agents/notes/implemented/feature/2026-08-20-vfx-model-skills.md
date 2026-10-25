@@ -14,12 +14,19 @@ Two built-in skills ship under `skills/`: `dota2-vfx` (particles: KV3 structure 
 
 `dota2_skill` gains `section` (return one `##` section), `outline` (list headings) and `data` (return one file under `skills/<name>/data/` verbatim; `data='list'` lists them) parameters; the full body remains the default for small skills. `files[]` ships `skills/**/*`, so a skill's data files ride inside the npm package — that is how `dota2-vfx` delivers the official particle-corpus statistics (`vpcf-stats.json`, `vpcf-official-findings.md`) to an agent working outside this repo; the `dota2_skill` row of the tool table in `AGENTS.md` is the registry entry for the surface.
 
+Retrieval now also covers `###` subsections, Markdown data sections, and JSON dot paths through `data_path` (including numeric array indices). Full-body and whole-file reads remain compatibility paths; tool guidance prefers outline → section → targeted data. The VFX minimal template is a continuous glow with `C_OP_RenderSprites`, not an emitter-only system that cannot draw. Its SOP uses server-Lua preview plus before/after `dota_screenshot` evidence and `vfx_preview_stop`; the drill source uses the same valid emitter/renderer structure.
+
 ## Alternatives considered
 
 - **One combined skill.** Rejected in map #9: the user chose two skills with duplicated shared sections.
+- **Silent full-text defaults for large references.** Rejected for compatibility: full reads remain available, while outlines, sections, and JSON paths give agents an explicit smaller path.
 - **Truncate long bodies silently.** Rejected: sectioned retrieval is explicit and lossless; silent truncation hides content.
 
 ## Consequences
 
 - Skills exposed by dota2_skill: dota2-game-phases, dota2-model, dota2-runtime-dev, dota2-vfx.
 - The field-level reference tables live in `research/vpcf-field-reference/`, kept out of the npm package (see the [slim-skills-payload note](../simplification/2026-08-25-slim-skills-payload.md)).
+
+## Testing
+
+`test-mcp-offline.mjs` covers nested outlines, sibling-bounded section retrieval, Markdown data sections, JSON array entries selected by `data_path`, and invalid paths. Live in a test addon, an official particle returned a nonzero id and stopped successfully; the minimal custom glow compiled, appeared at the requested hero position in a real screenshot, disappeared after `vfx_preview_stop`, and produced no load errors. These checks distinguish runtime creation from actual visibility.

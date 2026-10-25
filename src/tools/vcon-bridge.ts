@@ -22,13 +22,13 @@
  * ### 消息类型（客户端 → 服务端）
  * | Type   | 说明                        |
  * |--------|-----------------------------|
- * | CMND   | Console 命令（ASCII + null terminator）|
+ * | CMND   | Console 命令（UTF-8 + null terminator）|
  *
  * ### PRNT 消息体格式
  * ```
  * channelCRC(4B) channelId(4B) verbosity(4B) color(4B)
  * millisecondTime(4B) dunno1(4B) dunno2(4B)
- * printString(null-terminated ASCII)
+ * printString(null-terminated UTF-8)
  * ```
  *
  * ### 参考实现
@@ -65,7 +65,7 @@ export interface FrameHeader {
 
 /** PRNT 消息
  *
- * 结构（28 bytes 固定前缀 + null-terminated ASCII）：
+ * 结构（28 bytes 固定前缀 + null-terminated UTF-8）：
  * channelId(4) unknown(24) text
  *
  * 其中 channelId 与 CHAN.id 对应，用于查找通道名（如 General、VScript）。
@@ -158,13 +158,13 @@ function parsePrntPayload(payload: Buffer): PrntMessage {
     verbosity: payload.readUInt32BE(8),
     color: payload.readUInt32BE(12),
     millisecondTime: payload.readUInt32BE(16),
-    text: payload.toString("ascii", 28).replace(/\0/g, "").trim(),
+    text: payload.toString("utf-8", 28).replace(/\0/g, "").trim(),
   };
 }
 
 function buildPrntFrame(originalPayload: Buffer, text: string): Buffer {
   const prefix = originalPayload.subarray(0, 28);
-  const textBuf = Buffer.from(text, "ascii");
+  const textBuf = Buffer.from(text, "utf-8");
   const payload = Buffer.concat([prefix, textBuf, Buffer.from([0x00])]);
   const header = buildHeader("PRNT", payload.length);
   return Buffer.concat([header, payload]);
@@ -275,7 +275,7 @@ export class VConClient extends EventEmitter {
   /** 发送 console 命令 */
   sendCommand(cmd: string): void {
     if (!this.socket) throw new Error("Not connected");
-    const cmdBuf = Buffer.from(cmd, "ascii");
+    const cmdBuf = Buffer.from(cmd, "utf-8");
     const payload = Buffer.concat([cmdBuf, Buffer.from([0x00])]);
     const header = buildHeader("CMND", payload.length);
     this.socket.write(Buffer.concat([header, payload]));

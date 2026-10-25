@@ -16,6 +16,8 @@ This glossary defines the domain terms used when developing Dota 2 custom games 
 
 **particle preview**: A particle instance created in a running game to inspect an effect. The preview is a runtime instance, distinct from the particle asset that defines it.
 
+**game screenshot**: An image of the Dota 2 game window taken from outside the game, so it is available even when the game does not respond. Distinct from a screenshot the engine takes itself.
+
 ### Console access
 
 **VCon**: The console protocol or connection used to exchange commands and output with the Dota 2 engine.

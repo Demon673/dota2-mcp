@@ -10,7 +10,7 @@ Agents needed a stable, diff-friendly, structured view of single Source 2 assets
 
 ## Decision
 
-`inspectAsset()` in `src/tools/asset-inspect.ts` runs the VRF CLI (`ensureVrf`-managed Source2Viewer-CLI) with `-i <asset> -d` (plus `-o <png>` for vtex) and scans the decompiled text with a lightweight KV3/KV1 regex layer — no full KV parser. The JSON output follows the #8 schema: `{asset_type, source, summary, notes[, raw_decompiled]}` with alphabetically sorted keys (stable, diff-friendly) and deduped/sorted reference lists. Type summaries: vpcf (particle_system/emitter/operator/initializer counts via `_class` names, `resource:` refs split into child_refs and material_refs, `m_nMaxParticles`), vmdl (CMesh count, material refs, `m_refLODGroup`, skeleton ref), vmat (`m_shader`, texture refs mapped key→path, param count), vtex (PNG header width/height/format + exported path; `mip_count` is null with a note — the PNG export is single-layer so mips are not recoverable), unknown (pass-through only). `raw_decompiled` is opt-in via `include_raw`, truncated to 4000 chars. The tool is offline and ungated; the asset type comes from the target extension (`_c` stripped).
+`inspectAsset()` in `src/tools/asset-inspect.ts` runs the VRF CLI (`ensureVrf`-managed Source2Viewer-CLI) with `-i <asset> -d` (plus `-o <png>` for vtex) and scans the decompiled text with a lightweight KV3/KV1 regex layer — no full KV parser. The JSON output follows the #8 schema: `{asset_type, source, summary, notes[, raw_decompiled]}` with alphabetically sorted keys (stable, diff-friendly) and deduped/sorted reference lists. Type summaries: vpcf (particle_system/operator/initializer counts via `_class` names, all `C_OP_*Emitter` classes counted as emitters, `resource:` refs split into child_refs and material_refs, `m_nMaxParticles`), vmdl (CMesh count, material refs, `m_refLODGroup`, skeleton ref), vmat (`m_shader`, texture refs mapped key→path, param count), vtex (PNG header width/height/format + exported path; `mip_count` is null with a note — the PNG export is single-layer so mips are not recoverable), unknown (pass-through only). `raw_decompiled` is opt-in via `include_raw`, truncated to 4000 chars. The tool is offline and ungated; the asset type comes from the target extension (`_c` stripped). VRF runs with its temporary output directory as cwd, so an `exceptions.txt` failure artifact cannot leak into the caller's repository.
 
 ## Alternatives considered
 
@@ -19,5 +19,5 @@ Agents needed a stable, diff-friendly, structured view of single Source 2 assets
 
 ## Consequences
 
-- `scripts/test-asset-inspect.mjs` pins the contract with a fake VRF CLI (env `VRF_CACHE_DIR`/`VRF_VERSION`) and typed fixtures: all five asset types plus raw truncation.
+- `scripts/test-asset-inspect.mjs` pins the contract with a fake VRF CLI (env `VRF_CACHE_DIR`/`VRF_VERSION`) and typed fixtures: all five asset types plus raw truncation, including instantaneous and continuous emitter counting. Live with VRF 20.1, the continuous test glow returns `emitter_count: 1` and the expected material reference.
 - Tool count 27 → 28.

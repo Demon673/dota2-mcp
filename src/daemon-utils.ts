@@ -24,7 +24,9 @@ export function parsePort(value: string | undefined, fallback: number): number {
 const CTRL_PORT = parsePort(process.env.DOTA2_VCON_CTRL_PORT, 29002);
 
 function stateDir(): string {
-  const tmp = path.join(os.tmpdir(), "dota2-mcp");
+  const tmp = process.env.DOTA2_VCON_STATE_DIR
+    ? path.resolve(process.env.DOTA2_VCON_STATE_DIR)
+    : path.join(os.tmpdir(), "dota2-mcp");
   try {
     fs.mkdirSync(tmp, { recursive: true });
     fs.accessSync(tmp, fs.constants.W_OK);

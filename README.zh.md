@@ -140,10 +140,12 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 | 工具 | 用途 |
 |------|------|
 | `dota_status` | 获取连接、vconsole、addon、地图、游戏状态与下一步建议。建议先调用。 |
+| `dota_screenshot` | 在后台截取 Dota 2 游戏窗口画面（不需要控制台；仅 Windows）。旧缓存帧会带 `stale` 和 `captured_at`，因此游戏卡死后仍可能取得此前画面。helper 就绪后，每次调用共享 5 秒总超时；冷编译单独计算。 |
 | `dota_open_vconsole` | 打开 vconsole2 窗口（控制台类工具需要它已打开）。 |
 | `dota_launch_game` | 启动自定义游戏地图（等待进入对局；卡住时返回相位与推进方法）。 |
 | `dota_disconnect` | 断开当前游戏。 |
-| `dota_restart` | 重载当前地图。 |
+| `dota_advance_to_game` | 把已加载的游戏从任一开局前相位推进到可玩的对局，每个玩家都有英雄（需要 `sv_cheats=1`）。 |
+| `dota_restart` | 重载当前地图（等到重载真正开始才返回）。 |
 | `console_send` | 向 Dota 2 控制台发送命令。 |
 | `console_output` | 读取控制台输出。 |
 | `console_channels` | 列出可用的 VConsole2 通道。 |
@@ -154,22 +156,22 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 | `dota_api_panorama_js` | 查询 Panorama JS API。 |
 | `dota_api_css` | 查询 Panorama CSS 属性。 |
 | `dota_api_events` | 查询 Panorama 事件。 |
-| `dota_api_help` | 查询官方 Lua API 文档。 |
-| `dota_run_lua` | 在运行中的游戏里执行服务端 Lua。 |
-| `dota_dump_entities` | 列出当前场景实体。 |
-| `dota_dump_modifiers` | 列出修饰器。 |
+| `dota_api_help` | 查看 Lua class/作用域（全局函数使用 `dota_api_lua`）。 |
+| `dota_run_lua` | 在运行中的游戏里执行服务端 Lua（需要 `sv_cheats=1`）。 |
+| `dota_dump_entities` | 列出当前场景实体（可选子串过滤）。 |
+| `dota_dump_modifiers` | 默认列出服务端生效的 modifier，也可列出客户端注册类型（可选子串过滤）。 |
 | `dota_entity_inspect` | 查看实体 Lua 作用域。 |
 | `dota_compile_asset` | 编译 Source 2 资源。 |
 | `vrf_ensure` | 确保 VRF CLI 可用（检测 / 下载 / sha256 校验 / 缓存，离线安全）。 |
 | `asset_inspect` | 反编译资产并返回结构化摘要。 |
 | `asset_check_refs` | 检查单个资产的递归引用完整性。 |
-| `vfx_preview` | 在游戏内生成粒子预览（返回 pid）。 |
-| `vfx_preview_stop` | 销毁预览粒子实例。 |
+| `vfx_preview` | 在游戏内生成粒子预览（返回 pid；需要 `sv_cheats=1`）。 |
+| `vfx_preview_stop` | 销毁预览粒子实例（需要 `sv_cheats=1`）。 |
 | `file_read` | 读取 addon 内的文本文件。 |
 | `file_write` | 在 addon 内写文件。 |
 | `file_edit` | 在 addon 文件内做 old_string→new_string 替换（恰好一次匹配）。 |
 | `file_delete` | 删除 addon 内的文件。 |
-| `dota2_skill` | 获取内置开发 skill（特效/模型格式、游戏相位、运行时开发）。 |
+| `dota2_skill` | 获取内置开发 skill（特效/模型格式、游戏相位、运行时开发），支持目录、章节检索和 JSON `data_path` 精确查询，避免不必要的全文上下文。 |
 
 ## 常见问题
 
@@ -191,6 +193,6 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 
 ## 版本
 
-当前版本：`v1.6.0`
+当前版本：`v2.0.0`
 
 详情见 [CHANGELOG.md](./CHANGELOG.md) 与 [GitHub Releases](https://github.com/Demon673/dota2-mcp/releases)。

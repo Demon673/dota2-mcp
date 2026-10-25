@@ -10,7 +10,7 @@ Agent 需要单个 Source 2 资产（vpcf/vmdl/vmat/vtex）的稳定、diff 友�
 
 ## Decision
 
-`src/tools/asset-inspect.ts` 的 `inspectAsset()` 运行 VRF CLI（ensureVrf 管理的 Source2Viewer-CLI）`-i <资产> -d`（vtex 加 `-o <png>`），用轻量 KV3/KV1 正则层扫描反编译文本——不做完整 KV 解析器。JSON 输出按 #8 schema：`{asset_type, source, summary, notes[, raw_decompiled]}`，键字母序稳定（diff 友好）、引用列表去重排序。各类型摘要：vpcf（按 `_class` 名统计 particle_system/emitter/operator/initializer 数，`resource:` 引用拆为 child_refs 与 material_refs，`m_nMaxParticles`）、vmdl（CMesh 数、材质引用、`m_refLODGroup`、骨架引用）、vmat（`m_shader`、纹理引用键→路径映射、参数计数）、vtex（PNG 头宽/高/格式 + 导出路径；`mip_count` 为 null 并注释——PNG 导出为单层，mip 不可恢复）、unknown（仅透传）。`raw_decompiled` 经 `include_raw` 显式开启、截断 4000 字符。工具离线不门控；资产类型由目标扩展名决定（剥 `_c`）。
+`src/tools/asset-inspect.ts` 的 `inspectAsset()` 运行 VRF CLI（ensureVrf 管理的 Source2Viewer-CLI）`-i <资产> -d`（vtex 加 `-o <png>`），用轻量 KV3/KV1 正则层扫描反编译文本——不做完整 KV 解析器。JSON 输出按 #8 schema：`{asset_type, source, summary, notes[, raw_decompiled]}`，键字母序稳定（diff 友好）、引用列表去重排序。各类型摘要：vpcf（按 `_class` 名统计 particle_system/operator/initializer 数，所有 `C_OP_*Emitter` 类都计入 emitter，`resource:` 引用拆为 child_refs 与 material_refs，`m_nMaxParticles`）、vmdl（CMesh 数、材质引用、`m_refLODGroup`、骨架引用）、vmat（`m_shader`、纹理引用键→路径映射、参数计数）、vtex（PNG 头宽/高/格式 + 导出路径；`mip_count` 为 null 并注释——PNG 导出为单层，mip 不可恢复）、unknown（仅透传）。`raw_decompiled` 经 `include_raw` 显式开启、截断 4000 字符。工具离线不门控；资产类型由目标扩展名决定（剥 `_c`）。VRF 以临时输出目录为工作目录运行，失败产生的 `exceptions.txt` 不会泄漏到调用方仓库。
 
 ## Alternatives considered
 
@@ -19,5 +19,5 @@ Agent 需要单个 Source 2 资产（vpcf/vmdl/vmat/vtex）的稳定、diff 友�
 
 ## Consequences
 
-- `scripts/test-asset-inspect.mjs` 用 fake VRF CLI（env `VRF_CACHE_DIR`/`VRF_VERSION`）与各类型 fixture 钉住契约：五种类型 + raw 截断。
+- `scripts/test-asset-inspect.mjs` 用 fake VRF CLI（env `VRF_CACHE_DIR`/`VRF_VERSION`）与各类型 fixture 钉住契约：五种类型 + raw 截断，包括瞬时与持续 emitter 计数。使用 VRF 20.1 的活体检查中，持续测试光晕返回 `emitter_count: 1` 和正确的材质引用。
 - 工具数 27 → 28。

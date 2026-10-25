@@ -2,6 +2,76 @@
 
 [English](CHANGELOG.md) | 中文
 
+## 2.0.0 (2026-10-25)
+
+### 新增
+
+- **`dota_screenshot`**：在后台截取 Dota 2 游戏窗口画面并返回给 agent。多个 MCP 会话共享的常驻助手在控制台连接 Dota 或首次调用工具时启动，在内存里缓存最新帧。缓存结果带 `captured_at` 和 `stale: true`，所以助手启动后即使游戏卡死、Windows 不再供帧，也能返回已有画面。不需要控制台或 vconsole，不抢焦点，最小化的窗口只在截图时临时恢复。仅支持 Windows；辅助程序在首次使用时用系统自带的 C# 编译器编译。
+- **`dota_advance_to_game`**：一次调用把已加载的游戏从任一开局前相位推进到 GAME_IN_PROGRESS，每个玩家都有英雄（随机，或指定 `hero`），只按观测到的游戏状态行动。标准流程：`dota_launch_game` 或 `dota_restart`，然后 `dota_advance_to_game`。`dota2-game-phases` skill 与卡相位指引现在都指向它。
+- **按需读取 skill**：`dota2_skill` 的目录包含 `###` 小节，`section` 同时支持 skill 正文和 Markdown 数据文件，JSON 数据支持 `e_combos.top10` 这类点路径 `data_path`。仍保留全文和整文件读取，但 VFX/模型制作不再依赖这些大结果。
+- **`dota2-vfx` 提供第一个端到端配方**：“Recipe: AoE telegraph + impact” 覆盖父子结构、贴地环状 sprite、以控制点 0 作为标记位置、1.5 秒前摇、创建与销毁实例的 modifier 钩子，以及带分时证据的 sprite 预算。
+- **`dota2-vfx` 增加投射物配方**：“Recipe: Projectile + trail + impact” 说明为什么短寿命高频的头部会跟随控制点 0、而寿命更长的轨迹会留在原地，为什么命中特效要在落点单独创建而不是做成延迟子特效，以及 ability 需要每帧更新控制点。
+- **`dota2-vfx` 增加光环配方**：“Recipe: Persistent buff/debuff aura” 覆盖用 `PATTACH_ABSORIGIN_FOLLOW` 代替自己管理控制点、逐粒子淡入淡出让循环看起来像呼吸、`DestroyParticle` 即时截断与自然淡出的取舍，以及单个资产无法按队伍染色时颜色该放在哪里。配方同时带上 `LinkLuaModifier` 接线，并用真实 modifier 验证了创建、时长到期和移除三种情况下画面都会清干净。
+- **`vfx_preview` 会说明粒子到底能不能被画出来**：它先把路径解析为 addon 资产，再扫 addon 的 `scripts/vscripts` 找是否有 `PrecacheResource` 声明了这个路径。没声明的资产会返回 `precache: MISSING` 以及需要补的那一行，而不是给出一份看起来成功、实际什么都不画的预览结果；引擎自带资产则说明它从游戏自己的包里加载。
+- **`dota_record`**：录制游戏窗口（Windows.Graphics.Capture，窗口被遮挡或失焦也能录）为 MP4，返回路径、时长、帧率与实际编码尺寸。默认 12 fps，上限 30。当 Windows 对失焦窗口停止出帧时，工具会在控制台可用时自动设 `r_always_render_all_windows 1`、重试一次并还原；没有控制台时直接给出补救方法。窗口最小化会明确失败。
+- **`dota_perf`**：用固定版本的 PresentMon（首次使用时下载并做 sha256 校验）采集帧时间，返回 p50/p95/p99、样本数与采集时长；`baseline` 可对比两次采集。PresentMon 需要管理员终端——没有提权时工具会说明这一点，而不是返回空采样。
+- **`dota_test_run`**：在真实游戏里执行 `scripts/vscripts/tests/<name>.lua` 的断言测试。每条测试走独立控制台语句，单条失败不中断其余；挂起的测试按单条与整体两级预算限时。返回结构化的 `{name,status,detail}` 与 pass/fail/timeout 计数。
+
+### 变更
+
+所有工具现在返回同一种契约形状：成功为 `{"ok":true, ...}`，载荷为 `lines`、`text` 或 `data` 之一；失败为 `{"ok":false, "code": "...", "message": "..."}` 且 `isError`。36 个工具全部带四类 MCP annotations，每条描述都写明何时使用、做什么、返回什么、上限与相关工具。工具名保持不变；旧参数名在本版本内继续作为别名可用。
+
+| 范围 | 2.0 之前 | 2.0 |
+|---|---|---|
+| 所有返回值 | 裸文本，少数工具是原始 JSON | `{ok:true, lines\|text\|data}` / `{ok:false, code, message}` |
+| 工具元数据 | 没有 annotations | 全部工具四类 hint（`readOnly`/`destructive`/`idempotent`/`openWorld`） |
+| `console_output` | 最后 N 行，每次读取都重复 | 游标增量；`tail` / `since_seq` / `from_start`，回报 `next_seq` 与 `dropped`，过滤器不吞掉未匹配行；`lines` 保留为 `tail` 的别名；首次调用取最近 50 行 |
+| `console_send` | 只回 `Sent N command(s)` | 返回该命令自己的输出窗口并推进游标；之后的输出仍可用 `console_output` 读到 |
+| `dota_status` | 文本摘要，含 `running` / `allMaps` | `data` 能力矩阵（`daemon`、`vconsole`、`dota`、`phase`、`cheats`、`addon`、`map`、`available_actions`）；移除 `running` / `allMaps` |
+| `dota_restart` | 文本 | 20 秒无变化现在是 `timeout` 失败 |
+| `file_read` | 原始文件内容 | `data:{path,bytes,text}` |
+| `dota2_skill` | `data_path` 直接返回原始 JSON | JSON 放在 `text` 字段里 |
+
+### 修复
+
+- **Lua 工具输出漏进 vconsole**：`dota_run_lua` / `vfx_preview` 的输出和收集标记不再出现在 vconsole 窗口；Lua 运行时报错不再让窗口一直静默。
+- **过长的 Lua 静默无效**：引擎会丢弃超过约 510 字节的控制台语句；`dota_run_lua` 现在对这样的代码明确报错。
+- **`dota_launch_game` 把正常的地图加载误报为卡在 INIT。**
+- **`dota_restart` 在重启生效前就返回**：现在等到重载真正开始才返回。
+- **重启与子进程加固**：`dota_restart` 使用真实的 20 秒墙钟 deadline，不再因慢状态轮询累加超时。截图与 VRF 子进程会移除常见凭据变量，VPK 查询缓存也有上限。
+- **`sv_cheats` 关闭时 Lua 类工具不报错**：此时引擎忽略 `ent_fire`；`dota_run_lua`、`dota_advance_to_game` 和 VFX 工具现在立即失败，错误里点名 `sv_cheats`。
+- **`dota_launch_game` 把地图加载期间引擎不应答误判为卡相位**；启动后游戏仍停在主菜单时，现在会明确报告。
+- **API 查询返回整份引擎转储**：`dota_api_lua`、`dota_api_panorama_js`、`dota_api_css` 和 `dota_api_events` 现在只返回匹配条目。实体与 modifier 转储也支持子串过滤；`dota_dump_modifiers` 默认列出服务端生效的 modifier，而不是客户端注册表。
+- **晚接入的瘦客户端用 `console_channels` 查不到通道**：守护进程握手现在带上已经从 Dota 注册的通道表。
+- **Lua 与 VFX 结果错误**：标量 `expression` 直接打印结果；工具描述改用有效 API 示例并写明 `sv_cheats=1` 要求；`vfx_preview_stop` 不再把 `DestroyParticle` 的 void 返回值写成 `ok=nil`。
+- **卡死截图失败的原因含糊**：持续无响应导致 Windows.Graphics.Capture 不再供帧时，`dota_screenshot` 返回常驻缓存，并明确标注 `stale` 和采集时间。如果从未缓存到帧，则报告真实原因，而不是提示窗口正在启动或位于其他桌面。它不会改为截取屏幕或返回没有旧帧标记的旧图片。
+- **截图超时预算含糊**：helper 就绪后，每次调用在 watcher 启动、捕获、停止和补最小化之间共享一个 5 秒墙钟 deadline。冷编译仍是独立的一次性准备阶段。若恢复窗口时到期，结果明确说明清理未完成，而不是无限等待。
+- **截图新鲜度被高估**：watcher 不再定时重建捕获会话，新会话不能把同一张旧窗口画面重新标成新帧。后台画面保持旧帧标记，直到既有会话真正交付新帧。
+- **VFX 最小模板无法渲染**：现在包含经过实机验证的 `C_OP_RenderSprites` 路径，工作流除检查非零粒子 PID 外，还要求比较创建和停止后的截图。旧演练中放错块的 emitter 和错误发射字段已修正。
+- **自建粒子因为没 precache 而永远不显示**：客户端只绘制地图加载时已载入的系统，因此没写进 addon `Precache(context)` 的路径会返回有效粒子 ID、在 `cl_particles_dumpsimlist` 里也照样有条目，但画面上什么都没有。`dota2-vfx` skill 现在把 precache 写成工作流的一步和一条陷阱，`vfx_preview` 的工具描述也写明了这一点。同一轮还记录了两件事：resourcecompiler 会静默丢弃 `m_nControlPointNumber` 和任何简写形式的 `m_TransformInput` 结构体，导致特效停在世界原点；以及带 `stale: true` 的截图是旧帧，不代表画面为空。
+- **VRF 与粒子引用兼容性**：VRF pin 升级到 20.1，可读取当前引擎的 KV 类型 26。`asset_check_refs` 现在会解析共享 addon 产物和 `pak01_dir.vpk` 中的精确路径，不再把有效的引擎材质误报为 broken。`asset_inspect` 现在同时统计持续和瞬时 emitter。VRF 失败产物留在临时工作目录，不再写入调用方仓库。
+
+- **`file_edit` 写坏含 `$` 的文件**：`new_string` 里的 `$'`、`$&`、`$1` 现在按字面写入，不再被展开。
+- **借 `addon` 绕过 FileOps 路径边界**：`.`/`..` 或含 `/`、`\`、`:` 的 addon 名会被拒绝。所有 FileOps 与资产工具共用同一个 addon 解析入口。
+- **非 ASCII 控制台文本**：VConsole2 输出与命令改为 UTF-8，中文 `print` 输出和非 ASCII Lua 不再乱码。
+- **过期游戏状态**：查询没有回应时，`dota_status` / `dota_launch_game` 不再回落到日志里旧的 `status_json`。
+- **工具结果混入其他输出**：控制台类工具只保留每次调用的 begin/end 回显标记之间的行，隔离其他会话与游戏自身的打印。
+- **本地降级 relay 的 :29002 无认证**：现在执行与守护进程相同的 token 握手。
+- **离线守护进程测试破坏活体状态**：改用独立的 `DOTA2_VCON_STATE_DIR`，不再删除真实的 relay token、pid 和锁文件。
+- **VRF 失败被报告为成功**：CLI 失败或根资产无法反编译时，`asset_inspect` 与 `asset_check_refs` 返回错误。
+- **`dota_launch_game`** 在已加载其他地图时也会启动请求的地图。
+- **vconsole 重连**：被取代的 GUI socket 不再断掉在线连接；命令执行中途切换 MCP 屏蔽不再让 GUI 静默。
+- **Linux/macOS Steam 检测**：默认 Steam 根目录从用户主目录解析（`~` 此前从未被展开）。
+- **打包**：`prepack` 打包前先编译。
+
+### 变更
+
+- 瘦客户端断线期间发送的命令直接丢弃，不再在重连后补发。
+
+### 依赖
+
+- 移除 `find-steam-app`（它在当前 `libraryfolders.vdf` 格式上抛错，手动解析已覆盖）。
+
 ## 1.6.0 (2026-08-20)
 
 ### 新增（特效与模型处理能力，9 个新工具，总数 22 → 31）

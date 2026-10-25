@@ -1,4 +1,4 @@
-# Agent Note: Complete the README tool inventory to all 31 tools
+# Agent Note: Complete the README tool inventory to all 33 tools
 
 English | [中文](2026-08-25-complete-public-tool-inventory.zh.md)
 
@@ -6,11 +6,11 @@ Status: implemented
 
 ## Problem
 
-README.md "Available tools" listed 21 of 31 tools — missing vrf_ensure, asset_inspect, asset_check_refs, vfx_preview, vfx_preview_stop, the four file_* tools, and dota2_skill (all production symbols in src/index.ts). Two hand-maintained inventories mirrored the real authority (the src/index.ts registry): README (public, purpose-only) and AGENTS.md (agent-facing with console commands). The public copy had rotted.
+README.md "Available tools" listed 21 of 33 tools — missing vrf_ensure, asset_inspect, asset_check_refs, vfx_preview, vfx_preview_stop, the four file_* tools, and dota2_skill (all production symbols in src/index.ts). Two hand-maintained inventories mirrored the real authority (the src/index.ts registry): README (public, purpose-only) and AGENTS.md (agent-facing with console commands). The public copy had rotted.
 
 ## Decision
 
-README.md's Available tools table now lists all 31 tools (both language tables). AGENTS.md keeps its agent-facing table with console commands per tool — the two tables serve different audiences per the tier taxonomy, and this note is the recorded sync obligation.
+README.md's Available tools table now lists all 33 tools (both language tables). AGENTS.md keeps its agent-facing table with console commands per tool — the two tables serve different audiences per the tier taxonomy, and this note is the recorded sync obligation.
 
 ## Alternatives considered
 

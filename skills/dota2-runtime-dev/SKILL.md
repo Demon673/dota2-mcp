@@ -85,7 +85,7 @@ KV are the exception, not the rule; when unsure, ask before editing KV.
   if the game gets stuck in a phase, tells you how to advance it.
 - console_send — send console commands (e.g. `reload_script`, cheats, cvars).
 - console_output — read console output; level 3 + channel VScript for Lua errors.
-- dota_run_lua — run server Lua live to verify behavior / reproduce a bug.
+- dota_run_lua — run server Lua live to verify behavior / reproduce a bug (requires `sv_cheats=1`).
 - dota_dump_entities / dota_dump_modifiers / dota_entity_inspect — inspect live state.
 - dota_api_lua / dota_api_panorama_js / dota_api_css / dota_api_events / dota_api_help
   — query live engine APIs instead of guessing signatures.

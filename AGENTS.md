@@ -76,6 +76,9 @@ Optional advanced configuration:
 | `DOTA2_VCON_GUI_PORT` | `29001` | Port forwarded to the vconsole2 GUI |
 | `DOTA2_VCON_CTRL_PORT` | `29002` | MCP control port |
 | `DOTA2_VCON_AUTO_OPEN_VCONSOLE` | `1` | Auto-open vconsole2.exe when Dota readiness is detected (rising edge) and no vconsole2 process exists; `0` disables |
+| `DOTA2_VCON_STATE_DIR` | `os.tmpdir()/dota2-mcp` | Daemon token/pid/lock/log and capture-watcher state; offline tests override it with an isolated temporary directory |
+| `DOTA2_CAPTURE_DISABLE_WATCHER` | `0` | `1` disables automatic capture-watcher startup (offline console tests); an explicit `dota_screenshot` call still starts it |
+| `DOTA2_SCREENSHOT_DIR` | `os.tmpdir()/dota2-mcp/screenshots` | Where `dota_screenshot` saves images; it keeps only its own 20 newest |
 
 ## Key findings
 
@@ -164,7 +167,7 @@ Relay/Client implements the VConsole2 binary frame format, verified against Dota
 ```
 
 Server → client message types: `AINF`, `ADON`, `CHAN`, `CVRB`, `PRNT`, `CFGV`.
-Client → server command type: `CMND` (null-terminated ASCII).
+Client → server command type: `CMND` (null-terminated UTF-8).
 
 ### MCP tools
 
@@ -174,7 +177,9 @@ Client → server command type: `CMND` (null-terminated ASCII).
 | `dota_status` | `status`/`status_json` + file scan | Entry point/navigation: connection, vconsole, addon/maps, live status, next-step guidance (never throws) |
 | `dota_launch_game` | `dota_launch_custom_game` | Launch (auto-completes the addon); polls to GAME_IN_PROGRESS, returns advancement guidance on a stuck phase |
 | `dota_disconnect` | `disconnect` | Disconnect |
-| `dota_restart` | `restart` | Reload the map |
+| `dota_advance_to_game` | `dota_run_lua` channel (GameRules / player controller) | Standard flow: any loaded pre-game phase → GAME_IN_PROGRESS with a hero per player (requires `sv_cheats=1`) |
+| `dota_restart` | `restart` | Reload the map; waits until the reload has begun |
+| `dota_screenshot` | none (persistent Windows.Graphics.Capture helper) | Game screenshot from outside the game; ungated; shared watcher caches the latest frame and marks cached results `stale` with `captured_at`; after the helper is ready, each call has a 5 s total deadline |
 | `dota_open_vconsole` | spawn vconsole2.exe | Open the vconsole window (the explicit path when the AssetBrowser button is disabled by the engine) |
 
 **Console communication**
@@ -194,15 +199,15 @@ Client → server command type: `CMND` (null-terminated ASCII).
 | `dota_api_panorama_js` | `cl_panorama_script_help_2` | client |
 | `dota_api_css` | `dump_panorama_css_properties` | client |
 | `dota_api_events` | `dump_panorama_events` | client |
-| `dota_api_help` | combined | API lookup entry point/navigation |
+| `dota_api_help` | `script_help` | Lua class/scope inspection (global functions use `dota_api_lua`) |
 
 **Debugging**
 | Tool | Console command | Description |
 |------|-----------|------|
-| `dota_dump_entities` | `ent_dump` etc. | Entity dump |
-| `dota_dump_modifiers` | `dota_modifier_dump` / `cl_dump_modifier_list` | Modifier list |
+| `dota_dump_entities` | `dump_entity_report` | Entity dump with optional case-insensitive substring filter |
+| `dota_dump_modifiers` | `dota_modifier_dump` / `cl_dump_modifier_list` | Active server modifiers by default; optional client registry and substring filter |
 | `dota_entity_inspect` | `ent_script_dump` / `cl_ent_script_dump` | Entity script scope |
-| `dota_run_lua` | `script_exec` etc. | Execute a Lua snippet |
+| `dota_run_lua` | `ent_fire 0 RunScriptCode` | Execute a Lua snippet (requires `sv_cheats=1`) |
 
 **Resources**
 | Tool | Description |
@@ -210,13 +215,24 @@ Client → server command type: `CMND` (null-terminated ASCII).
 | `dota_compile_asset` | Compiles assets via resourcecompiler / Source2Viewer-CLI |
 | `vrf_ensure` | Ensures the VRF CLI is available: detect / download the pinned version / sha256 verify / cache (offline-safe, only goes online when missing) |
 | `asset_inspect` | VRF decompile + structured summary (per-field for vpcf/vmdl/vmat/vtex; include_raw truncated at 4000) |
-| `asset_check_refs` | Single-asset recursive reference integrity: ok/uncompiled/engine_refs/broken four buckets + two-level resolution + cycle prevention |
+| `asset_check_refs` | Single-asset recursive reference integrity: ok/uncompiled/engine_refs/broken four buckets + addon/engine/shared-addon/core-VPK resolution + cycle prevention |
 
-**VFX preview (needs a running game + vconsole)**
+**VFX preview (needs a running game + vconsole + `sv_cheats=1`)**
 | Tool | Console command | Description |
 |------|-----------|------|
-| `vfx_preview` | `dota_run_lua` channel (ParticleManager:CreateParticle) | Spawn a particle preview in-game (runtime instance, not an asset file), returns pid |
+| `vfx_preview` | `dota_run_lua` channel (ParticleManager:CreateParticle) | Spawn a particle preview in-game (runtime instance, not an asset file), returns pid. It also scans the addon's `scripts/vscripts` for a `PrecacheResource` naming the path and reports `precache: MISSING` when absent — an undeclared addon particle draws nothing while still returning a valid pid |
 | `vfx_preview_stop` | `dota_run_lua` channel (ParticleManager:DestroyParticle) | Destroy preview particle instances |
+
+**Capture and measurement**
+| Tool | Console command | Description |
+|------|-----------|------|
+| `dota_record` | none (Windows.Graphics.Capture via the screenshot helper) | Record the game window to MP4 even when it is occluded or unfocused; returns path, duration, fps, encoded size. When Windows stops presenting frames of an unfocused window it asks the console for `r_always_render_all_windows 1`, retries once and restores it; a minimized window fails explicitly |
+| `dota_perf` | none (pinned PresentMon CLI) | Frame-time capture: p50/p95/p99 + sample count, optional `baseline` comparison. PresentMon is downloaded and sha256-verified on first use and **needs an elevated terminal** — without one the tool says so instead of returning an empty sample |
+
+**Testing (in-game assertions)**
+| Tool | Console command | Description |
+|------|-----------|------|
+| `dota_test_run` | `dota_run_lua` channel, one statement per test | Runs `scripts/vscripts/tests/<name>.lua` (a table of `{name, fn}`) inside the real game. One failure does not stop the rest; per-test and overall budgets bound hangs; returns structured `{name,status,detail}` rows |
 
 **File operations (offline, no game needed)**
 | Tool | Description |
@@ -229,7 +245,7 @@ Client → server command type: `CMND` (null-terminated ASCII).
 **Skills**
 | Tool | Description |
 |------|------|
-| `dota2_skill` | Exposes built-in skills (name full text / section part / outline TOC / data machine-readable data file; `dota2-vfx` ships official particle-corpus stats `vpcf-stats.json` etc.) |
+| `dota2_skill` | Exposes built-in skills (full text / `##` or `###` section / outline TOC / data file; Markdown data supports `section`, JSON data supports dot-path `data_path`; `dota2-vfx` ships official particle-corpus stats `vpcf-stats.json` etc.) |
 
 ## Conventions
 
@@ -247,6 +263,8 @@ Client → server command type: `CMND` (null-terminated ASCII).
   - When the test project is unclear, **ask the developer** which addon/map to test — never silently assume.
   Self-check: `Grep "[A-Za-z]:[\\/]"` may only match URLs/placeholders; `Grep -i "<current project name>"` should have zero hits (except historical spec/plan/CHANGELOG)
 - **Tool descriptions**: each tool clearly states its console command, so the AI can discover them on its own via `console_find`
+- **Tool result contract (2.0)**: every tool returns `ok(payload)` / `fail(code, message)` built in `src/tools/tool-result.ts`; `scripts/test-mcp-offline.mjs` enforces the four annotation hints and the five-part description. See the [contract note](.agents/notes/implemented/feature/2026-10-25-tooling-result-contract.md).
+- **Console reads are incremental**: `console_output` advances a per-session cursor; explicit windows (`tail`/`since_seq`/`from_start`) are read-only views. Tools that act rather than read (Lua, VFX, tests) do not move the cursor.
 - **TSTL/SolidJS first**: edit `.ts`/`.tsx` source files, never the generated `.lua`/`.js`
 - **TODO marker semantics**: `FIXME` = release blocker; `TODO` = fix soon; `XXX` = fix someday. Choose by urgency, don't mix them
 - **Read `docs/defensive-patterns.md` before writing lifecycle/concurrency/subprocess/teardown code**
@@ -259,6 +277,8 @@ Client → server command type: `CMND` (null-terminated ASCII).
 - Dota 2 must be launched with the `-vconsole` flag (or have the vconsole2 listener enabled) for the relay to connect to `:29000`
 - **WSL environment**: tool directories are probed by existence (a win64 hit means a Windows install), argument paths are auto-converted to Windows format, and the VRF CLI needs the invariant globalization env. When a leftover daemon causes port conflicts, kill the node/relay processes — the next session's startup self-heals stale lock/pid state (`livePid`); don't delete `relay.token` while the daemon is alive
 - Many API dump tools need the map to be loaded; calling them too early may return empty results
+- **`dota_perf` needs an elevated terminal** (measured: PresentMon writes no CSV without it, and reports that it cannot target processes). The tool returns an explicit error naming the remedy; start the MCP server from an Administrator shell to get samples
+- **`dota_record` records the window, not the screen** (Windows.Graphics.Capture). An unfocused game stops presenting frames until `r_always_render_all_windows 1`; the tool sets and restores that cvar when a console is connected, otherwise it returns the remedy. A minimized window is a hard failure, and inline PNG encoding can fall behind above ~20 fps on very large windows
 
 ## References
 
@@ -312,7 +332,4 @@ Editing the English side of a paired document requires updating the Chinese coun
 
 ## TODO — Roadmap
 
-- [ ] **BuildTools** — npm/tstl/rollup build integration + scaffolding generation
-- [ ] **dota_map_error** — static tstl source-line mapping tool (proposal: `.agents/notes/proposed/feature/2026-08-05-dota-map-error-tool.md`)
-- [ ] Verify the actual output of `script_find` / `script_dump_all` while the game is running
-- [ ] Test dota_launch_game across various addon/map combinations
+- [ ] Active follow-up work is tracked in [docs/TODO.md](docs/TODO.md), including production-grade VFX recipes, remaining live coverage, and the existing BuildTools / `dota_map_error` roadmap.
