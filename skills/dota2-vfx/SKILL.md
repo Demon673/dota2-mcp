@@ -216,3 +216,61 @@ A minimal continuous glow. The renderer is required: emitters create simulation 
 ```
 
 `m_TransformInput` is what makes the effect follow control point 0. It must be written as the full struct shown above: a short form such as `m_TransformInput = { m_nControlPoint = 0 }` is dropped by the compiler without a warning, the system then stays at the world origin, and you get a valid id and a live simulation entry for an effect nobody can see.
+
+## Recipe: AoE telegraph + impact
+
+A ground marker that pins an exact radius for a fixed wind-up, then fires a short burst. Retrieve with `dota2_skill(name='dota2-vfx', section='Recipe: AoE telegraph + impact')`.
+
+**Assets** — one parent, two children, one texture:
+
+| File | Role |
+|------|------|
+| `particles/<addon>/aoe_telegraph/aoe.vpcf` | Parent, owns only `m_Children` |
+| `.../telegraph.vpcf` | The ground ring |
+| `.../impact.vpcf` | The burst at the marker |
+| `materials/particle/<ring>.vtex` | Ring sprite: alpha peaks at radius 0.90 with a 0.22 fill inside |
+
+The parent carries no particles of its own:
+
+```
+m_Children =
+[
+  { m_ChildRef = resource:"particles/<addon>/aoe_telegraph/telegraph.vpcf" },
+  { m_ChildRef = resource:"particles/<addon>/aoe_telegraph/impact.vpcf" m_flDelay = 1.5 },
+]
+```
+
+**Runtime mapping** — control point 0 is the ground position; the caller sets it with `SetParticleControl(pid, 0, position)` using the entity's `GetAbsOrigin()`, so the ring lands where the unit stands. No attachment index and no orientation control point are needed.
+
+**Telegraph child** — one sprite, sized to the gameplay radius, laid flat:
+
+```
+m_flConstantRadius = 500.0        // sprite radius = the ability's radius
+m_flConstantLifespan = 1.5        // equals the parent's m_flDelay
+m_Emitters = [ { _class = "C_OP_InstantaneousEmitter" m_nParticlesToEmit = 1 } ]
+m_Renderers = [ { _class = "C_OP_RenderSprites" m_bAdditive = true
+                  m_nOrientationType = "PARTICLE_ORIENTATION_WORLD_Z_ALIGNED"
+                  m_hTexture = resource:"materials/particle/<ring>.vtex" } ]
+```
+
+`WORLD_Z_ALIGNED` is what makes it a ground marker: the default screen-aligned sprite stands upright at ground height and its lower half disappears under the terrain. Add `C_OP_FadeInSimple 0.15` and `C_OP_FadeOutSimple 0.35` so the ring arrives and leaves instead of popping.
+
+**Impact child** — a one-shot burst inside the marked circle: `m_nParticlesToEmit = 10`, `C_INIT_RandomRadius` 90–170, `C_INIT_RandomLifeTime` 0.3–0.55, `C_INIT_CreateWithinSphere` with `m_fRadiusMax` equal to the ring radius, `C_OP_FadeOutSimple 0.4`, lifespan 0.5.
+
+**Integration** — create on the ability/modifier and destroy with it:
+
+```lua
+function modifier_<name>:OnCreated()
+  if not IsServer() then return end
+  self.pid = ParticleManager:CreateParticle("particles/<addon>/aoe_telegraph/aoe.vpcf", PATTACH_WORLDORIGIN, nil)
+  ParticleManager:SetParticleControl(self.pid, 0, self:GetParent():GetAbsOrigin())
+end
+function modifier_<name>:OnDestroy()
+  if IsServer() and self.pid then
+    ParticleManager:DestroyParticle(self.pid, false)
+    self.pid = nil
+  end
+end
+```
+
+**Budget and evidence** — peak 11 additive sprites in two collections (1 ring + 10 burst), all with a shared texture and no deferred light; per-frame cost is not yet measured, so treat the sprite count as the budget and re-measure before stacking several telegraphs. Timed capture at 0.7 s shows the flat ring at the control point, at 1.6 s the ring is gone and the burst is centred on it, at 2.1 s the scene is clear again. Both files must be listed in the addon's `Precache(context)`.

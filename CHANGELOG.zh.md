@@ -9,6 +9,7 @@
 - **`dota_screenshot`**：在后台截取 Dota 2 游戏窗口画面并返回给 agent。多个 MCP 会话共享的常驻助手在控制台连接 Dota 或首次调用工具时启动，在内存里缓存最新帧。缓存结果带 `captured_at` 和 `stale: true`，所以助手启动后即使游戏卡死、Windows 不再供帧，也能返回已有画面。不需要控制台或 vconsole，不抢焦点，最小化的窗口只在截图时临时恢复。仅支持 Windows；辅助程序在首次使用时用系统自带的 C# 编译器编译。
 - **`dota_advance_to_game`**：一次调用把已加载的游戏从任一开局前相位推进到 GAME_IN_PROGRESS，每个玩家都有英雄（随机，或指定 `hero`），只按观测到的游戏状态行动。标准流程：`dota_launch_game` 或 `dota_restart`，然后 `dota_advance_to_game`。`dota2-game-phases` skill 与卡相位指引现在都指向它。
 - **按需读取 skill**：`dota2_skill` 的目录包含 `###` 小节，`section` 同时支持 skill 正文和 Markdown 数据文件，JSON 数据支持 `e_combos.top10` 这类点路径 `data_path`。仍保留全文和整文件读取，但 VFX/模型制作不再依赖这些大结果。
+- **`dota2-vfx` 提供第一个端到端配方**：“Recipe: AoE telegraph + impact” 覆盖父子结构、贴地环状 sprite、以控制点 0 作为标记位置、1.5 秒前摇、创建与销毁实例的 modifier 钩子，以及带分时证据的 sprite 预算。
 
 ### 修复
 
