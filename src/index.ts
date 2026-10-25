@@ -28,7 +28,7 @@ import { checkRefs } from "./tools/asset-check-refs.js";
 import { captureScreenshot, startScreenshotWatcher } from "./tools/screenshot.js";
 import { recordVideo } from "./tools/recorder.js";
 import { particlePrecacheNote } from "./tools/particle-precache.js";
-import { ok, okPretty, fail, READ_ONLY_ANNOTATIONS } from "./tools/tool-result.js";
+import { ok, okPretty, fail, READ_ONLY_ANNOTATIONS, type ToolResult } from "./tools/tool-result.js";
 import * as daemon from "./daemon-utils.js";
 
 function getVersion(): string {
@@ -299,6 +299,12 @@ Then call dota_status again.`;
     if (!relay.guiConnected) return fail("vconsole_closed", vconsoleNotOpenText());
     startCaptureWatcherOnce();
     return null;
+  }
+
+  /** Lua/VFX 工具返回窗口的游标字段：按 console_output 的 since_seq 语义计算，
+   *  如实报告扫描到的缓冲位置与缺口；这些工具是动作而非读取，不移动会话游标。 */
+  function windowCursor(startSeq: number): { next_seq: number; dropped: number } {
+    return { next_seq: Math.max(prntSeqNext, startSeq), dropped: Math.max(0, prntEvicted - startSeq) };
   }
 
   /** 依赖 dotaPath 的工具在路径未检测到时返回的可操作错误 */
@@ -1120,6 +1126,24 @@ Once connected, call dota_status again.`;
     return collectBetweenMarkers((begin, end) => `echo ${begin}; ${cmd}; echo ${end}`, opts);
   }
 
+  /** collectLuaOutput 的稳定失败：长度上限与 sv_cheats 关闭由三个 Lua/VFX 工具映射成错误码。
+   *  仍继承 McpError，非契约调用方（如 dota_advance_to_game）保持原有 InvalidRequest 行为。 */
+  class LuaChannelError extends McpError {
+    constructor(readonly toolCode: "lua_too_long" | "cheats_off", readonly plainMessage: string) {
+      super(ErrorCode.InvalidRequest, plainMessage);
+    }
+  }
+
+  /** 三个 Lua/VFX 工具的收集入口：契约失败映射成 fail envelope，其余错误继续上抛。 */
+  async function collectLuaWindow(luaBody: string): Promise<string[] | ToolResult> {
+    try {
+      return await collectLuaOutput(luaBody, { waitMs: 15000, settleMs: 400 });
+    } catch (e) {
+      if (e instanceof LuaChannelError) return fail(e.toolCode, e.plainMessage);
+      throw e;
+    }
+  }
+
   /** 在服务端 Lua 里执行代码并收集输出。ent_fire RunScriptCode 下一帧才执行，晚于 relay 包在命令外的
    * `ai_disabled` 屏蔽窗口，所以 Lua 自己打印 `ai_disabled = …` 开关行（relay 按这种行切换 GUI 屏蔽）
    * 和结束标记。xpcall 保证运行时报错也会打印收尾开关与结束标记（否则 GUI 屏蔽卡死在开启态）；
@@ -1132,12 +1156,12 @@ Once connected, call dota_status again.`;
       `ent_fire 0 RunScriptCode "${toggle}xpcall(function() ${code} end, function(e) print(debug.traceback(e)) end) print('${end}') ${toggle}"`;
     const bytes = Buffer.byteLength(statement(newMcpMarkers().end), "utf8");
     if (bytes > LUA_STATEMENT_MAX_BYTES) {
-      throw new McpError(ErrorCode.InvalidRequest, `Lua too long: ${bytes} bytes after wrapping, but the Dota console drops any single statement over ${LUA_STATEMENT_MAX_BYTES} bytes. Shorten the code (about ${LUA_STATEMENT_MAX_BYTES - (bytes - Buffer.byteLength(code, "utf8"))} bytes are available), split it into several calls, or put it in an addon script and call that.`);
+      throw new LuaChannelError("lua_too_long", `Lua too long: ${bytes} bytes after wrapping, but the Dota console drops any single statement over ${LUA_STATEMENT_MAX_BYTES} bytes. Shorten the code (about ${LUA_STATEMENT_MAX_BYTES - (bytes - Buffer.byteLength(code, "utf8"))} bytes are available), split it into several calls, or put it in an addon script and call that.`);
     }
     const out = await collectBetweenMarkers((begin, end) => `echo ${begin}; ${statement(end)}`, opts);
     // sv_cheats 关闭时引擎不执行 ent_fire，只打印这一行（活体实测）
     if (out.some(l => l.includes("Cheat command 'ent_fire' ignored"))) {
-      throw new McpError(ErrorCode.InvalidRequest, "The Lua did not run: the engine ignored ent_fire because sv_cheats is off. Lua-based tools run server Lua through ent_fire, which is a cheat command. Run console_send 'sv_cheats 1' and try again; if sv_cheats keeps switching off, the addon itself is turning it off and needs a development exception.");
+      throw new LuaChannelError("cheats_off", "The Lua did not run: the engine ignored ent_fire because sv_cheats is off. Lua-based tools run server Lua through ent_fire, which is a cheat command. Run console_send 'sv_cheats 1' and try again; if sv_cheats keeps switching off, the addon itself is turning it off and needs a development exception.");
     }
     return out;
   }
@@ -1425,13 +1449,15 @@ Once connected, call dota_status again.`;
 
   // Tool: 在运行中的游戏里执行 Lua 代码
   server.tool("dota_run_lua",
-    "Use to run server-side Lua in the live game while testing — verify a function works, inspect a value, spawn a unit, or reproduce a bug without editing files and reloading. 'expression' prints its result (DeepPrintTable for tables, plain values directly). Single-line snippets only: the console drops a statement over ~510 bytes, so code over ~300 bytes is rejected — put longer logic in an addon script. To advance game phases use dota_advance_to_game, not hand-written phase calls. Requires sv_cheats=1 and an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use when you need to run server-side Lua in the live game while testing — verify a function works, inspect a value, spawn a unit, or reproduce a bug without editing files and reloading. 'expression' evaluates and prints a value (DeepPrintTable for tables, plain values directly); 'code' runs statements. Returns {ok:true,lines,count,next_seq,dropped}: lines is the captured Lua output as one newline-joined string, count is its number of lines, and next_seq/dropped describe the shared console window without moving this session's console_output cursor (pass next_seq to console_output as since_seq to continue explicitly). Failures return {ok:false,code,message} with lua_too_long (the message reports the bytes still available), cheats_off (sv_cheats is off), dota_down, or vconsole_closed. Limits: one console statement of at most 510 bytes after wrapping — code over about 300 bytes is usually rejected, so keep snippets short or put the logic in an addon script; requires sv_cheats=1 and an open vconsole attached to 127.0.0.1:29001 (see dota_open_vconsole), because Lua-based tools run through ent_fire, a cheat command. Related tools: dota_advance_to_game (standard phase flow), vfx_preview (spawn particles), console_output (read the full console), console_send (send console commands).",
     {
       code: z.string().optional().describe("Arbitrary Lua statements to run. Use single quotes inside to avoid shell escaping issues."),
       expression: z.string().optional().describe("Lua expression to evaluate and print, e.g. 'GameRules:State_Get()'. Tables use DeepPrintTable; numbers, strings, booleans and nil print directly."),
     },
+    { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     async ({ code, expression }) => {
-      requireConsole();
+      const blocked = consoleGate();
+      if (blocked) return blocked;
 
       let luaBody: string;
       if (expression) {
@@ -1439,17 +1465,21 @@ Once connected, call dota_status again.`;
       } else if (code) {
         luaBody = `print('[MCP-LUA] IsServer: ' .. tostring(IsServer())) ${code}`;
       } else {
-        return { content: [{ type: "text", text: "Provide either 'code' or 'expression'." }] };
+        return fail("invalid_arg", "Provide either 'code' or 'expression'.");
       }
 
-      const execOut = await collectLuaOutput(luaBody, { waitMs: 15000, settleMs: 400 });
+      const startSeq = prntSeqNext;
+      const execOut = await collectLuaWindow(luaBody);
+      if (!Array.isArray(execOut)) return execOut;
+      const cursor = windowCursor(startSeq);
 
       const markerIdx = execOut.findIndex(l => l.includes("[MCP-LUA] IsServer"));
       if (markerIdx === -1) {
         const fallback = execOut.filter(l =>
           l.includes("[MCP-LUA]") || l.includes("DeepPrint") || l.includes("RunScriptCode") || /^\s*\d+\s*=/.test(l) || /error/i.test(l)
         );
-        return { content: [{ type: "text", text: fallback.join("\n") || "Sent. Check console_output for results." }] };
+        const lines = fallback.length > 0 ? fallback.join("\n") : "Sent. Check console_output for results.";
+        return ok({ lines, count: lines.split("\n").length, ...cursor });
       }
 
       // expression 模式：捕获 DeepPrintTable 输出的 { ... } 块
@@ -1463,8 +1493,8 @@ Once connected, call dota_status again.`;
               else if (ch === "}") depth--;
             }
             if (depth === 0) {
-              const result = execOut.slice(markerIdx, i + 1).join("\n");
-              return { content: [{ type: "text", text: result }] };
+              const lines = execOut.slice(markerIdx, i + 1).join("\n");
+              return ok({ lines, count: lines.split("\n").length, ...cursor });
             }
           }
         }
@@ -1486,7 +1516,8 @@ Once connected, call dota_status again.`;
         if (unrelatedPatterns.some(re => re.test(l))) break;
         block.push(l);
       }
-      return { content: [{ type: "text", text: block.join("\n") }] };
+      const lines = block.join("\n");
+      return ok({ lines, count: block.length, ...cursor });
     }
   );
 
@@ -1657,14 +1688,16 @@ Once connected, call dota_status again.`;
   const PATTACH_NAMES = ["PATTACH_ABSORIGIN", "PATTACH_ABSORIGIN_FOLLOW", "PATTACH_CUSTOMORIGIN", "PATTACH_CUSTOMORIGIN_FOLLOW", "PATTACH_POINT", "PATTACH_POINT_FOLLOW", "PATTACH_EYES_FOLLOW", "PATTACH_OVERHEAD_FOLLOW", "PATTACH_WORLDORIGIN", "PATTACH_ROOTBONE_FOLLOW", "PATTACH_RENDERORIGIN_FOLLOW", "PATTACH_MAIN_VIEW", "PATTACH_WATERWAKE", "PATTACH_CENTER_FOLLOW", "PATTACH_CUSTOM_GAME_STATE_1", "PATTACH_HEALTHBAR"];
 
   server.tool("vfx_preview",
-    "Spawn a particle effect in the running game to preview it (runtime instance, NOT an asset file — create/edit/delete .vpcf sources with file_write/file_edit/file_delete instead). Runs ParticleManager:CreateParticle via the dota_run_lua channel, so it needs a running game, sv_cheats=1, and an open vconsole. The client draws only particles it loaded at map start: the path must be listed in the addon's Precache(context), otherwise the call returns a valid id and draws nothing — add the entry and reload the map, since a runtime PrecacheResource call leaves the client without the asset. `position` only takes effect when the system binds control point 0; see the dota2-vfx skill for that and other silent-drop traps. The returned id feeds vfx_preview_stop; confirm the effect in a screenshot and read the Particles/ResourceSystem channels with console_output.",
+    "Use when you want to see a particle effect in the running game without wiring it into an ability or unit — spawn it, look at it with dota_screenshot, then destroy it. Spawns a runtime particle instance via ParticleManager:CreateParticle through the dota_run_lua channel (it is NOT an asset file — create/edit/delete .vpcf sources with file_write/file_edit/file_delete) and returns the instance id. Returns {ok:true,lines,count,next_seq,dropped}: lines is the captured '[MCP-VFX]' output plus a precache verdict where one applies, count is its number of lines, and next_seq/dropped describe the shared console window without moving this session's console_output cursor; failures return {ok:false,code,message} with precache_missing when the path is an addon asset that no PrecacheResource in scripts/vscripts names (the client then draws nothing even though CreateParticle returns a valid id), cheats_off, dota_down, or vconsole_closed. Limits: the client only draws particles precached at map load, so add the PrecacheResource entry and reload the map (a runtime PrecacheResource call leaves the client without the asset); position only affects systems that bind control point 0; requires a running game, sv_cheats=1, and an open vconsole attached to 127.0.0.1:29001. Related tools: vfx_preview_stop (destroy the instance), dota_screenshot (confirm the effect), console_output (read Particles/ResourceSystem errors), dota2_skill with name 'dota2-vfx' (recipes and silent-drop traps).",
     {
       particle_path: z.string().describe("Particle path relative to content root, e.g. 'particles/basic_explosion/basic_explosion.vpcf'"),
       attach: z.number().int().min(0).max(15).optional().describe("ParticleAttachment_t value. Default 8 (PATTACH_WORLDORIGIN)."),
       position: z.array(z.number()).length(3).optional().describe("World position [x,y,z] for control point 0 (only meaningful with world-origin attaches)."),
     },
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     async ({ particle_path, attach, position }) => {
-      requireConsole();
+      const blocked = consoleGate();
+      if (blocked) return blocked;
       const attachIdx = attach ?? 8;
       const attachName = PATTACH_NAMES[attachIdx] ?? "PATTACH_WORLDORIGIN";
       const pathSafe = particle_path.replace(/'/g, "");
@@ -1672,24 +1705,36 @@ Once connected, call dota_status again.`;
         ? " ParticleManager:SetParticleControl(pid, 0, Vector(" + position.join(",") + ")) "
         : " ";
       const luaBody = "print('[MCP-VFX] IsServer: ' .. tostring(IsServer())) local pid = ParticleManager:CreateParticle('" + pathSafe + "', " + attachName + ", nil)" + posLua + " print('[MCP-VFX] pid=' .. tostring(pid) .. ' attach=" + attachName + "')";
-      const execOut = await collectLuaOutput(luaBody, { waitMs: 15000, settleMs: 400 });
-      const lines = execOut.filter((l) => l.includes("[MCP-VFX]") || /error|failed|missing/i.test(l));
-      const note = dotaPath ? particlePrecacheNote(dotaPath, resolveAddon() ?? process.env.DOTA2_TEST_ADDON ?? null, pathSafe) : "";
-      return { content: [{ type: "text", text: [lines.join("\n") || "Sent. Read console_output (channels Particles/ResourceSystem) for load errors.", note].filter(Boolean).join("\n") }] };
+      const startSeq = prntSeqNext;
+      const execOut = await collectLuaWindow(luaBody);
+      if (!Array.isArray(execOut)) return execOut;
+      const note = dotaPath ? particlePrecacheNote(dotaPath, process.env.DOTA2_TEST_ADDON ?? resolveAddon() ?? null, pathSafe) : "";
+      const body = execOut.filter((l) => l.includes("[MCP-VFX]") || /error|failed|missing/i.test(l));
+      // 引擎资产不受 addon Precache 约束；只有 addon 内资产缺声明才是"画不出来"的根因
+      if (note.startsWith("precache: MISSING")) {
+        return fail("precache_missing", [body.join("\n"), note].filter(Boolean).join("\n"));
+      }
+      const lines = [body.join("\n"), note].filter(Boolean).join("\n") || "Sent. Read console_output (channels Particles/ResourceSystem) for load errors.";
+      return ok({ lines, count: lines.split("\n").length, ...windowCursor(startSeq) });
     }
   );
 
   server.tool("vfx_preview_stop",
-    "Destroy a runtime particle instance spawned by vfx_preview (stops the on-screen preview). Give the particle id returned by vfx_preview. Needs a running game, sv_cheats=1, and an open vconsole.",
+    "Use when a particle spawned by vfx_preview should stop — after taking the screenshot or when it is cluttering the test. Destroys one runtime particle instance by id (it does not touch asset files and does not unload the precache). Returns {ok:true,lines,count,next_seq,dropped}: lines contains '[MCP-VFX] destroyed pid=N' and count is its number of lines, because DestroyParticle returns nothing and the call never reports a nil return value; next_seq/dropped describe the shared console window without moving this session's console_output cursor. Failures return {ok:false,code,message} with cheats_off, dota_down, or vconsole_closed. Limits: needs a running game, sv_cheats=1, and an open vconsole attached to 127.0.0.1:29001; the id must come from this game session's vfx_preview call. Related tools: vfx_preview (spawn the instance), console_output (read full console output), dota_screenshot (confirm the effect disappeared).",
     {
       particle_id: z.number().int().min(0).describe("Particle id returned by vfx_preview"),
     },
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async ({ particle_id }) => {
-      requireConsole();
+      const blocked = consoleGate();
+      if (blocked) return blocked;
       const luaBody = "print('[MCP-VFX] destroy pid=' .. tostring(" + particle_id + ")) ParticleManager:DestroyParticle(" + particle_id + ", false) print('[MCP-VFX] destroyed pid=" + particle_id + "')";
-      const execOut = await collectLuaOutput(luaBody, { waitMs: 15000, settleMs: 400 });
-      const lines = execOut.filter((l) => l.includes("[MCP-VFX]") || /error|failed/i.test(l));
-      return { content: [{ type: "text", text: lines.join("\n") || "Sent. Check console_output for errors." }] };
+      const startSeq = prntSeqNext;
+      const execOut = await collectLuaWindow(luaBody);
+      if (!Array.isArray(execOut)) return execOut;
+      const body = execOut.filter((l) => l.includes("[MCP-VFX]") || /error|failed/i.test(l));
+      const lines = body.join("\n") || "Sent. Check console_output for errors.";
+      return ok({ lines, count: lines.split("\n").length, ...windowCursor(startSeq) });
     }
   );
 
