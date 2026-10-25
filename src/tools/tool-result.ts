@@ -15,6 +15,7 @@ export const ERROR_CODES = [
   "ffmpeg_missing",
   "no_window",
   "empty_capture",
+  "test_harness_error",
 ] as const;
 
 export type ToolErrorCode = (typeof ERROR_CODES)[number];

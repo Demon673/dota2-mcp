@@ -44,6 +44,11 @@ function getVersion(): string {
 /** 单条控制台语句的长度上限：实测 510 字节的 echo 能执行，530 字节被引擎静默丢弃 */
 const LUA_STATEMENT_MAX_BYTES = 510;
 
+/** dota_test_run 的测试文件约定与引擎输出标记：测试文件放 scripts/vscripts/tests/ 下、
+ *  由引擎 require 加载（文件大小不受单条语句上限约束），解析时只认标记之后的内容。 */
+const TEST_FILE_PREFIX = "scripts/vscripts/tests/";
+const TEST_LINE_TAG = "[MCP-TEST] ";
+
 function newMcpMarkers(): { begin: string; end: string } {
   const id = crypto.randomBytes(4).toString("hex");
   return { begin: `__mcp_${id}_begin`, end: `__mcp_${id}_end` };
@@ -1192,10 +1197,11 @@ Once connected, call dota_status again.`;
     }
   }
 
-  /** 三个 Lua/VFX 工具的收集入口：契约失败映射成 fail envelope，其余错误继续上抛。 */
-  async function collectLuaWindow(luaBody: string): Promise<string[] | ToolResult> {
+  /** 三个 Lua/VFX 工具的收集入口：契约失败映射成 fail envelope，其余错误继续上抛。
+   *  dota_test_run 用 opts 传入单条测试预算；不传时保持 15s 的既有行为。 */
+  async function collectLuaWindow(luaBody: string, opts: { waitMs?: number; settleMs?: number } = {}): Promise<string[] | ToolResult> {
     try {
-      return await collectLuaOutput(luaBody, { waitMs: 15000, settleMs: 400 });
+      return await collectLuaOutput(luaBody, { waitMs: 15000, settleMs: 400, ...opts });
     } catch (e) {
       if (e instanceof LuaChannelError) return fail(e.toolCode, e.plainMessage);
       throw e;
@@ -1604,6 +1610,147 @@ Once connected, call dota_status again.`;
       }
       const lines = block.join("\n");
       return ok({ lines, count: block.length, ...cursor });
+    }
+  );
+
+  // ===== 游戏内断言：测试文件由引擎 require 加载，逐条独立执行（单条失败/挂起不拖垮其余）=====
+
+  /** 把 addon 相对的测试文件路径解析成工程内绝对路径与 require 模块名。
+   *  约定 scripts/vscripts/tests/<name>.lua（可嵌套），模块名去掉前缀与扩展名、/ 换成 . */
+  function resolveTestFile(file: string, addon: string): { rel: string; module: string } {
+    const rel = file.replace(/\\/g, "/").replace(/^\.\//, "");
+    const convention = `an addon-relative path under ${TEST_FILE_PREFIX} ending in .lua`;
+    if (path.isAbsolute(rel) || rel.split("/").includes("..")) {
+      throw new McpError(ErrorCode.InvalidRequest, `Invalid test file '${file}': use ${convention}.`);
+    }
+    if (!rel.startsWith(TEST_FILE_PREFIX) || !rel.endsWith(".lua")) {
+      throw new McpError(ErrorCode.InvalidRequest,
+        `Invalid test file '${file}': use ${convention}, e.g. '${TEST_FILE_PREFIX}smoke.lua'. The file must return an array of {name=..., fn=function() ... end} entries.`);
+    }
+    const module = rel.slice("scripts/vscripts/".length, -".lua".length).replace(/\//g, ".");
+    // 模块名会拼进 Lua 单引号字符串：只允许安全字符，防引号逃逸改变语句结构
+    if (!/^[A-Za-z0-9_.-]+$/.test(module)) {
+      throw new McpError(ErrorCode.InvalidRequest,
+        `Invalid test file name '${file}': allowed characters are letters, digits, '_', '-', '.' and '/'.`);
+    }
+    const gameRoot = path.resolve(dotaPath!, "game", "dota_addons", addon);
+    const full = path.resolve(gameRoot, rel);
+    if (!full.startsWith(gameRoot + path.sep)) {
+      throw new McpError(ErrorCode.InvalidRequest, `Invalid test file '${file}': path escapes game/dota_addons/${addon}/.`);
+    }
+    if (!fs.existsSync(full)) {
+      throw new McpError(ErrorCode.InvalidRequest,
+        `Test file not found: ${full}. Create it with file_write; test paths are relative to game/dota_addons/${addon}/.`);
+    }
+    return { rel, module };
+  }
+
+  /** 列表语句：清 require 缓存（迭代时改文件立即生效），打印每条测试的声明与总数。 */
+  function testListBody(module: string): string {
+    return `if package and package.loaded then package.loaded['${module}']=nil end `
+      + `local T=require('${module}') `
+      + `for i=1,#T do print('${TEST_LINE_TAG}test|'..i..'|'..tostring(T[i].name or i)) end `
+      + `print('${TEST_LINE_TAG}end|'..#T)`;
+  }
+
+  /** 单条测试语句：独立 ent_fire，pcall 隔离失败；详情里的换行压成空格保持一行一条。 */
+  function testCaseBody(module: string, index: number): string {
+    return `local T=require('${module}') `
+      + `local o,e=pcall(T[${index}].fn) `
+      + `print('${TEST_LINE_TAG}'..(o and 'pass' or 'fail')..'|${index}|'..tostring(e or ''):gsub('%s+',' '))`;
+  }
+
+  /** 只取标记之后的内容：控制台/引擎可能给行加系统前缀，解析不依赖行首。 */
+  function taggedTestLines(out: string[]): string[] {
+    return out.flatMap((line) => {
+      const i = line.indexOf(TEST_LINE_TAG);
+      return i === -1 ? [] : [line.slice(i + TEST_LINE_TAG.length).trim()];
+    });
+  }
+
+  type TestRow = { name: string; status: "pass" | "fail" | "timeout"; detail: string };
+
+  server.tool("dota_test_run",
+    "Use when you need repeatable in-game assertions against the real engine API — regression-checking Lua behavior after a change without eyeballing screenshots, or collecting every failure in one run. Loads an addon test file in-engine with require and runs each declared test in its own console statement, so one failing or hanging test never stops the rest. Returns {ok:true,data:{file,passed,failed,timed_out,results:[{name,status,detail}],next_seq,dropped},text}: status is 'pass'|'fail'|'timeout', detail carries the Lua error or the timeout explanation, and next_seq/dropped describe the shared console window without moving this session's console_output cursor. Failures return {ok:false,code,message} with test_harness_error when the file cannot be loaded or does not return an array of {name=..., fn=function() ... end} entries, timeout when the overall budget expires before tests can be listed, cheats_off (sv_cheats is off), dota_down, vconsole_closed, or invalid_arg for a path outside the tests convention. Limits: the test file lives at scripts/vscripts/tests/<name>.lua and is loaded by the engine, so its size is not bounded by the 510-byte console statement cap (only the small loader statements are); per_test_timeout_ms defaults to 5000 and timeout_ms to 60000, but the engine's Lua VM cannot preempt a tight infinite loop, so a hung test is reported as timeout while the engine may stay busy with it. Related tools: dota_run_lua (one-off probes), file_write/file_edit (author the test file), console_output (raw output), dota2_skill with name 'dota2-runtime-dev'.",
+    {
+      file: z.string().describe("Addon-relative test file path under scripts/vscripts/tests/, e.g. 'scripts/vscripts/tests/smoke.lua'. The file returns an array of {name=..., fn=function() ... end}."),
+      addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
+      per_test_timeout_ms: z.number().int().min(50).max(300000).optional().describe("Per-test budget in milliseconds. Default 5000."),
+      timeout_ms: z.number().int().min(100).max(600000).optional().describe("Overall run budget in milliseconds. Default 60000."),
+    },
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    async ({ file, addon, per_test_timeout_ms, timeout_ms }) => {
+      const blocked = consoleGate();
+      if (blocked) return blocked;
+      if (!dotaPath) return fail("internal", dotaPathNotDetectedText());
+
+      let target: ReturnType<typeof resolveTestFile>;
+      try {
+        target = resolveTestFile(file, requireAddon(addon));
+      } catch (e) { return failFromError(e); }
+
+      const perTestMs = per_test_timeout_ms ?? 5000;
+      const overallMs = timeout_ms ?? 60000;
+      const deadline = Date.now() + overallMs;
+      const startSeq = prntSeqNext;
+
+      try {
+        // 列表调用留给 settle 1s：require 正常时结束标记紧随其后；sv_cheats 关闭时
+        // 引擎只打印 ignored 行，靠 settle 让通道层尽快报 cheats_off。
+        const listOut = await collectLuaWindow(testListBody(target.module),
+          { waitMs: Math.max(1, deadline - Date.now()), settleMs: 1000 });
+        if (!Array.isArray(listOut)) return listOut;
+
+        const names = new Map<number, string>();
+        let count = -1;
+        for (const tag of taggedTestLines(listOut)) {
+          const declared = tag.match(/^test\|(\d+)\|([\s\S]*)$/);
+          if (declared) { names.set(Number(declared[1]), declared[2]); continue; }
+          const end = tag.match(/^end\|(\d+)$/);
+          if (end) count = Number(end[1]);
+        }
+        if (count < 0) {
+          const engineError = listOut.filter((l) => !l.includes(TEST_LINE_TAG)).join("\n").trim();
+          return engineError
+            ? fail("test_harness_error", `The test file could not be loaded. Dota reported: ${engineError.slice(-1500)}`)
+            : fail("timeout", `The test file did not load within the ${overallMs} ms overall budget. A top-level loop blocks the engine; raise timeout_ms if loading is legitimately slow.`);
+        }
+
+        // 先按列表填满 timeout（整体预算耗尽时这些行原样返回），再逐条替换成真实结果。
+        const results: TestRow[] = [];
+        for (let i = 1; i <= count; i++) {
+          results.push({ name: names.get(i) ?? String(i), status: "timeout", detail: "overall timeout reached before this test ran" });
+        }
+
+        for (let i = 0; i < results.length; i++) {
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) break;
+          const waitMs = Math.min(perTestMs, remaining);
+          const started = Date.now();
+          // 不用 settle：Lua 开头的 ai_disabled 开关行会让慢测试被误判为静默结束。
+          const out = await collectLuaWindow(testCaseBody(target.module, i + 1), { waitMs, settleMs: undefined });
+          if (!Array.isArray(out)) return out;
+          const line = taggedTestLines(out).find((tag) => {
+            const m = tag.match(/^(pass|fail)\|(\d+)\|/);
+            return m !== null && Number(m[2]) === i + 1;
+          });
+          const parsed = line?.match(/^(pass|fail)\|(\d+)\|([\s\S]*)$/);
+          if (parsed) {
+            results[i].status = parsed[1] as "pass" | "fail";
+            results[i].detail = parsed[3];
+          } else {
+            results[i].detail = `no result within ${Date.now() - started} ms (per-test budget ${waitMs} ms)`;
+          }
+        }
+
+        const passed = results.filter((r) => r.status === "pass").length;
+        const failed = results.filter((r) => r.status === "fail").length;
+        const timedOut = results.filter((r) => r.status === "timeout").length;
+        const text = `${target.rel}: ${passed} passed, ${failed} failed, ${timedOut} timed out (${count} test${count === 1 ? "" : "s"})`;
+        return ok({ data: { file: target.rel, passed, failed, timed_out: timedOut, results, ...windowCursor(startSeq) }, text });
+      } catch (e) {
+        return failFromError(e);
+      }
     }
   );
 
