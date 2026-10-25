@@ -61,3 +61,11 @@ export function fail(code: ToolErrorCode, message: string): ToolResult {
 export function okPretty(payload: OkPayload): ToolResult {
   return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...payload }, null, 2) }] };
 }
+
+/** 任意执行类（console_send 等）：会改游戏状态、不可安全重复、无外部网络副作用。 */
+export const EXEC_ANNOTATIONS: ToolHints = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: false,
+};
