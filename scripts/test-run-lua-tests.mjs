@@ -28,7 +28,7 @@ const env = {
   DOTA2_CAPTURE_DISABLE_WATCHER: "1",
 };
 
-const ADDON = "mcp21fixture";
+const ADDON = "mcp21fix" + process.pid; // PID 隔离：并行工作树的清理不会互删夹具
 const TEST_DIR = "scripts/vscripts/tests";
 const LARGE_PAYLOAD = "LARGE_FILE_PAYLOAD_9f3c";
 const fakeSteam = mkdtempSync(path.join(tmpdir(), "run-lua-tests-steam-"));
