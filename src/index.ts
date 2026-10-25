@@ -27,6 +27,7 @@ import { inspectAsset } from "./tools/asset-inspect.js";
 import { checkRefs } from "./tools/asset-check-refs.js";
 import { captureScreenshot, startScreenshotWatcher } from "./tools/screenshot.js";
 import { particlePrecacheNote } from "./tools/particle-precache.js";
+import { ok, fail, READ_ONLY_ANNOTATIONS } from "./tools/tool-result.js";
 import * as daemon from "./daemon-utils.js";
 
 function getVersion(): string {
@@ -278,6 +279,18 @@ Then call dota_status again.`;
     startCaptureWatcherOnce();
   }
 
+  /** requireConsole 的契约版：不满足门控时返回 fail envelope（带稳定 code），通过时返回 null */
+  function consoleGate() {
+    if (!relay.dotaConnected) {
+      return relay.dotaReady && !relay.guiConnected
+        ? fail("vconsole_closed", vconsoleNotOpenText())
+        : fail("dota_down", disconnectedReasonText());
+    }
+    if (!relay.guiConnected) return fail("vconsole_closed", vconsoleNotOpenText());
+    startCaptureWatcherOnce();
+    return null;
+  }
+
   /** 依赖 dotaPath 的工具在路径未检测到时返回的可操作错误 */
   function dotaPathNotDetectedText(): string {
     return `未能检测到 Dota 2 安装目录（asset 编译和 addon 地图扫描依赖此路径）。
@@ -464,16 +477,18 @@ Then call dota_status again.`;
 
   // Tool: 列出当前可用的 VConsole2 通道
   server.tool("console_channels",
-    "List all available VConsole2 source channels with short descriptions. Use the channel names with console_output channel filter. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use when you need channel names before filtering console_output, or want to see which engine subsystems are logging. Lists the VConsole2 source channels registered by the current Dota 2 session, with a short description for well-known ones. Returns {ok:true,text} with one 'name - description' line per channel, or {ok:false,code,message} with code dota_down/vconsole_closed when there is no live connection. Limits: only channels registered so far are listed — the set grows as the map loads, and results are not cached between calls. Related tools: console_output (channel filter), dota_status (connection state).",
     {},
+    READ_ONLY_ANNOTATIONS,
     async () => {
-      requireConsole();
+      const blocked = consoleGate();
+      if (blocked) return blocked;
       const channels = relay.getChannels();
       const lines = channels.map(name => {
         const desc = channelDescriptions[name];
         return desc ? `${name} - ${desc}` : name;
       });
-      return { content: [{ type: "text", text: lines.join("\n") || "(no channels registered yet)" }] };
+      return ok({ text: lines.join("\n") || "(no channels registered yet)" });
     }
   );
 

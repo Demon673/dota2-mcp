@@ -88,6 +88,27 @@ export function spawnMcpServer({ timeoutMs = 5000, env = process.env, cleanupDae
   return { call, notify, kill };
 }
 
+/**
+ * 解析 tools/call 的统一返回契约壳（{ok:true,...} / {ok:false,code,message}）。
+ * 接受 call() 的完整 JSON-RPC 响应，也接受裸 result 或纯文本；
+ * content 为数组时拼接各段 text，非 JSON 时抛出原文，便于定位形状退化。
+ */
+export function callJson(response) {
+  const result = response?.result ?? response;
+  if (result?.error) throw new Error("tool error: " + JSON.stringify(result.error).slice(0, 400));
+  const text = typeof result === "string"
+    ? result
+    : Array.isArray(result?.content)
+      ? result.content.map((c) => c.text ?? "").join("")
+      : result?.text;
+  if (typeof text !== "string") throw new Error("no text content in tool result: " + JSON.stringify(result).slice(0, 400));
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("tool result is not a JSON envelope: " + text.slice(0, 400));
+  }
+}
+
 export function assert(cond, msg) {
   if (!cond) { console.error("FAIL:", msg); process.exit(1); }
   console.log("ok -", msg);

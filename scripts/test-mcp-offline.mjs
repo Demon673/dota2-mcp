@@ -1,11 +1,12 @@
 // 一次性离线 MCP 冒烟：服务器启动 + dota_status 不抛异常 + 契约报错 + 新 skill 可加载
 // 端口与 daemon 状态目录隔离：不受本机正在运行的 daemon/Dota 影响（env 直达 spawned daemon）
-import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
+import { spawnMcpServer, assert, sleep, callJson } from "./lib-mcp.mjs";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { scrubbedEnv } from "../dist/tools/process-env.js";
 import { particlePrecacheNote } from "../dist/tools/particle-precache.js";
+import { ok, fail, ERROR_CODES, READ_ONLY_ANNOTATIONS } from "../dist/tools/tool-result.js";
 import { freePortBlock } from "./lib-test-ports.mjs";
 
 const stateDir = mkdtempSync(path.join(tmpdir(), "mcp-offline-state-"));
@@ -21,6 +22,21 @@ process.env.TEST_MCP_SCRUB_TOKEN = "must-not-pass";
 const cleanEnv = scrubbedEnv({ EXTRA_CHECK: "kept" });
 delete process.env.TEST_MCP_SCRUB_TOKEN;
 assert(cleanEnv.TEST_MCP_SCRUB_TOKEN === undefined && cleanEnv.EXTRA_CHECK === "kept", "subprocess env drops credentials but keeps explicit config");
+
+// 返回契约助手：三种成功载荷、失败壳与错误码表（MCP 层断言在下方 console_channels）
+const okText = JSON.parse(ok({ text: "hello" }).content[0].text);
+assert(okText.ok === true && okText.text === "hello", "ok() wraps a text payload as {ok:true,text}");
+const okLines = JSON.parse(ok({ lines: "a\nb", count: 2, next_seq: 7, dropped: 1 }).content[0].text);
+assert(okLines.ok && okLines.lines === "a\nb" && okLines.count === 2 && okLines.next_seq === 7 && okLines.dropped === 1, "ok() keeps console-window cursor fields");
+const okData = JSON.parse(ok({ data: { a: 1 }, text: "summary" }).content[0].text);
+assert(okData.ok && okData.data.a === 1 && okData.text === "summary", "ok() accepts a data payload with optional summary");
+const failed = fail("invalid_arg", "bad input");
+assert(failed.isError === true && JSON.parse(failed.content[0].text).code === "invalid_arg", "fail() sets isError and carries the code");
+const specCodes = ["dota_down", "vconsole_closed", "daemon_down", "cheats_off", "phase_wrong", "lua_too_long", "timeout", "precache_missing", "invalid_arg", "internal"];
+assert(specCodes.every((c) => ERROR_CODES.includes(c)), "error-code vocabulary from the spec is exported");
+assert(READ_ONLY_ANNOTATIONS.readOnlyHint === true && READ_ONLY_ANNOTATIONS.destructiveHint === false
+  && READ_ONLY_ANNOTATIONS.idempotentHint === true && READ_ONLY_ANNOTATIONS.openWorldHint === false,
+  "read-only annotations table covers all four hints");
 
 // vfx_preview 的 precache 判定：客户端只绘制加载期声明过的粒子，三种结论都要可区分
 const fakeDota = mkdtempSync(path.join(tmpdir(), "precache-fixture-"));
@@ -50,6 +66,20 @@ const names = tools.result.tools.map(t => t.name);
 assert(!names.includes("project_info"), "project_info removed");
 assert(names.includes("dota_open_vconsole"), "dota_open_vconsole registered");
 assert(names.length === 33, `33 tools total (got ${names.length})`);
+
+// 工具 2.0：首个迁移工具 console_channels 的五段式描述、annotations 与失败壳
+const channelsTool = tools.result.tools.find((t) => t.name === "console_channels");
+assert(channelsTool?.description.includes("Use when") && channelsTool.description.includes("Returns")
+  && channelsTool.description.includes("Limits:") && channelsTool.description.includes("Related tools:"),
+  "console_channels description covers use/behavior/returns/limits/related tools");
+assert(channelsTool?.annotations?.readOnlyHint === true && channelsTool.annotations.idempotentHint === true
+  && channelsTool.annotations.destructiveHint === false && channelsTool.annotations.openWorldHint === false,
+  "console_channels advertises all four read-only annotations");
+const channelsRaw = await call("tools/call", { name: "console_channels", arguments: {} });
+const channelsFail = callJson(channelsRaw);
+assert(channelsFail.ok === false && channelsFail.code === "dota_down" && channelsFail.message.includes("未连接到 Dota 2"),
+  "console_channels failure is a parseable {ok:false,code,message} envelope: " + JSON.stringify(channelsFail));
+assert(channelsRaw.result.isError === true, "contract failure sets isError on the MCP result");
 
 const status = await call("tools/call", { name: "dota_status", arguments: {} });
 const statusText = status.result.content[0].text;
