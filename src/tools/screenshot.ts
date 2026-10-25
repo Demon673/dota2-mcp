@@ -21,6 +21,12 @@ export interface ScreenshotResult {
   ok: boolean;
   text: string;
   image?: { data: string; mimeType: string };
+  /** 成功时的结构化字段：工具层据此构造 data 载荷（失败时文件已删除，故不填）。 */
+  path?: string;
+  stale?: boolean;
+  captured_at?: string | null;
+  width?: number;
+  height?: number;
 }
 
 export interface WindowRect { x: number; y: number; width: number; height: number }
@@ -420,7 +426,16 @@ export async function captureScreenshot(opts: ScreenshotOptions): Promise<Screen
   }
   if (reply.hung) lines.push("hung: true — Windows reports the Dota 2 window as not responding.");
   if (reply.restored) lines.push("The window was minimized: restored without focus, captured, and minimized again.");
-  return { ok: true, text: lines.join("\n"), image: { data, mimeType: opts.format === "png" ? "image/png" : "image/jpeg" } };
+  return {
+    ok: true,
+    text: lines.join("\n"),
+    image: { data, mimeType: opts.format === "png" ? "image/png" : "image/jpeg" },
+    path: out,
+    stale: !!reply.stale,
+    captured_at: reply.captured_at ?? null,
+    width: reply.width,
+    height: reply.height,
+  };
 }
 
 const HELPER_SOURCE = String.raw`// dota2-mcp game screenshot helper: Windows.Graphics.Capture on the Dota 2 game window.

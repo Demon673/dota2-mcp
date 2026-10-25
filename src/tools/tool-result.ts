@@ -63,7 +63,7 @@ export function okPretty(payload: OkPayload): ToolResult {
   return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...payload }, null, 2) }] };
 }
 
-/** 任意执行类（console_send 等）：会改游戏状态、不可安全重复、无外部网络副作用。 */
+/** 任意执行类（console_send、文件写入、重载或终止对局）：会改状态、不可安全重复、无外部网络副作用。 */
 export const EXEC_ANNOTATIONS: ToolHints = {
   readOnlyHint: false,
   destructiveHint: true,
@@ -71,10 +71,18 @@ export const EXEC_ANNOTATIONS: ToolHints = {
   openWorldHint: false,
 };
 
-/** 外部副作用类（如 vrf_ensure 可能联网下载并写缓存）：不是纯读，但重复调用收敛到同一结果。 */
+/** 外部副作用类（如 vrf_ensure 可能联网下载并写缓存，或拉起游戏进程/窗口）：不是纯读，重复调用收敛到同一结果。 */
 export const OPEN_WORLD_ANNOTATIONS: ToolHints = {
   readOnlyHint: false,
   destructiveHint: false,
   idempotentHint: true,
   openWorldHint: true,
+};
+
+/** 截图：不改游戏状态，但每次调用落一个新文件，因此不幂等。 */
+export const SCREENSHOT_ANNOTATIONS: ToolHints = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
 };
