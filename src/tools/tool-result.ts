@@ -69,3 +69,11 @@ export const EXEC_ANNOTATIONS: ToolHints = {
   idempotentHint: false,
   openWorldHint: false,
 };
+
+/** 外部副作用类（如 vrf_ensure 可能联网下载并写缓存）：不是纯读，但重复调用收敛到同一结果。 */
+export const OPEN_WORLD_ANNOTATIONS: ToolHints = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: true,
+};
