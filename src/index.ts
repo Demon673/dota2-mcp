@@ -1042,16 +1042,49 @@ Once connected, call dota_status again.`;
     }
   );
 
-  // Tool: 游戏视频录制（同样不受 vconsole 门控；窗口矩形复用截图辅助程序）
+  /** dota_record 的失焦补救：Dota 不在前台时停止呈现，Windows.Graphics.Capture 收不到新帧。
+   *  控制台可用时临时把 r_always_render_all_windows 设为 1 再录一次，结束后恢复原值；
+   *  控制台不可用时保持录制本身的明确失败（录制工具不门控）。 */
+  async function recordWithBackgroundRemedy(opts: { duration: number; fps?: number; output?: string }): Promise<ToolResult> {
+    const first = await recordVideo(opts);
+    let code: unknown = null;
+    try { code = JSON.parse(first.content[0].text).code; } catch { /* 非契约形状时按原样返回 */ }
+    if (code !== "no_new_frames") return first;
+    if (!relay.dotaConnected || !relay.guiConnected) return first;
+
+    let previous: string | null = null;
+    try {
+      const lines = await collectOutput("r_always_render_all_windows", { waitMs: 2500 });
+      const m = lines.join("\n").match(/r_always_render_all_windows\s*=\s*(true|false|1|0)\b/i);
+      if (m) previous = /^(true|1)$/i.test(m[1]) ? "1" : "0";
+    } catch { /* 查询失败就不改游戏状态 */ }
+    if (previous !== "0") return first; // 读不到或本来就是 1：改它没有意义
+
+    try {
+      const set = await collectOutput("r_always_render_all_windows 1", { waitMs: 2500 });
+      if (set.some((l) => /unknown command/i.test(l))) return first;
+      const retry = await recordVideo(opts);
+      if (retry.isError) return retry;
+      try {
+        const parsed = JSON.parse(retry.content[0].text);
+        parsed.text = `${parsed.text} The game was not presenting frames while unfocused, so r_always_render_all_windows was set to 1 for this recording and restored to 0.`;
+        return { content: [{ type: "text", text: JSON.stringify(parsed) }] };
+      } catch { return retry; }
+    } finally {
+      try { await collectOutput("r_always_render_all_windows 0", { waitMs: 2500 }); } catch { /* 恢复失败不覆盖录制结果 */ }
+    }
+  }
+
+  // Tool: 游戏视频录制（同样不受 vconsole 门控；复用截图的 WGC 助手抓游戏窗口本身）
   server.tool("dota_record",
-    "Use when a single frame is not enough — for example to verify a VFX's motion, timing, or disappearance, or to capture a bug that only appears over time. Records the Dota 2 game window to a video file with FFmpeg's ddagrab (D3D11 desktop duplication), cropping to the window rectangle found by the same Windows window lookup as dota_screenshot; it sends no console command, needs no vconsole, and never steals focus. Returns {ok:true,data:{path,duration_s,fps,width,height,bytes},text} with the saved file and its metadata, or {ok:false,code,message} with code ffmpeg_missing (no FFmpeg binary), no_window (Dota 2 is not running, has no window, or is minimized), empty_capture (FFmpeg produced no frames), timeout, or internal. Limits: duration is clamped to 1–30 s, fps defaults to 30, Windows only; capture assumes the game window is on the primary monitor and unobstructed, and the recordings directory keeps no retention limit. Related tools: dota_screenshot (single frame), dota_status (is Dota 2 running), vfx_preview (spawn the effect to record).",
+    "Use when a single frame is not enough — for example to verify a VFX's motion, timing, or disappearance, or to capture a bug that only appears over time. Records the Dota 2 game window itself through Windows.Graphics.Capture (not a screen rectangle), so an occluded or unfocused game is recorded correctly; it never steals focus or foregrounds the window. Frames are captured as a temporary PNG sequence and encoded with FFmpeg; no console command is required and the tool is not gated on vconsole. Returns {ok:true,data:{path,duration_s,fps,width,height,bytes},text} with the saved file and its metadata, or {ok:false,code,message} with code ffmpeg_missing (no FFmpeg binary), no_window (Dota 2 is not running, has no window, or is minimized), no_new_frames (Windows delivered no new frames because the game stopped presenting; the message names the r_always_render_all_windows 1 remedy), empty_capture (no frames arrived or FFmpeg produced no video), timeout, or internal. When the console is open and the first attempt reports no_new_frames, the tool sets r_always_render_all_windows to 1 for one retry and restores its previous value. Limits: duration is clamped to 1–30 s, fps defaults to 12 and is capped at 30, Windows only; the recordings directory keeps no retention limit. Related tools: dota_screenshot (single frame), dota_status (is Dota 2 running), vfx_preview (spawn the effect to record).",
     {
       duration: z.number().describe("Recording length in seconds, clamped to 1–30."),
-      fps: z.number().int().min(1).max(240).optional().describe("Capture frame rate. Default 30."),
+      fps: z.number().int().min(1).max(30).optional().describe("Capture frame rate, clamped to 1–30. Default 12."),
       output: z.string().optional().describe("Output file path. Relative paths resolve against the recordings directory. Default dota-<timestamp>.mp4 there."),
     },
     { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-    async ({ duration, fps, output }) => recordVideo({ duration, fps, output })
+    async ({ duration, fps, output }) => recordWithBackgroundRemedy({ duration, fps, output })
   );
 
   // Tool: 打开 vconsole 窗口（AssetBrowser 按钮被引擎禁用时的显式路径）

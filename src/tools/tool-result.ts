@@ -15,6 +15,7 @@ export const ERROR_CODES = [
   "ffmpeg_missing",
   "no_window",
   "empty_capture",
+  "no_new_frames",
   "test_harness_error",
 ] as const;
 

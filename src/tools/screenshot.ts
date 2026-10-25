@@ -29,9 +29,6 @@ export interface ScreenshotResult {
   height?: number;
 }
 
-export interface WindowRect { x: number; y: number; width: number; height: number }
-export type WindowLookup = ({ ok: true } & WindowRect) | { ok: false; code: "no_window" | "internal"; message: string };
-
 const TOTAL_TIMEOUT_MS = 5000;
 const KEEP = 20;
 /** 本工具生成的文件名；prune 只删匹配它的文件（DOTA2_SCREENSHOT_DIR 可能指向用户自己的目录） */
@@ -283,37 +280,24 @@ export async function startScreenshotWatcher(): Promise<void> {
   await ensureWatcher(helper);
 }
 
-/** Dota 2 窗口矩形（虚拟屏幕坐标），供录制的 ddagrab 换算 video_size/offset。
- *  复用截图的窗口查找与辅助程序缓存；找不到窗口/最小化/辅助程序失败都显式返回原因，绝不回退到整屏。 */
-export async function gameWindowRect(): Promise<WindowLookup> {
+/** 复用截图助手（真实助手或 DOTA2_CAPTURE_HELPER）运行另一个子命令（录制用 --record）。
+ *  助手不可用时显式返回原因，绝不回退到桌面捕获。 */
+export type HelperCommand =
+  | { ok: true; cmd: string; args: string[] }
+  | { ok: false; code: "no_window" | "internal"; message: string };
+
+export async function captureHelperCommand(args: string[]): Promise<HelperCommand> {
   const override = process.env.DOTA2_CAPTURE_HELPER;
   if (!override && process.platform !== "win32") {
-    return { ok: false, code: "no_window", message: "Recording the Dota 2 window requires Windows (FFmpeg ddagrab uses D3D11 desktop duplication). Nothing was recorded." };
+    return { ok: false, code: "no_window", message: "Recording the Dota 2 window requires Windows (it captures the window through Windows.Graphics.Capture). Nothing was recorded." };
   }
   let helper: string;
   try {
     helper = override || await ensureHelper();
   } catch (e) {
-    return { ok: false, code: "internal", message: `Could not build the capture helper with the system C# compiler, so the window rectangle is unavailable:\n${(e as Error).message}` };
+    return { ok: false, code: "internal", message: `Could not build the capture helper with the system C# compiler, so the game window cannot be recorded:\n${(e as Error).message}` };
   }
-  const inv = helperInvocation(helper, ["--rect"]);
-  const r = await run(inv.cmd, inv.args, TOTAL_TIMEOUT_MS);
-  if (r.error) return { ok: false, code: "internal", message: `The window lookup helper gave no result.\n${r.error}` };
-  let reply: HelperReply & Partial<WindowRect>;
-  try { reply = JSON.parse(r.stdout.trim().split(/\r?\n/).pop() || ""); } catch {
-    return { ok: false, code: "internal", message: `The window lookup helper returned no JSON.${r.stderr ? `\n${r.stderr}` : ""}` };
-  }
-  const { x, y, width, height } = reply;
-  if (reply.ok && typeof x === "number" && typeof y === "number" && typeof width === "number" && typeof height === "number" && width > 0 && height > 0) {
-    return { ok: true, x, y, width, height };
-  }
-  if (reply.error === "no_window") {
-    return { ok: false, code: "no_window", message: "No Dota 2 game window found. Start Dota 2 first; nothing was recorded." };
-  }
-  if (reply.error === "minimized") {
-    return { ok: false, code: "no_window", message: "The Dota 2 window is minimized. Restore it before recording; nothing was recorded." };
-  }
-  return { ok: false, code: "internal", message: `The window lookup helper failed: ${reply.message ?? reply.error ?? "unknown error"}` };
+  return { ok: true, ...helperInvocation(helper, args) };
 }
 
 function readReply(file: string): HelperReply | null {
@@ -490,8 +474,10 @@ static class DotaCapture {
         Console.WriteLine("{\"ok\":true}");
         return 0;
       }
-      // --rect: the game window rectangle in virtual-screen coordinates (dota_record crops ddagrab to it).
+      // --rect: the game window rectangle in virtual-screen coordinates.
       if (args.Length == 1 && args[0] == "--rect") return Rect();
+      // --record <dir> <fps> <durationMs>: WGC frames of the game window as a PNG sequence (dota_record encodes them).
+      if (args.Length == 4 && args[0] == "--record") return Record(args[1], int.Parse(args[2]), int.Parse(args[3])).GetAwaiter().GetResult();
       return Run(args).GetAwaiter().GetResult();
     }
     catch (Exception e) { Fail("internal", e.GetType().Name + ": " + e.Message); return 1; }
@@ -546,6 +532,68 @@ static class DotaCapture {
     if (width <= 0 || height <= 0) { Fail("no_window", "The Dota 2 window has no visible area."); return 2; }
     Console.WriteLine("{\"ok\":true,\"x\":" + r.Left + ",\"y\":" + r.Top + ",\"width\":" + width + ",\"height\":" + height + "}");
     return 0;
+  }
+
+  // Frames are written as a numbered PNG sequence for ffmpeg. One frame is emitted per tick even when
+  // Windows delivers nothing new (the latest frame is repeated), so the video keeps its requested length;
+  // a recording with no new frame at all is reported as no_new_frames instead of a useless still.
+  static async Task<int> Record(string dir, int fps, int durationMs) {
+    IntPtr hwnd = FindGameWindow();
+    if (hwnd == IntPtr.Zero) { Fail("no_window", "No Dota 2 game window found."); return 2; }
+    if (IsIconic(hwnd)) { Fail("minimized", "The Dota 2 window is minimized."); return 2; }
+    bool hung = IsHungAppWindow(hwnd);
+    var item = CreateItem(hwnd);
+    var device = CreateDevice();
+    var size = item.Size;
+    int w = size.Width, h = size.Height;
+    if (w <= 0 || h <= 0) { Fail("no_window", "The Dota 2 window has no visible area."); return 2; }
+    using (var pool = Direct3D11CaptureFramePool.CreateFreeThreaded(device, DirectXPixelFormat.B8G8R8A8UIntNormalized, 3, size))
+    using (var session = pool.CreateCaptureSession(item)) {
+      TrySet(session, "IsCursorCaptureEnabled", false);
+      TrySet(session, "IsBorderRequired", false);
+      session.StartCapture();
+      Direct3D11CaptureFrame last = null;
+      try {
+        var firstDeadline = DateTime.UtcNow.AddSeconds(2);
+        while (last == null && DateTime.UtcNow < firstDeadline) {
+          last = pool.TryGetNextFrame();
+          if (last == null) await Task.Delay(5);
+        }
+        if (last == null) { Fail("no_frame", "No frame arrived from the Dota 2 window.", hung); return 3; }
+
+        int target = Math.Max(1, (int)Math.Round(durationMs / 1000.0 * fps));
+        int distinct = 1;
+        var clock = Stopwatch.StartNew();
+        for (int n = 0; n < target; n++) {
+          long due = (long)n * 1000 / fps;
+          while (clock.ElapsedMilliseconds < due) {
+            var f = pool.TryGetNextFrame();
+            if (f != null) { if (last != null) last.Dispose(); last = f; distinct++; }
+            await Task.Delay(1);
+          }
+          Direct3D11CaptureFrame g;
+          while ((g = pool.TryGetNextFrame()) != null) { if (last != null) last.Dispose(); last = g; distinct++; }
+          if (last.ContentSize.Width != w || last.ContentSize.Height != h) {
+            Fail("resized", "The Dota 2 window was resized during recording; record again after resizing it. Nothing usable was recorded.");
+            return 4;
+          }
+          await EncodeFrame(last, Path.Combine(dir, "frame-" + n.ToString("D6") + ".png"), 0, true);
+        }
+        if (IsIconic(hwnd)) {
+          Fail("minimized", "The Dota 2 window was minimized during recording. Restore it and record again; nothing usable was recorded.");
+          return 4;
+        }
+        int newFrames = distinct - 1;
+        if (newFrames <= 0) {
+          Fail("no_new_frames", "Windows delivered no new frames from the Dota 2 window while recording, because the game stops presenting frames when it is not the foreground window. Remedy: run 'r_always_render_all_windows 1' in the console, record again, then restore it to 0. Nothing was recorded.");
+          return 5;
+        }
+        Console.WriteLine("{\"ok\":true,\"width\":" + w + ",\"height\":" + h + ",\"frames\":" + target + ",\"new_frames\":" + newFrames + "}");
+        return 0;
+      } finally {
+        if (last != null) last.Dispose();
+      }
+    }
   }
 
   static async Task<int> Run(string[] args) {
