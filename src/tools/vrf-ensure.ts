@@ -1,10 +1,11 @@
 // vrf_ensure：检测/下载/校验/缓存 ValveResourceFormat CLI（Source2Viewer-CLI）
 // 半集成策略（wayfinder #6/#7 决议）：pin 版本、按 release assets[] 动态匹配平台、sha256 校验、自包含无需 .NET。
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import AdmZip from "adm-zip";
+import { fetchPinnedReleaseAsset } from "./pinned-release.js";
 
 export interface VrfInfo {
   ok: boolean;
@@ -35,16 +36,6 @@ function platformAssetName(): string {
   return `cli-${os}-${arch}.zip`;
 }
 
-function normDigest(digest: string | null | undefined): string | null {
-  if (!digest) return null;
-  const m = digest.toLowerCase().match(/^sha256[:=]?([0-9a-f]{64})$/);
-  return m ? m[1] : null;
-}
-
-function sha256Of(data: Buffer): string {
-  return createHash("sha256").update(data).digest("hex");
-}
-
 /** 解压 zip 到目录（zip -9j 扁平结构，exe 在根）。 */
 function extractZip(zipPath: string, destDir: string): void {
   rmSync(destDir, { recursive: true, force: true });
@@ -72,43 +63,24 @@ export async function ensureVrf(opts: VrfOptions = {}): Promise<VrfInfo> {
     return { ok: true, executable: exe, version, cached: true, message: `Source2Viewer-CLI v${version} (cached at ${exe})` };
   }
 
-  let release: { tag_name: string; assets: { name: string; browser_download_url: string; size: number; digest?: string | null }[] };
-  try {
-    const res = await fetch(`${apiBase}/repos/${REPO}/releases/tags/${version}`, {
-      signal: AbortSignal.timeout(30000),
-      headers: { "User-Agent": "dota2-mcp" },
-    });
-    if (!res.ok) {
-      return { ok: false, executable: null, version, cached: false, message: `VRF release v${version} lookup failed (HTTP ${res.status}). Set VRF_VERSION or install Source2Viewer-CLI manually.` };
-    }
-    release = await res.json() as typeof release;
-  } catch (e) {
-    return { ok: false, executable: null, version, cached: false, message: `VRF release lookup failed: ${(e as Error).message}` };
-  }
-
   const want = platformAssetName();
-  const asset = release.assets.find((a) => a.name === want);
-  if (!asset) {
-    return { ok: false, executable: null, version, cached: false, message: `No asset ${want} in release v${version}. Available: ${release.assets.map((a) => a.name).join(", ")}` };
+  const got = await fetchPinnedReleaseAsset({ apiBase, repo: REPO, version, assetName: want });
+  if (!got.ok) {
+    const message =
+      got.stage === "lookup"
+        ? got.status !== undefined
+          ? `VRF release v${version} lookup failed (HTTP ${got.status}). Set VRF_VERSION or install Source2Viewer-CLI manually.`
+          : `VRF release lookup failed: ${got.error}`
+        : got.stage === "asset"
+          ? `No asset ${want} in release v${version}. Available: ${got.available.join(", ")}`
+          : got.stage === "download"
+            ? got.status !== undefined
+              ? `VRF download failed (HTTP ${got.status})`
+              : `VRF download failed: ${got.error}`
+            : `sha256 mismatch: expected ${got.expected} got ${got.actual}. Download not trusted; nothing cached.`;
+    return { ok: false, executable: null, version, cached: false, message };
   }
-
-  let data: Buffer;
-  try {
-    const res = await fetch(asset.browser_download_url, { signal: AbortSignal.timeout(600000), headers: { "User-Agent": "dota2-mcp" } });
-    if (!res.ok) {
-      return { ok: false, executable: null, version, cached: false, message: `VRF download failed (HTTP ${res.status})` };
-    }
-    data = Buffer.from(await res.arrayBuffer());
-  } catch (e) {
-    return { ok: false, executable: null, version, cached: false, message: `VRF download failed: ${(e as Error).message}` };
-  }
-
-  const digest = normDigest((asset as { digest?: string | null }).digest ?? null);
-  const actual = sha256Of(data);
-  if (digest && digest !== actual) {
-    return { ok: false, executable: null, version, cached: false, message: `sha256 mismatch: expected ${digest} got ${actual}. Download not trusted; nothing cached.` };
-  }
-  const sha256Ok = !!digest && digest === actual;
+  const { data, sha256Ok } = got;
 
   const zipPath = path.join(cacheRoot, `${want}.tmp-${randomBytes(4).toString("hex")}`);
   try {

@@ -26,9 +26,10 @@ import { ensureVrf, DEFAULT_VERSION } from "./tools/vrf-ensure.js";
 import { inspectAsset } from "./tools/asset-inspect.js";
 import { checkRefs } from "./tools/asset-check-refs.js";
 import { captureScreenshot, startScreenshotWatcher } from "./tools/screenshot.js";
+import { runPerf, PRESENTMON_VERSION } from "./tools/perf.js";
 import { recordVideo } from "./tools/recorder.js";
 import { particlePrecacheNote } from "./tools/particle-precache.js";
-import { ok, okPretty, fail, READ_ONLY_ANNOTATIONS, DESTRUCTIVE_ANNOTATIONS, OPEN_WORLD_ANNOTATIONS, SCREENSHOT_ANNOTATIONS } from "./tools/tool-result.js";
+import { ok, okPretty, fail, READ_ONLY_ANNOTATIONS, DESTRUCTIVE_ANNOTATIONS, OPEN_WORLD_ANNOTATIONS, SCREENSHOT_ANNOTATIONS, type ToolHints } from "./tools/tool-result.js";
 import * as daemon from "./daemon-utils.js";
 
 function getVersion(): string {
@@ -981,6 +982,30 @@ Once connected, call dota_status again.`;
           { type: "text" as const, text: r.text },
         ],
       };
+    }
+  );
+
+  // Tool: 帧耗时实测（PresentMon 采样；不依赖 vconsole，采集期间不能做其它事）
+  const PERF_ANNOTATIONS: ToolHints = {
+    readOnlyHint: false,    // 启动采样进程
+    destructiveHint: false,
+    idempotentHint: false,  // 每次采到的是不同时间窗口
+    openWorldHint: true,    // 缺失时会从 GitHub 下载固定版本 PresentMon
+  };
+  server.tool("dota_perf",
+    `Use when you need measured frame cost instead of guessed FPS — e.g. to prove what a VFX or Lua change costs by sampling before and after. Runs PresentMon against the game process for the requested number of seconds and summarizes frame times; when PresentMon is missing it downloads the pinned v${PRESENTMON_VERSION} x64 release, verifies its sha256, and caches it under os.tmpdir()/dota2-mcp/presentmon/. Returns {ok:true,data:{process,duration_s,samples,p50_ms,p95_ms,p99_ms,csv_path,in_present?,baseline?},text}, or {ok:false,code,message}; pass a previous csv_path or its metrics as baseline to add current-minus-baseline deltas (positive = slower). Limits: Windows only; a capture blocks for the requested duration (default 15 s, max 600 s) and needs an elevated terminal for the ETW session — an empty or missing CSV fails with that explanation instead of returning empty percentiles. Related tools: dota_screenshot for visuals, vfx_preview and dota_run_lua for the change under test, dota_status for readiness.`,
+    {
+      seconds: z.number().int().min(1).max(600).optional().describe("Sampling duration in seconds. Default 15."),
+      process_name: z.string().optional().describe("Process executable name to sample. Default dota2.exe."),
+      baseline: z.union([
+        z.string(),
+        z.object({ p50_ms: z.number(), p95_ms: z.number(), p99_ms: z.number() }),
+      ]).optional().describe("Previous result: a dota_perf csv_path or its p50/p95/p99 metrics. Adds deltas (current minus baseline)."),
+    },
+    PERF_ANNOTATIONS,
+    async ({ seconds, process_name, baseline }) => {
+      const r = await runPerf({ seconds, processName: process_name, baseline });
+      return r.ok ? ok({ data: r.data, text: r.text }) : fail(r.code, r.message);
     }
   );
 
