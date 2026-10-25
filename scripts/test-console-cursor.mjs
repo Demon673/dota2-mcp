@@ -141,6 +141,11 @@ try {
     "tail: N always means the last N lines");
   const alias = await consoleOutput({ lines: 2 });
   assert(alias.ok && alias.count === 2 && alias.lines.includes("line-064"), "lines stays an alias for tail for one version");
+  // format:'text' 是逃生舱：唯一内容就是按行拼接的正文，没有 JSON 信封
+  const textModeRaw = await call("tools/call", { name: "console_output", arguments: { lines: 2, format: "text" } });
+  const textModeItems = textModeRaw.result.content.filter((c) => c.type === "text");
+  assert(!textModeRaw.result.isError && textModeItems.length === 1 && textModeItems[0].text === alias.lines,
+    "format:'text' returns the plain lines as the sole content: " + JSON.stringify(textModeItems).slice(0, 200));
   const all = await consoleOutput({ from_start: true });
   assert(all.ok && all.count === 65 && all.next_seq === 65 && all.dropped === 0
     && all.lines.includes("line-000") && all.lines.includes("line-064"),

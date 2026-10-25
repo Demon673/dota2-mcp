@@ -1,11 +1,10 @@
 // dota_perf：用 PresentMon 采样进程帧时间，返回 p50/p95/p99。Windows only（ETW）。
 // PresentMon 与 VRF 一样固定版本获取；DOTA2_PRESENTMON 可注入现成二进制（离线测试）。
-import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
-import { scrubbedEnv } from "./process-env.js";
+import { runCommand, nodeInvocation } from "./exec.js";
 import { fetchPinnedReleaseAsset } from "./pinned-release.js";
 
 export const DEFAULT_SECONDS = 15;
@@ -14,15 +13,8 @@ const MAX_SECONDS = 600;
 export const PRESENTMON_VERSION = "2.6.0";
 const PRESENTMON_REPO = "GameTechDev/PresentMon";
 
-/** 分位数（毫秒，保留三位小数）。 */
+/** 分位数（毫秒，保留三位小数）；也直接充当 baseline 指标对象。 */
 export interface PerfPercentiles {
-  p50_ms: number;
-  p95_ms: number;
-  p99_ms: number;
-}
-
-/** baseline 允许直接用上次返回的指标对象，避免调用方再读一次 CSV。 */
-export interface PerfBaselineMetrics {
   p50_ms: number;
   p95_ms: number;
   p99_ms: number;
@@ -31,7 +23,7 @@ export interface PerfBaselineMetrics {
 export interface PerfOptions {
   seconds?: number;
   processName?: string;
-  baseline?: string | PerfBaselineMetrics;
+  baseline?: string | PerfPercentiles;
 }
 
 export interface PerfData extends PerfPercentiles {
@@ -147,19 +139,6 @@ function parsePerfCsv(text: string): CsvData | null {
   return { between, inPresent, duration };
 }
 
-interface RunResult {
-  stderr: string;
-  error: string | null;
-}
-
-function run(cmd: string, args: string[], timeout: number): Promise<RunResult> {
-  return new Promise((resolve) => {
-    execFile(cmd, args, { timeout, windowsHide: true, encoding: "utf8", env: scrubbedEnv(), maxBuffer: 4 * 1024 * 1024 }, (err, _stdout, stderr) => {
-      resolve({ stderr: stderr ?? "", error: err ? err.message : null });
-    });
-  });
-}
-
 /** 解析一个 PresentMon CSV 文件；失败返回 null。 */
 function readPerfCsv(file: string): CsvData | null {
   try { return parsePerfCsv(readFileSync(file, "utf8")); } catch { return null; }
@@ -225,7 +204,7 @@ export async function ensurePresentMon(opts: EnsurePresentMonOptions = {}): Prom
 }
 
 /** 基线在接受采样前解析：路径写错时不必先等 N 秒。 */
-function resolveBaseline(baseline: string | PerfBaselineMetrics | undefined):
+function resolveBaseline(baseline: string | PerfPercentiles | undefined):
   { ok: true; values: PerfPercentiles; source: string } | { ok: false; message: string } | null {
   if (baseline === undefined) return null;
   if (typeof baseline === "string") {
@@ -271,14 +250,12 @@ export async function runPerf(opts: PerfOptions = {}): Promise<PerfOutcome> {
   mkdirSync(dir, { recursive: true });
   const csvPath = path.join(dir, `perf-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomBytes(2).toString("hex")}.csv`);
   const args = ["--process_name", processName, "--timed", String(seconds), "--output_file", csvPath, "--terminate_after_timed"];
-  const invocation = /\.(mjs|cjs|js)$/i.test(mon.executable)
-    ? { cmd: process.execPath, args: [mon.executable, ...args] }
-    : { cmd: mon.executable, args };
-  const r = await run(invocation.cmd, invocation.args, (seconds + 20) * 1000);
+  const invocation = nodeInvocation(mon.executable, args);
+  const r = await runCommand(invocation.cmd, invocation.args, (seconds + 20) * 1000, 4 * 1024 * 1024);
 
   const parsed = readPerfCsv(csvPath);
   if (!parsed || parsed.between.length === 0) {
-    const detail = (r.stderr || r.error || "").trim().slice(0, 800);
+    const detail = (r.stderr || r.error?.message || "").trim().slice(0, 800);
     return {
       ok: false,
       code: "internal",

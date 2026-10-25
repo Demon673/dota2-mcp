@@ -57,15 +57,13 @@ process.env.DOTA2_FFMPEG = ffmpeg;
 process.env.DOTA2_RECORD_DIR = recordDir;
 
 const { recordVideo } = await import("../dist/tools/recorder.js");
-const envelope = (r) => JSON.parse(r.content[0].text);
 const ffmpegArgs = () => JSON.parse(readFileSync(argvFile, "utf8"));
 const helperArgs = () => JSON.parse(readFileSync(helperArgsFile, "utf8"));
 const argValue = (args, flag) => args[args.indexOf(flag) + 1];
 
 // 成功：助手逐帧写 PNG，ffmpeg 以图片序列编码；元数据来自助手与产物文件
-let raw = await recordVideo({ duration: 3, fps: 25 });
-let r = envelope(raw);
-assert(!raw.isError && r.ok === true && r.data, "success returns {ok:true,data}: " + JSON.stringify(r));
+let r = await recordVideo({ duration: 3, fps: 25 });
+assert(r.ok === true && r.data, "success returns {ok:true,data}: " + JSON.stringify(r));
 const helperCall = helperArgs();
 assert(helperCall.fps === 25 && helperCall.ms === 3000, "fps and duration reach the capture helper: " + JSON.stringify(helperCall));
 assert(!existsSync(helperCall.dir), "temporary frame directory is removed after encoding: " + helperCall.dir);
@@ -83,17 +81,26 @@ assert(r.data.duration_s === 3 && r.data.fps === 25 && r.data.width === 1280 && 
 assert(typeof r.text === "string" && r.text.includes(r.data.path), "text summary names the file");
 
 // 默认 fps 12；duration 夹取到 1–30，fps 上限 30
-r = envelope(await recordVideo({ duration: 0.2 }));
+r = await recordVideo({ duration: 0.2 });
 assert(r.ok && r.data.fps === 12 && r.data.duration_s === 1, "defaults to 12 fps and clamps low durations to 1s");
 assert(helperArgs().fps === 12 && helperArgs().ms === 1000, "default fps/clamped duration reach the helper");
 assert(argValue(ffmpegArgs(), "-framerate") === "12", "default fps reaches ffmpeg");
-r = envelope(await recordVideo({ duration: 99, fps: 240 }));
+r = await recordVideo({ duration: 99, fps: 240 });
 assert(r.ok && r.data.duration_s === 30 && r.data.fps === 30, "clamps high durations to 30s and fps to 30");
 assert(helperArgs().fps === 30 && helperArgs().ms === 30000, "clamped fps/duration reach the helper");
 
 // 显式 output：相对路径解析到录制目录
-r = envelope(await recordVideo({ duration: 1, output: "custom.mp4" }));
+r = await recordVideo({ duration: 1, output: "custom.mp4" });
 assert(r.ok && r.data.path === path.resolve(recordDir, "custom.mp4"), "explicit output resolves against the recordings directory");
+
+// 输出边界：只允许录制目录内的路径（相对子目录可以，绝对路径在外或 .. 逃逸都不行）
+const outside = await recordVideo({ duration: 1, output: path.join(work, "outside.mp4") });
+assert(outside.ok === false && outside.code === "invalid_arg" && /recordings directory/.test(outside.message),
+  "output outside the recordings directory is invalid_arg: " + JSON.stringify(outside));
+const escape = await recordVideo({ duration: 1, output: path.join("..", "escape.mp4") });
+assert(escape.ok === false && escape.code === "invalid_arg", "output escaping with .. is invalid_arg: " + JSON.stringify(escape));
+r = await recordVideo({ duration: 1, output: path.join("nested", "clip.mp4") });
+assert(r.ok && r.data.path === path.resolve(recordDir, "nested", "clip.mp4"), "a relative subdirectory inside the recordings directory is allowed");
 
 // 找不到窗口 / 最小化 / 无新帧 / 无首帧：都明确失败，且不启动 ffmpeg
 for (const [mode, code, needle] of [
@@ -104,36 +111,38 @@ for (const [mode, code, needle] of [
 ]) {
   writeFileSync(helperMode, mode);
   rmSync(argvFile, { force: true });
-  raw = await recordVideo({ duration: 1 });
-  r = envelope(raw);
-  assert(raw.isError === true && r.ok === false && r.code === code, `${mode} -> ${code}: ` + JSON.stringify(r));
+  r = await recordVideo({ duration: 1 });
+  assert(r.ok === false && r.code === code, `${mode} -> ${code}: ` + JSON.stringify(r));
   assert(needle.test(r.message), `${mode} message is actionable: ` + r.message);
   assert(!existsSync(argvFile), `ffmpeg is never started when capture fails (${mode})`);
 }
 
+// 无新帧的结果单独带 remedy 信号：工具层据此决定是否改 cvar 重试
+writeFileSync(helperMode, "static");
+r = await recordVideo({ duration: 1 });
+assert(r.ok === false && r.code === "no_new_frames" && r.needsRemedy === "no_new_frames",
+  "no_new_frames carries the structured remedy signal: " + JSON.stringify(r));
+
 // 助手报告成功却没写帧：empty_capture，不启动 ffmpeg
 writeFileSync(helperMode, "ok_nofiles");
 rmSync(argvFile, { force: true });
-raw = await recordVideo({ duration: 1 });
-r = envelope(raw);
-assert(raw.isError === true && r.code === "empty_capture", "helper success without frames -> empty_capture: " + JSON.stringify(r));
+r = await recordVideo({ duration: 1 });
+assert(r.ok === false && r.code === "empty_capture", "helper success without frames -> empty_capture: " + JSON.stringify(r));
 assert(!existsSync(argvFile), "ffmpeg is never started without captured frames");
 
 // 缺 ffmpeg：明确错误码
 writeFileSync(helperMode, "ok");
 process.env.DOTA2_FFMPEG = path.join(work, "no-such-ffmpeg.exe");
-raw = await recordVideo({ duration: 1 });
-r = envelope(raw);
-assert(raw.isError === true && r.ok === false && r.code === "ffmpeg_missing", "missing ffmpeg -> ffmpeg_missing: " + JSON.stringify(r));
+r = await recordVideo({ duration: 1 });
+assert(r.ok === false && r.code === "ffmpeg_missing", "missing ffmpeg -> ffmpeg_missing: " + JSON.stringify(r));
 assert(/FFmpeg/i.test(r.message), "missing ffmpeg message names the binary class");
 
 // 无输出 / 零字节输出 / 编码失败：都归为 empty_capture
 process.env.DOTA2_FFMPEG = ffmpeg;
 for (const mode of ["empty", "zero_file", "fail"]) {
   writeFileSync(ffmpegMode, mode);
-  raw = await recordVideo({ duration: 1 });
-  r = envelope(raw);
-  assert(raw.isError === true && r.ok === false && r.code === "empty_capture", `ffmpeg ${mode} -> empty_capture: ` + JSON.stringify(r));
+  r = await recordVideo({ duration: 1 });
+  assert(r.ok === false && r.code === "empty_capture", `ffmpeg ${mode} -> empty_capture: ` + JSON.stringify(r));
 }
 
 rmSync(work, { recursive: true, force: true });

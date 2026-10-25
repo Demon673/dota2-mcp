@@ -1,4 +1,4 @@
-// 离线断言：只读族工具迁移到统一契约（#22）——tools/list 的四类 annotations 与五段式描述，
+// 离线断言：只读族工具迁移到统一契约——tools/list 的四类 annotations 与五段式描述，
 // 以及代表性失败路径的 {ok:false,code,message} 壳。隔离端口 + 独立状态目录，不需要 Dota。
 // console_gui_filter 只是 relay 内存状态开关，没有可达失败路径，这里只断言成功壳。
 import { spawnMcpServer, assert, sleep, callJson } from "./lib-mcp.mjs";

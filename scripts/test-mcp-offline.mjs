@@ -32,7 +32,7 @@ const okData = JSON.parse(ok({ data: { a: 1 }, text: "summary" }).content[0].tex
 assert(okData.ok && okData.data.a === 1 && okData.text === "summary", "ok() accepts a data payload with optional summary");
 const failed = fail("invalid_arg", "bad input");
 assert(failed.isError === true && JSON.parse(failed.content[0].text).code === "invalid_arg", "fail() sets isError and carries the code");
-const specCodes = ["dota_down", "vconsole_closed", "daemon_down", "cheats_off", "phase_wrong", "lua_too_long", "timeout", "precache_missing", "invalid_arg", "internal"];
+const specCodes = ["dota_down", "vconsole_closed", "cheats_off", "phase_wrong", "lua_too_long", "timeout", "precache_missing", "invalid_arg", "internal"];
 assert(specCodes.every((c) => ERROR_CODES.includes(c)), "error-code vocabulary from the spec is exported");
 assert(READ_ONLY_ANNOTATIONS.readOnlyHint === true && READ_ONLY_ANNOTATIONS.destructiveHint === false
   && READ_ONLY_ANNOTATIONS.idempotentHint === true && READ_ONLY_ANNOTATIONS.openWorldHint === false,
@@ -73,10 +73,11 @@ const missingHints = tools.result.tools
   .filter(t => !t.annotations || HINTS.some(k => typeof t.annotations[k] !== "boolean"))
   .map(t => t.name);
 assert(missingHints.length === 0, "all tools carry four annotation hints (missing: " + missingHints.join(", ") + ")");
+const DESCRIPTION_PARTS = ["Use when", "Returns", "Limits:", "Related tools:"];
 const badDescriptions = tools.result.tools
-  .filter(t => !/Use when/.test(t.description || "") || !/Returns/.test(t.description || ""))
+  .filter(t => DESCRIPTION_PARTS.some(p => !(t.description || "").includes(p)))
   .map(t => t.name);
-assert(badDescriptions.length === 0, "all tool descriptions follow the five-part shape (missing: " + badDescriptions.join(", ") + ")");
+assert(badDescriptions.length === 0, "all tool descriptions carry Use when/Returns/Limits:/Related tools: (missing: " + badDescriptions.join(", ") + ")");
 
 // 工具 2.0：首个迁移工具 console_channels 的五段式描述、annotations 与失败壳
 const channelsTool = tools.result.tools.find((t) => t.name === "console_channels");

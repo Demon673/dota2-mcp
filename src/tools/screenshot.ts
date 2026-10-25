@@ -4,11 +4,12 @@
 // 持续缓存最后一帧；卡死时返回带 captured_at/stale 标记的缓存，而不是等待永远不到达的新帧。
 // 决策与备选方案见 .agents/notes/implemented/feature/2026-10-18-dota-screenshot.md。
 import { randomBytes, createHash } from "node:crypto";
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, renameSync, openSync, closeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { scrubbedEnv } from "./process-env.js";
+import { runCommand, nodeInvocation } from "./exec.js";
 
 export interface ScreenshotOptions {
   maxWidth: number;
@@ -50,17 +51,6 @@ interface HelperReply {
   message?: string;
 }
 
-interface RunResult { stdout: string; stderr: string; timedOut: boolean; error: string | null }
-
-function run(cmd: string, args: string[], timeout: number): Promise<RunResult> {
-  return new Promise((resolve) => {
-    execFile(cmd, args, { timeout, windowsHide: true, encoding: "utf8", env: scrubbedEnv() }, (err, stdout, stderr) => {
-      const e = err as (Error & { killed?: boolean; code?: unknown }) | null;
-      resolve({ stdout: stdout ?? "", stderr: stderr ?? "", timedOut: !!e?.killed, error: e ? e.message : null });
-    });
-  });
-}
-
 /** 编译（或复用缓存的）截图辅助程序，返回 exe 路径。异步执行：冷编译不阻塞 MCP 主进程。编译失败抛错（含 csc 输出）。 */
 async function ensureHelper(): Promise<string> {
   const hash = createHash("sha256").update(HELPER_SOURCE).digest("hex").slice(0, 12);
@@ -78,13 +68,13 @@ async function ensureHelper(): Promise<string> {
   const winmd = (name: string) => path.join(root, "System32", "WinMetadata", name + ".winmd");
   // 只引用每台 Windows 10/11 都有的 GAC facade 与拆分 winmd；SDK 才有的合并版 Windows.winmd 不可用
   const refs = [gac("System.Runtime"), gac("System.Threading.Tasks"), winmd("Windows.Foundation"), winmd("Windows.Graphics"), winmd("Windows.Storage")];
-  const r = await run(path.join(root, "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe"),
+  const r = await runCommand(path.join(root, "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe"),
     ["-nologo", "-optimize", "-platform:x64", `-out:${tmpExe}`, ...refs.map((x) => `-r:${x}`), src], 60000);
   rmSync(src, { force: true });
   if (existsSync(exe)) { rmSync(tmpExe, { force: true }); return exe; } // 别的会话先编译好了
   if (r.error || !existsSync(tmpExe)) {
     rmSync(tmpExe, { force: true });
-    throw new Error((r.stdout || r.error || "csc failed").trim().slice(0, 1500));
+    throw new Error((r.stdout || r.error?.message || "csc failed").trim().slice(0, 1500));
   }
   try { renameSync(tmpExe, exe); } catch { rmSync(tmpExe, { force: true }); if (!existsSync(exe)) throw new Error("could not cache the compiled helper"); }
   return exe;
@@ -216,12 +206,6 @@ async function stopWatcher(dir: string, deadline: number): Promise<boolean> {
   return stopped && removeWatcherLock(dir, info.raw);
 }
 
-function helperInvocation(helper: string, args: string[]): { cmd: string; args: string[] } {
-  return fakeWatcher(helper)
-    ? { cmd: process.execPath, args: [helper, ...args] }
-    : { cmd: helper, args };
-}
-
 function watcherLog(dir: string): string {
   try { return readFileSync(path.join(dir, "watcher.log"), "utf8").slice(-1000).trim(); } catch { return ""; }
 }
@@ -231,7 +215,7 @@ async function ensureWatcher(helper: string, deadline = Date.now() + TOTAL_TIMEO
   const dir = watchDir();
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const desiredSource = path.resolve(helper);
-  const invocation = helperInvocation(helper, ["--watch", dir, desiredSource]);
+  const invocation = nodeInvocation(helper, ["--watch", dir, desiredSource]);
   const state: { error: Error | null; exited: boolean } = { error: null, exited: false };
   let child: import("node:child_process").ChildProcess | null = null;
 
@@ -297,7 +281,7 @@ export async function captureHelperCommand(args: string[]): Promise<HelperComman
   } catch (e) {
     return { ok: false, code: "internal", message: `Could not build the capture helper with the system C# compiler, so the game window cannot be recorded:\n${(e as Error).message}` };
   }
-  return { ok: true, ...helperInvocation(helper, args) };
+  return { ok: true, ...nodeInvocation(helper, args) };
 }
 
 function readReply(file: string): HelperReply | null {
@@ -311,8 +295,8 @@ async function minimizeAfterRestore(helper: string, restoring: boolean, deadline
   if (!restoring) return "";
   const remaining = deadline - Date.now();
   if (remaining <= 0) return " The window had been restored and could not be minimized again before the 5s deadline.";
-  const invocation = helperInvocation(helper, ["--minimize"]);
-  const m = await run(invocation.cmd, invocation.args, remaining);
+  const invocation = nodeInvocation(helper, ["--minimize"]);
+  const m = await runCommand(invocation.cmd, invocation.args, remaining);
   return m.timedOut || m.error
     ? " The window had been restored and could not be minimized again."
     : " The window had been restored; it was minimized again.";
@@ -449,7 +433,6 @@ static class DotaCapture {
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll")] static extern bool IsHungAppWindow(IntPtr h);
-  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
   [DllImport("d3d11.dll")] static extern int D3D11CreateDevice(IntPtr adapter, int driverType, IntPtr software, uint flags,
     IntPtr levels, uint numLevels, uint sdk, out IntPtr device, out int level, out IntPtr context);
@@ -474,8 +457,6 @@ static class DotaCapture {
         Console.WriteLine("{\"ok\":true}");
         return 0;
       }
-      // --rect: the game window rectangle in virtual-screen coordinates.
-      if (args.Length == 1 && args[0] == "--rect") return Rect();
       // --record <dir> <fps> <durationMs>: WGC frames of the game window as a PNG sequence (dota_record encodes them).
       if (args.Length == 4 && args[0] == "--record") return Record(args[1], int.Parse(args[2]), int.Parse(args[3])).GetAwaiter().GetResult();
       return Run(args).GetAwaiter().GetResult();
@@ -517,21 +498,6 @@ static class DotaCapture {
     }, IntPtr.Zero);
     windowPid = foundPid;
     return found;
-  }
-
-  [StructLayout(LayoutKind.Sequential)]
-  struct RECT { public int Left, Top, Right, Bottom; }
-
-  static int Rect() {
-    IntPtr w = FindGameWindow();
-    if (w == IntPtr.Zero) { Fail("no_window", "No Dota 2 game window found."); return 2; }
-    if (IsIconic(w)) { Fail("minimized", "The Dota 2 window is minimized."); return 2; }
-    RECT r;
-    if (!GetWindowRect(w, out r)) { Fail("no_window", "Could not read the Dota 2 window rectangle."); return 2; }
-    int width = r.Right - r.Left, height = r.Bottom - r.Top;
-    if (width <= 0 || height <= 0) { Fail("no_window", "The Dota 2 window has no visible area."); return 2; }
-    Console.WriteLine("{\"ok\":true,\"x\":" + r.Left + ",\"y\":" + r.Top + ",\"width\":" + width + ",\"height\":" + height + "}");
-    return 0;
   }
 
   // Frames are written as a numbered PNG sequence for ffmpeg. One frame is emitted per tick even when

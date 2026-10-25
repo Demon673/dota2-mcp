@@ -170,6 +170,12 @@ try {
   }, 10000, "late-tail visible");
   assert(late.ok && late.lines === "[VScript][L0] late-tail", "output emitted after console_send returned stays readable");
 
+  // ── 3b. format:'text' 逃生舱：窗口正文单独返回 ───────────────
+  const textModeRaw = await call("tools/call", { name: "console_send", arguments: { commands: "echo text-mode", format: "text" } });
+  const textModeItems = textModeRaw.result.content.filter((c) => c.type === "text");
+  assert(!textModeRaw.result.isError && textModeItems.length === 1 && textModeItems[0].text === "[VScript][L0] text-mode",
+    "format:'text' returns the command window as plain lines: " + JSON.stringify(textModeItems).slice(0, 200));
+
   // ── 4. 参数错误走统一失败壳 ─────────────────────────────────
   const empty = await consoleSend("\n   \n");
   assert(empty.ok === false && empty.code === "invalid_arg", "empty commands returns {ok:false,code:'invalid_arg'}");

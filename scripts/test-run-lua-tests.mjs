@@ -1,13 +1,13 @@
-// scripts/test-run-lua-tests.mjs — #21：dota_test_run 游戏内断言（离线）
-// 真实 MCP stdio server + 真实 relay（daemon 或本地退化）+ 假 VCon 引擎 + 假 GUI：
+// 离线冒烟：dota_test_run 游戏内断言（真实 MCP stdio server + 真实 relay + 假 VCon 引擎 + 假 GUI）：
 // 1) 工具带 annotations 与五段式英文描述；
-// 2) 成功返回 {ok:true,data:{file,passed,failed,timed_out,results},text}；
+// 2) 成功返回 {ok:true,data:{file,passed,failed,timed_out,results},text}，format:'text' 只回摘要正文；
 // 3) 单条失败不中断后续测试；
 // 4) 单条挂起按 per_test_timeout_ms 报 timeout，后续测试照常执行；
 // 5) 整体 timeout_ms 生效，未跑的测试以 timeout 返回；
 // 6) 测试文件加载失败 → test_harness_error；路径/文件错误 → invalid_arg；
-// 7) 大测试文件不受 510 字节控制台语句上限约束（引擎内 require，语句只含加载器）；
-// 8) 工具是动作而非读取：不移动 console_output 会话游标。
+// 7) 加载器早退（无 [MCP-TEST] 行）报 settle 窗口，不冒充整体预算耗尽；
+// 8) 大测试文件不受 510 字节控制台语句上限约束（引擎内 require，语句只含加载器）；
+// 9) 工具是动作而非读取：不移动 console_output 会话游标。
 import net from "node:net";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -41,7 +41,7 @@ if (!dotaPath) throw new Error("cannot detect a Dota 2 path for the test-run fix
 const addonGame = path.join(dotaPath, "game", "dota_addons", ADDON);
 const testsDir = path.join(addonGame, ...TEST_DIR.split("/"));
 mkdirSync(testsDir, { recursive: true });
-for (const name of ["smoke", "hang", "hangall", "broken", "empty"]) {
+for (const name of ["smoke", "hang", "hangall", "broken", "empty", "silent"]) {
   writeFileSync(path.join(testsDir, `${name}.lua`), `-- fixture ${name}\n`);
 }
 const largeBody = `-- fixture large\n-- ${LARGE_PAYLOAD.repeat(120)}\n`;
@@ -99,6 +99,7 @@ const MODULES = {
   },
   "tests.broken": { loadError: "tests/broken.lua:1: attempt to index a nil value (global 'Broken')" },
   "tests.empty": { names: [], outcomes: [] },
+  "tests.silent": { names: [], outcomes: [], silent: true },
   "tests.large": { names: ["module_loaded_whole"], outcomes: [{ status: "pass" }] },
 };
 
@@ -125,7 +126,7 @@ function emitLua(sock, part) {
   if (part.includes("[MCP-TEST] test|")) {
     if (!spec || spec.loadError) {
       sock.write(prntFrame(spec?.loadError ?? `unknown test module ${String(mod)}`));
-    } else {
+    } else if (!spec.silent) {
       spec.names.forEach((name, i) => sock.write(prntFrame(`[MCP-TEST] test|${i + 1}|${name}`)));
       sock.write(prntFrame(`[MCP-TEST] end|${spec.names.length}`));
     }
@@ -249,6 +250,13 @@ try {
   assert(Number.isInteger(smoke.data.next_seq) && smoke.data.next_seq > 0 && Number.isInteger(smoke.data.dropped),
     "the run reports the shared console window as next_seq/dropped: " + JSON.stringify({ next_seq: smoke.data.next_seq, dropped: smoke.data.dropped }));
 
+  // ── 3b. format:'text'：只回摘要正文，不套信封 ───────────────
+  const smokeTextRaw = await tool("dota_test_run", { file: SMOKE, format: "text" });
+  const smokeTextItems = smokeTextRaw.result.content.filter((c) => c.type === "text");
+  assert(!smokeTextRaw.result.isError && smokeTextItems.length === 1
+    && smokeTextItems[0].text === smoke.text && !smokeTextItems[0].text.trim().startsWith("{"),
+    "format:'text' returns the plain summary as the sole content (no envelope): " + JSON.stringify(smokeTextItems).slice(0, 200));
+
   // ── 4. 工具不移动 console_output 会话游标 ────────────────────
   const after = out(await tool("console_output", {}));
   assert(after.ok === true && after.count > 0 && after.next_seq >= smoke.data.next_seq
@@ -287,6 +295,12 @@ try {
   assert(empty.ok === true && empty.data.results.length === 0 && empty.data.passed === 0
     && empty.data.failed === 0 && empty.data.timed_out === 0,
     "an empty test module succeeds with zero counts: " + JSON.stringify(empty).slice(0, 200));
+
+  // ── 8b. 加载器早退：报 settle 窗口，不冒充整体预算耗尽 ───────
+  const silent = await runTests({ file: `${TEST_DIR}/silent.lua`, timeout_ms: 60000 });
+  assert(silent.ok === false && silent.code === "timeout" && /settle window/.test(silent.message)
+    && !/overall budget/.test(silent.message),
+    "a loader that never lists reports the settle window, not an exhausted overall budget: " + JSON.stringify(silent).slice(0, 300));
 
   // ── 9. 大测试文件不受 510 字节语句上限约束 ──────────────────
   assert(Buffer.byteLength(largeBody, "utf8") > 2000, "fixture test file is larger than the 510-byte console cap");

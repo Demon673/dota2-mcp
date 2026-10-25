@@ -1,10 +1,9 @@
 // 工具返回契约的唯一构造入口：成功 {ok:true,...载荷}，失败 {ok:false,code,message} 且 isError。
 
-/** 失败错误码表（spec：只增不减），agent 据此稳定分支而不是解析文案。 */
+/** 失败错误码表：agent 据此稳定分支而不是解析文案；只增不删，唯一例外是确认没有任何发射路径的死码。 */
 export const ERROR_CODES = [
   "dota_down",
   "vconsole_closed",
-  "daemon_down",
   "cheats_off",
   "phase_wrong",
   "lua_too_long",
@@ -64,6 +63,28 @@ export function okPretty(payload: OkPayload): ToolResult {
   return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...payload }, null, 2) }] };
 }
 
+/** 逃生舱的输出形态：json = 契约信封；text = 只有正文，便于人读或旧脚本拼接。 */
+export type ResultFormat = "json" | "text";
+
+/** text 形态的唯一构造入口：正文，无信封。 */
+export function renderText(text: string): ToolResult {
+  return { content: [{ type: "text", text }] };
+}
+
+/** 窗口载荷的唯一构造入口：count 由 lines 推出，text 形态只回正文。 */
+export function windowResult(
+  payload: { lines: string; next_seq: number; dropped: number },
+  format: ResultFormat = "json"
+): ToolResult {
+  if (format === "text") return renderText(payload.lines);
+  return ok({
+    lines: payload.lines,
+    count: payload.lines === "" ? 0 : payload.lines.split("\n").length,
+    next_seq: payload.next_seq,
+    dropped: payload.dropped,
+  });
+}
+
 /** 任意执行类（console_send、文件写入、重载或终止对局）：会改状态、不可安全重复、无外部网络副作用。 */
 export const EXEC_ANNOTATIONS: ToolHints = {
   readOnlyHint: false,
@@ -78,6 +99,30 @@ export const OPEN_WORLD_ANNOTATIONS: ToolHints = {
   destructiveHint: false,
   idempotentHint: true,
   openWorldHint: true,
+};
+
+/** 帧耗时采样：启动采样进程，每次采到不同时间窗口，缺失时会从 GitHub 下载固定版本 PresentMon。 */
+export const PERF_ANNOTATIONS: ToolHints = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: true,
+};
+
+/** 动作类（改游戏内状态、每次可能是不同结果，但不删除数据）：spawn 粒子、跑游戏内测试。 */
+export const ACTION_ANNOTATIONS: ToolHints = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+};
+
+/** 开关类（改 relay/游戏内运行时状态，可收敛到同一结果）：GUI 过滤、销毁预览粒子。 */
+export const TOGGLE_ANNOTATIONS: ToolHints = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
 };
 
 /** 截图：不改游戏状态，但每次调用落一个新文件，因此不幂等。 */

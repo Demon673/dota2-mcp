@@ -41,6 +41,10 @@ const missing = FACT_KEYS.filter((k) => !(k in envelope.data));
 assert(missing.length === 0, "data carries all eight capability facts (missing: " + missing.join(", ") + ")");
 assert(Array.isArray(envelope.data.available_actions), "available_actions is an array");
 assert(envelope.data.available_actions.every((a) => typeof a === "string"), "available_actions holds action names");
+const toolNames = new Set(tools.result.tools.map((t) => t.name));
+assert(envelope.data.available_actions.every((a) => toolNames.has(a)), "every available_actions name is a callable tool");
+assert(["dota_screenshot", "dota_record"].every((a) => envelope.data.available_actions.includes(a)),
+  "ungated capture tools are listed even with Dota absent: " + JSON.stringify(envelope.data.available_actions));
 assert(typeof envelope.text === "string" && envelope.text.includes("not connected"),
   "text summary keeps the offline compatibility phrase 'not connected'");
 

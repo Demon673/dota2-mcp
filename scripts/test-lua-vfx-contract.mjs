@@ -1,7 +1,7 @@
-// scripts/test-lua-vfx-contract.mjs — #17：dota_run_lua / vfx_preview / vfx_preview_stop 的统一契约
-// 真实 MCP stdio server + 真实 relay（daemon 或本地退化）+ 假 VCon 引擎 + 假 GUI：
+// 离线冒烟：dota_run_lua / vfx_preview / vfx_preview_stop 的统一契约
+// （真实 MCP stdio server + 真实 relay + 假 VCon 引擎 + 假 GUI）：
 // 1) 三个工具带 annotations 与五段式英文描述；2) 输出走 {ok:true,lines,count,next_seq,dropped}，
-//    且不移动 console_output 的会话游标；3) 失败用稳定错误码：
+//    format:'text' 只回按行拼接的正文；3) 不移动 console_output 的会话游标；4) 失败用稳定错误码：
 //    lua_too_long / cheats_off / precache_missing / vconsole_closed。
 import net from "node:net";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -202,6 +202,13 @@ try {
     && after.next_seq === lua.next_seq,
     "the Lua tool does not move the session cursor: its output is still readable incrementally");
 
+  // ── 3b. format:'text'：只回按行拼接的正文，不套信封 ───────────
+  const luaTextRaw = await tool("dota_run_lua", { code: "print('lua_text_mode_line')", format: "text" });
+  const luaTextItems = luaTextRaw.result.content.filter((c) => c.type === "text");
+  assert(!luaTextRaw.result.isError && luaTextItems.length === 1
+    && luaTextItems[0].text.includes("lua_text_mode_line") && !luaTextItems[0].text.trim().startsWith("{"),
+    "format:'text' returns the plain joined lines as the sole content: " + JSON.stringify(luaTextItems).slice(0, 200));
+
   // ── 4. vfx_preview / vfx_preview_stop 成功：同样的 lines 载荷 ──
   const vfx = out(await tool("vfx_preview", { particle_path: "particles/basic_explosion/basic_explosion.vpcf", attach: 8 }));
   assert(vfx.ok === true && vfx.lines.includes("[MCP-VFX]") && vfx.count === vfx.lines.split("\n").length
@@ -212,6 +219,11 @@ try {
     "vfx_preview_stop returns the same lines envelope: " + JSON.stringify(stop).slice(0, 200));
   assert(!JSON.stringify(stop).includes("ok=nil"),
     "DestroyParticle's void return is never reported as ok=nil");
+  const stopTextRaw = await tool("vfx_preview_stop", { particle_id: 7, format: "text" });
+  const stopTextItems = stopTextRaw.result.content.filter((c) => c.type === "text");
+  assert(!stopTextRaw.result.isError && stopTextItems.length === 1
+    && stopTextItems[0].text.includes("destroyed pid=7") && !stopTextItems[0].text.trim().startsWith("{"),
+    "vfx_preview_stop format:'text' returns the plain lines: " + JSON.stringify(stopTextItems).slice(0, 200));
 
   // ── 5. 超长 Lua → lua_too_long，且消息保留可用字节提示 ────────
   const longCode = "print('" + "x".repeat(600) + "')";

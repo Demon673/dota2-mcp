@@ -1,4 +1,4 @@
-// 离线冒烟：写操作与生命周期族（#23）迁移到统一契约。
+// 离线冒烟：写操作与生命周期族迁移到统一契约。
 // 只走 MCP 对外行为：tools/list 的 annotations / 五段式描述，tools/call 的 {ok,...} 壳。
 // 不需要 Dota/vconsole：端口与 daemon 状态目录隔离；FileOps 真实读写——本机有 Steam 时用真实 Dota 目录，
 // 没有时用临时最小 Steam 库（STEAM_PATH，同 test-fileops）。addon 名带随机后缀，结束只删本测试创建的目录。
@@ -51,6 +51,7 @@ const expected = {
   dota_open_vconsole: { destructive: false, openWorld: true },
   dota_compile_asset: { destructive: false, openWorld: true },
   dota_screenshot: { destructive: false, openWorld: false, readOnly: true },
+  dota_record: { destructive: true, openWorld: false },
   dota_advance_to_game: { destructive: true, openWorld: false },
   dota_disconnect: { destructive: true, openWorld: false },
 };
@@ -67,6 +68,9 @@ for (const [name, want] of Object.entries(expected)) {
     && tool.description.includes("Limits:") && tool.description.includes("Related tools:"),
     name + " description covers use/returns/limits/related tools");
 }
+const recordTool = tools.find((t) => t.name === "dota_record");
+assert(/deletes an existing target/.test(recordTool.description) && recordTool.description.includes("r_always_render_all_windows"),
+  "dota_record description states the overwrite deletion and the temporary cvar remedy");
 
 const tool = async (name, args = {}) => callJson(await call("tools/call", { name, arguments: args }));
 

@@ -102,18 +102,25 @@ const shoot = async (mode, args = {}) => {
   return (await call("tools/call", { name: "dota_screenshot", arguments: args })).result;
 };
 const text = (r) => r.content.filter((c) => c.type === "text").map((c) => c.text).join("\n");
+const envelope = (r) => JSON.parse(r.content.find((c) => c.type === "text").text);
 const image = (r) => r.content.find((c) => c.type === "image");
 const lockPid = (raw) => Number(raw.trim().split(/\r?\n/)[1]);
 const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
-// 成功：image 内容 + 文件路径；max_width/format/restore 透传给辅助程序；不需要 vconsole
+// 成功：image 内容 + 契约信封；max_width/format/restore 透传给辅助程序；不需要 vconsole
 const ok = await shoot("ok", { max_width: 640, format: "png" });
 assert(!ok.isError, "screenshot ok without vconsole: " + text(ok));
-assert(!/stale: true/.test(text(ok)), "fresh success is not marked stale");
+const okEnv = envelope(ok);
+assert(ok.content.filter((c) => c.type === "text").length === 1, "success carries exactly one envelope (no duplicated raw summary)");
+assert(okEnv.ok === true && okEnv.data.stale === false, "fresh success is not marked stale");
 const img = image(ok);
 assert(img && img.mimeType === "image/png", "returns png image content");
 assert(Buffer.from(img.data, "base64").toString() === "FAKEIMG 640 png 1", "max_width/format/restore reach the helper");
-assert(text(ok).includes(shotDir), "result names the saved file");
+assert(existsSync(okEnv.data.path) && path.resolve(okEnv.data.path).startsWith(path.resolve(shotDir) + path.sep),
+  "envelope data names the saved file inside DOTA2_SCREENSHOT_DIR: " + JSON.stringify(okEnv.data));
+assert(typeof okEnv.data.captured_at === "string" && okEnv.data.width === 640 && okEnv.data.height === 100,
+  "envelope data carries the capture time and dimensions: " + JSON.stringify(okEnv.data));
+assert(okEnv.text.includes(okEnv.data.path), "envelope text is the human summary naming the file");
 
 const def = await shoot("ok");
 assert(image(def).mimeType === "image/jpeg" && Buffer.from(image(def).data, "base64").toString() === "FAKEIMG 1280 jpeg 1", "defaults: 1280 jpeg restore");
@@ -122,19 +129,21 @@ const watcherRaw = readFileSync(watcherLock, "utf8");
 const watcherPid = lockPid(watcherRaw);
 assert(watcherPid > 0, "persistent watcher is running");
 const stale = await shoot("stale");
-assert(!stale.isError && image(stale) && /stale: true/.test(text(stale)) && /captured at/.test(text(stale)), "cached frame is returned with an explicit stale marker: " + text(stale));
+const staleEnv = envelope(stale);
+assert(!stale.isError && image(stale) && staleEnv.data.stale === true && /captured at/.test(staleEnv.text),
+  "cached frame is returned with an explicit stale marker: " + JSON.stringify(staleEnv));
 assert(image(stale).data === image(def).data, "stale result is the previously cached image, not a different frame");
 assert(readFileSync(watcherLock, "utf8") === watcherRaw, "multiple captures share one persistent helper");
 
 // 卡死：照常返回图片并标注
 const hung = await shoot("hung");
-assert(!hung.isError && image(hung) && /hung: true/.test(text(hung)), "hung window still returns image, flagged: " + text(hung));
+assert(!hung.isError && image(hung) && /hung: true/.test(envelope(hung).text), "hung window still returns image, flagged: " + text(hung));
 const hungNoFrame = await shoot("hung_no_frame");
 assert(hungNoFrame.isError && /not responding/.test(text(hungNoFrame)) && /no frame/i.test(text(hungNoFrame)) && !image(hungNoFrame), "sustained hang with no frame reports the real cause: " + text(hungNoFrame));
 
 // 最小化：默认恢复后截图；restore:false 报已最小化
 const restored = await shoot("minimized");
-assert(!restored.isError && /restored/.test(text(restored)), "minimized window restored and captured");
+assert(!restored.isError && /restored/.test(envelope(restored).text), "minimized window restored and captured");
 const noRestore = await shoot("minimized", { restore: false });
 assert(noRestore.isError && /minimized/i.test(text(noRestore)), "restore:false reports minimized: " + text(noRestore));
 
