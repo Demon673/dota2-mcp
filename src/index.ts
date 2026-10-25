@@ -160,8 +160,14 @@ async function main(): Promise<void> {
   let currentMaps: string[] = [];
   let currentAllMaps: string[] = [];
 
-  // 结构化存 console 输出（含 verbosity 级别和 channel 来源）
-  let prntLog: { text: string; verbosity: number; channel: string }[] = [];
+  // 结构化存 console 输出（含 verbosity 级别和 channel 来源）。seq 从 0 单调递增，
+  // 供 console_output 的会话游标读取；环形缓冲只从头部淘汰，prntEvicted 即现存最老行号。
+  const PRNT_BUFFER_MAX = 10000;
+  let prntLog: { seq: number; text: string; verbosity: number; channel: string }[] = [];
+  let prntSeqNext = 0;
+  let prntEvicted = 0;
+  /** 默认增量读取的会话游标（null = 本次会话尚未读过）；显式窗口读取不移动它 */
+  let consoleCursor: number | null = null;
 
   /** 当前接入的 relay（瘦客户端或本地）。守护进程被杀时由 respawnRelay 整体替换 */
   let relay: RelayLike;
@@ -195,9 +201,10 @@ async function main(): Promise<void> {
     // 事件驱动：relay 收到 PRNT 时立即同步到本地缓冲
     r.on("prnt", (msg: any) => {
       if (MCP_MARKER_RE.test(String(msg.text).trim())) return;
-      prntLog.push({ text: msg.text, verbosity: msg.verbosity, channel: msg.channel || "" });
-      if (prntLog.length > 10000) {
+      prntLog.push({ seq: prntSeqNext++, text: msg.text, verbosity: msg.verbosity, channel: msg.channel || "" });
+      if (prntLog.length > PRNT_BUFFER_MAX) {
         prntLog.shift();
+        prntEvicted++;
       }
     });
     r.on("close", onRelayClose);
@@ -445,33 +452,79 @@ Then call dota_status again.`;
 
   // Tool: 读取 console 输出（VCon 实时流，含 verbosity 级别和 channel 来源）
   server.tool("console_output",
-    "Use when the user reports an in-game bug, error, crash, Lua/Panorama failure, or asks what went wrong while testing. Reads Dota 2 console output with severity filtering. level: 0=all, 1=warnings+, 2=asserts+, 3=errors only. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use when you need to read Dota 2 console output to diagnose an in-game bug, error, crash, Lua/Panorama failure, or the result of a command you just sent. Reads this MCP session's buffered console lines and is incremental by default: the first default call (no cursor yet) returns the most recent 50 lines, and later default calls return only lines added since the previous default call. Returns {ok:true,lines,count,next_seq,dropped}: lines is one newline-joined string formatted '[channel][Llevel] text', count is the number of returned lines, next_seq is the next unseen sequence number (pass it as since_seq to continue explicitly), and dropped is how many requested lines the 10000-line buffer already evicted. Window params (use at most one): tail returns the last N lines (lines is a one-version alias), since_seq replays inclusively from that seq, from_start returns the whole buffered history. level (0=all, 1=warnings+, 2=asserts+, 3=errors only), filter (case-insensitive regex) and channel (comma-separated names) narrow the returned window only: unmatched lines stay buffered and next_seq still advances over everything scanned. Limits: requires an open vconsole attached to 127.0.0.1:29001; the buffer keeps the newest 10000 lines; the cursor is per MCP session and resets when the session restarts; explicit tail/since_seq/from_start reads do not move the default cursor. Related tools: console_send (run commands), console_channels (list channel names), console_find/console_help (discover commands), dota_status (connection state).",
     {
-      lines: z.number().optional().describe("Number of lines to return. Default 50."),
+      tail: z.number().optional().describe("Return only the last N buffered lines (N >= 1). Default on the first call without a cursor: 50. Mutually exclusive with since_seq/from_start."),
+      lines: z.number().optional().describe("Alias for tail, kept for one version."),
+      since_seq: z.number().optional().describe("Replay: return lines whose seq is >= this value. Mutually exclusive with tail/lines/from_start."),
+      from_start: z.boolean().optional().describe("Return the whole buffered session history (subject to the 10000-line cap). Mutually exclusive with tail/lines/since_seq."),
       level: z.number().optional().describe("0=all, 1=warnings+, 2=asserts+, 3=errors only. Default 0."),
-      filter: z.string().optional().describe("Optional regex"),
+      filter: z.string().optional().describe("Optional case-insensitive regex"),
       channel: z.string().optional().describe("Filter by source channel(s), e.g. VScript, PanoramaScript, ResourceSystem. Use comma to filter multiple channels like 'VScript, PanoramaScript'. Use console_channels to list available channels."),
     },
-    async ({ lines, level, filter, channel }) => {
-      requireConsole();
-      const n = lines ?? 50;
-      const lvl = level ?? 0;
-      let output = prntLog;
-      if (lvl > 0) output = output.filter(l => l.verbosity >= lvl);
+    READ_ONLY_ANNOTATIONS,
+    async ({ tail, lines, since_seq, from_start, level, filter, channel }) => {
+      const blocked = consoleGate();
+      if (blocked) return blocked;
+
+      const n = tail ?? lines;
+      if (tail !== undefined && lines !== undefined) return fail("invalid_arg", "Use either tail or its alias lines, not both.");
+      const windows = Number(from_start === true) + Number(since_seq !== undefined) + Number(n !== undefined);
+      if (windows > 1) return fail("invalid_arg", "Use at most one of from_start, since_seq, or tail/lines per call.");
+      if (n !== undefined && (!Number.isInteger(n) || n < 1)) return fail("invalid_arg", "tail/lines must be a positive integer.");
+      if (since_seq !== undefined && (!Number.isInteger(since_seq) || since_seq < 0)) return fail("invalid_arg", "since_seq must be a non-negative integer.");
+
+      let re: RegExp | null = null;
       if (filter) {
-        let re: RegExp;
         try {
           re = new RegExp(filter, "i");
-        } catch (e) {
-          throw new McpError(ErrorCode.InvalidRequest, `Invalid regex filter: ${filter}`);
+        } catch {
+          return fail("invalid_arg", `Invalid regex filter: ${filter}`);
         }
-        output = output.filter(l => re.test(l.text));
       }
-      if (channel) {
-        const chs = channel.split(",").map(c => c.trim().toLowerCase()).filter(Boolean);
-        output = output.filter(l => chs.includes(l.channel.toLowerCase()));
+      const chs = channel ? channel.split(",").map(c => c.trim().toLowerCase()).filter(Boolean) : null;
+
+      // 窗口起点：显式参数优先于会话游标；无游标的首次读取等价 tail 50。
+      // dropped = 请求窗口里已被环形缓冲挤掉的行数（证据缺口），过滤器不改变它。
+      const oldest = prntEvicted; // seq 从 0 起、只从头部淘汰，故等于现存最老行号
+      let startSeq: number;
+      let dropped: number;
+      let incremental = false;
+      if (from_start) {
+        startSeq = 0;
+        dropped = oldest;
+      } else if (since_seq !== undefined) {
+        startSeq = since_seq;
+        dropped = Math.max(0, oldest - since_seq);
+      } else if (n !== undefined) {
+        startSeq = Math.max(oldest, prntSeqNext - n);
+        dropped = 0;
+      } else if (consoleCursor === null) {
+        incremental = true;
+        startSeq = Math.max(oldest, prntSeqNext - 50);
+        dropped = 0;
+      } else {
+        incremental = true;
+        startSeq = consoleCursor;
+        dropped = Math.max(0, oldest - consoleCursor);
       }
-      return { content: [{ type: "text", text: output.slice(-n).map(l => `[${l.channel || "?"}][L${l.verbosity}] ${l.text}`).join("\n") || "(no output)" }] };
+
+      // 过滤器只筛选返回内容：next_seq 仍推进到已扫描末尾，未匹配行留在缓冲里可重放
+      const lvl = level ?? 0;
+      const picked = prntLog.filter(l =>
+        l.seq >= startSeq
+        && (lvl === 0 || l.verbosity >= lvl)
+        && (!re || re.test(l.text))
+        && (!chs || chs.includes(l.channel.toLowerCase()))
+      );
+      const next_seq = Math.max(prntSeqNext, startSeq);
+      if (incremental) consoleCursor = next_seq;
+      return ok({
+        lines: picked.map(l => `[${l.channel || "?"}][L${l.verbosity}] ${l.text}`).join("\n"),
+        count: picked.length,
+        next_seq,
+        dropped,
+      });
     }
   );
 
