@@ -26,8 +26,9 @@ import { ensureVrf, DEFAULT_VERSION } from "./tools/vrf-ensure.js";
 import { inspectAsset } from "./tools/asset-inspect.js";
 import { checkRefs } from "./tools/asset-check-refs.js";
 import { captureScreenshot, startScreenshotWatcher } from "./tools/screenshot.js";
+import { recordVideo } from "./tools/recorder.js";
 import { particlePrecacheNote } from "./tools/particle-precache.js";
-import { ok, fail, READ_ONLY_ANNOTATIONS, OPEN_WORLD_ANNOTATIONS, type ToolResult } from "./tools/tool-result.js";
+import { ok, okPretty, fail, READ_ONLY_ANNOTATIONS, OPEN_WORLD_ANNOTATIONS, type ToolResult } from "./tools/tool-result.js";
 import * as daemon from "./daemon-utils.js";
 
 function getVersion(): string {
@@ -160,8 +161,14 @@ async function main(): Promise<void> {
   let currentMaps: string[] = [];
   let currentAllMaps: string[] = [];
 
-  // 结构化存 console 输出（含 verbosity 级别和 channel 来源）
-  let prntLog: { text: string; verbosity: number; channel: string }[] = [];
+  // 结构化存 console 输出（含 verbosity 级别和 channel 来源）。seq 从 0 单调递增，
+  // 供 console_output 的会话游标读取；环形缓冲只从头部淘汰，prntEvicted 即现存最老行号。
+  const PRNT_BUFFER_MAX = 10000;
+  let prntLog: { seq: number; text: string; verbosity: number; channel: string }[] = [];
+  let prntSeqNext = 0;
+  let prntEvicted = 0;
+  /** 默认增量读取的会话游标（null = 本次会话尚未读过）；显式窗口读取不移动它 */
+  let consoleCursor: number | null = null;
 
   /** 当前接入的 relay（瘦客户端或本地）。守护进程被杀时由 respawnRelay 整体替换 */
   let relay: RelayLike;
@@ -195,9 +202,10 @@ async function main(): Promise<void> {
     // 事件驱动：relay 收到 PRNT 时立即同步到本地缓冲
     r.on("prnt", (msg: any) => {
       if (MCP_MARKER_RE.test(String(msg.text).trim())) return;
-      prntLog.push({ text: msg.text, verbosity: msg.verbosity, channel: msg.channel || "" });
-      if (prntLog.length > 10000) {
+      prntLog.push({ seq: prntSeqNext++, text: msg.text, verbosity: msg.verbosity, channel: msg.channel || "" });
+      if (prntLog.length > PRNT_BUFFER_MAX) {
         prntLog.shift();
+        prntEvicted++;
       }
     });
     r.on("close", onRelayClose);
@@ -244,7 +252,8 @@ async function main(): Promise<void> {
     if ((relay as VConRelay).portInUse) {
       return `另一个 dota2-mcp 实例已占用端口 29001/29002（多实例冲突）。请关闭其他实例。`;
     }
-    return `未连接到 Dota 2（VConsole2 端口 29000）。Dota 2 可能未启动、已崩溃或正在重启；relay 会持续自动重连，稍后重试即可。若刚重启 Dota 2 仍持续出现：旧 dota2.exe 可能没退干净并仍占用 29000——在任务管理器彻底结束所有 dota2.exe 后再启动。`;
+    return `未连接到 Dota 2（VConsole2 端口 29000）。Dota 2 可能未启动、已崩溃或正在重启；relay 会持续自动重连，稍后重试即可。若刚重启 Dota 2 仍持续出现：旧 dota2.exe 可能没退干净并仍占用 29000——在任务管理器彻底结束所有 dota2.exe 后再启动。
+调用 dota_status 查看当前能力矩阵（daemon/vconsole/dota/phase/cheats）与当前可用动作。`;
   }
 
   /** vconsole 未打开的契约提示（控制台类工具需要 vconsole 旁观 agent 活动） */
@@ -254,7 +263,8 @@ async function main(): Promise<void> {
 正常情况下 relay 探测到 Dota 就绪后会自动打开 vconsole；看到此消息说明自动打开被禁用（DOTA2_VCON_AUTO_OPEN_VCONSOLE=0）或打开失败/被你手动关闭了。
 请二选一：
 1. 直接运行 ${exe}（AssetBrowser 的 vconsole 按钮在 relay 持有 29000 时被引擎禁用，勿用）；
-2. 调用 dota_open_vconsole 让我帮你打开。`;
+2. 调用 dota_open_vconsole 让我帮你打开。
+调用 dota_status 查看当前能力矩阵（daemon/vconsole/dota/phase/cheats）与当前可用动作。`;
   }
 
   /** dota_status 的 vconsole 未开英文指引（与 requireConsole 的中文报错同源不同语，共享 exe 解析） */
@@ -445,39 +455,86 @@ Then call dota_status again.`;
       `How to advance: ${guidance}`,
       errors.length > 0 ? `Recent errors:\n${errors.join("\n")}` : "No recent VScript/error output.",
       `To see what the game is showing: call dota_screenshot.`,
+      `Current capabilities and the actions valid right now: call dota_status.`,
       `Full phase guide: call dota2_skill with name "dota2-game-phases".`,
     ].join("\n");
   }
 
   // Tool: 读取 console 输出（VCon 实时流，含 verbosity 级别和 channel 来源）
   server.tool("console_output",
-    "Use when the user reports an in-game bug, error, crash, Lua/Panorama failure, or asks what went wrong while testing. Reads Dota 2 console output with severity filtering. level: 0=all, 1=warnings+, 2=asserts+, 3=errors only. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use when you need to read Dota 2 console output to diagnose an in-game bug, error, crash, Lua/Panorama failure, or the result of a command you just sent. Reads this MCP session's buffered console lines and is incremental by default: the first default call (no cursor yet) returns the most recent 50 lines, and later default calls return only lines added since the previous default call. Returns {ok:true,lines,count,next_seq,dropped}: lines is one newline-joined string formatted '[channel][Llevel] text', count is the number of returned lines, next_seq is the next unseen sequence number (pass it as since_seq to continue explicitly), and dropped is how many requested lines the 10000-line buffer already evicted. Window params (use at most one): tail returns the last N lines (lines is a one-version alias), since_seq replays inclusively from that seq, from_start returns the whole buffered history. level (0=all, 1=warnings+, 2=asserts+, 3=errors only), filter (case-insensitive regex) and channel (comma-separated names) narrow the returned window only: unmatched lines stay buffered and next_seq still advances over everything scanned. Limits: requires an open vconsole attached to 127.0.0.1:29001; the buffer keeps the newest 10000 lines; the cursor is per MCP session and resets when the session restarts; explicit tail/since_seq/from_start reads do not move the default cursor. Related tools: console_send (run commands), console_channels (list channel names), console_find/console_help (discover commands), dota_status (connection state).",
     {
-      lines: z.number().optional().describe("Number of lines to return. Default 50."),
+      tail: z.number().optional().describe("Return only the last N buffered lines (N >= 1). Default on the first call without a cursor: 50. Mutually exclusive with since_seq/from_start."),
+      lines: z.number().optional().describe("Alias for tail, kept for one version."),
+      since_seq: z.number().optional().describe("Replay: return lines whose seq is >= this value. Mutually exclusive with tail/lines/from_start."),
+      from_start: z.boolean().optional().describe("Return the whole buffered session history (subject to the 10000-line cap). Mutually exclusive with tail/lines/since_seq."),
       level: z.number().optional().describe("0=all, 1=warnings+, 2=asserts+, 3=errors only. Default 0."),
-      filter: z.string().optional().describe("Optional regex"),
+      filter: z.string().optional().describe("Optional case-insensitive regex"),
       channel: z.string().optional().describe("Filter by source channel(s), e.g. VScript, PanoramaScript, ResourceSystem. Use comma to filter multiple channels like 'VScript, PanoramaScript'. Use console_channels to list available channels."),
     },
-    async ({ lines, level, filter, channel }) => {
-      requireConsole();
-      const n = lines ?? 50;
-      const lvl = level ?? 0;
-      let output = prntLog;
-      if (lvl > 0) output = output.filter(l => l.verbosity >= lvl);
+    READ_ONLY_ANNOTATIONS,
+    async ({ tail, lines, since_seq, from_start, level, filter, channel }) => {
+      const blocked = consoleGate();
+      if (blocked) return blocked;
+
+      const n = tail ?? lines;
+      if (tail !== undefined && lines !== undefined) return fail("invalid_arg", "Use either tail or its alias lines, not both.");
+      const windows = Number(from_start === true) + Number(since_seq !== undefined) + Number(n !== undefined);
+      if (windows > 1) return fail("invalid_arg", "Use at most one of from_start, since_seq, or tail/lines per call.");
+      if (n !== undefined && (!Number.isInteger(n) || n < 1)) return fail("invalid_arg", "tail/lines must be a positive integer.");
+      if (since_seq !== undefined && (!Number.isInteger(since_seq) || since_seq < 0)) return fail("invalid_arg", "since_seq must be a non-negative integer.");
+
+      let re: RegExp | null = null;
       if (filter) {
-        let re: RegExp;
         try {
           re = new RegExp(filter, "i");
-        } catch (e) {
-          throw new McpError(ErrorCode.InvalidRequest, `Invalid regex filter: ${filter}`);
+        } catch {
+          return fail("invalid_arg", `Invalid regex filter: ${filter}`);
         }
-        output = output.filter(l => re.test(l.text));
       }
-      if (channel) {
-        const chs = channel.split(",").map(c => c.trim().toLowerCase()).filter(Boolean);
-        output = output.filter(l => chs.includes(l.channel.toLowerCase()));
+      const chs = channel ? channel.split(",").map(c => c.trim().toLowerCase()).filter(Boolean) : null;
+
+      // 窗口起点：显式参数优先于会话游标；无游标的首次读取等价 tail 50。
+      // dropped = 请求窗口里已被环形缓冲挤掉的行数（证据缺口），过滤器不改变它。
+      const oldest = prntEvicted; // seq 从 0 起、只从头部淘汰，故等于现存最老行号
+      let startSeq: number;
+      let dropped: number;
+      let incremental = false;
+      if (from_start) {
+        startSeq = 0;
+        dropped = oldest;
+      } else if (since_seq !== undefined) {
+        startSeq = since_seq;
+        dropped = Math.max(0, oldest - since_seq);
+      } else if (n !== undefined) {
+        startSeq = Math.max(oldest, prntSeqNext - n);
+        dropped = 0;
+      } else if (consoleCursor === null) {
+        incremental = true;
+        startSeq = Math.max(oldest, prntSeqNext - 50);
+        dropped = 0;
+      } else {
+        incremental = true;
+        startSeq = consoleCursor;
+        dropped = Math.max(0, oldest - consoleCursor);
       }
-      return { content: [{ type: "text", text: output.slice(-n).map(l => `[${l.channel || "?"}][L${l.verbosity}] ${l.text}`).join("\n") || "(no output)" }] };
+
+      // 过滤器只筛选返回内容：next_seq 仍推进到已扫描末尾，未匹配行留在缓冲里可重放
+      const lvl = level ?? 0;
+      const picked = prntLog.filter(l =>
+        l.seq >= startSeq
+        && (lvl === 0 || l.verbosity >= lvl)
+        && (!re || re.test(l.text))
+        && (!chs || chs.includes(l.channel.toLowerCase()))
+      );
+      const next_seq = Math.max(prntSeqNext, startSeq);
+      if (incremental) consoleCursor = next_seq;
+      return ok({
+        lines: picked.map(l => `[${l.channel || "?"}][L${l.verbosity}] ${l.text}`).join("\n"),
+        count: picked.length,
+        next_seq,
+        dropped,
+      });
     }
   );
 
@@ -639,81 +696,100 @@ Then call dota_status again.`;
   );
 
 
+  /** 从控制台读 sv_cheats；拿不到（无 vconsole / 无回应）返回 null，能力矩阵不做猜测。 */
+  async function queryCheats(): Promise<boolean | null> {
+    if (!relay.guiConnected) return null;
+    const out = await collectOutput("sv_cheats", { waitMs: 1500, settleMs: 100 });
+    for (const line of out) {
+      const m = line.match(/sv_cheats"?\s*=\s*"?([01])/i);
+      if (m) return m[1] === "1";
+      if (/^\s*[01]\s*$/.test(line)) return line.trim() === "1";
+    }
+    return null;
+  }
+
+  /** 能力矩阵的可用动作：只列当前事实下真正可执行的工具，与连接/相位指引共用同一套动作名。 */
+  function availableActions(f: {
+    dota: boolean; dotaReady: boolean; vconsole: boolean;
+    loaded: boolean; loading: boolean; gameState: string;
+    cheats: boolean | null; hasAddon: boolean;
+  }): string[] {
+    if (!f.dota) return f.dotaReady && !f.vconsole ? ["dota_open_vconsole"] : [];
+    if (!f.vconsole) return ["dota_open_vconsole"];
+    if (f.loading) return [];
+    if (!f.loaded) return f.hasAddon ? ["dota_launch_game"] : [];
+    const preGame = /CUSTOM_GAME_SETUP|HERO_SELECTION|STRATEGY_TIME|TEAM_SHOWCASE|PRE_GAME/.test(f.gameState)
+      && !f.gameState.includes("GAME_IN_PROGRESS");
+    const actions: string[] = [];
+    if (preGame && f.cheats === true) actions.push("dota_advance_to_game");
+    actions.push("dota_restart");
+    if (f.cheats === true) actions.push("dota_run_lua", "vfx_preview");
+    return actions;
+  }
+
   // Tool: 任务入口 — 测试 / 验证 / 调试 Dota 2 自定义游戏（导航型，永不抛异常）
   server.tool("dota_status",
-    "Check the Dota 2 custom game project's connection, vconsole, addon, available maps, and live game state — and what to do next. Use this FIRST whenever the user asks to test a Dota 2 addon / custom game, check why something doesn't work in-game, run a map, or inspect live game state. Never throws: reports what's missing (Dota or vconsole) and how to fix it.",
+    "Use when you need to know what is possible right now — as the first call when the user asks to test a Dota 2 addon/custom game, check why something does not work in-game, launch a map, or inspect live game state. Reports one capability matrix from live facts: whether the relay is shared through the daemon or running locally, whether vconsole is attached, whether Dota is connected, the game phase, whether sv_cheats is on, the detected addon and map, and the actions valid right now. Returns {ok:true,data:{daemon,vconsole,dota,phase,cheats,addon,map,available_actions},text} — the envelope also carries game_state and maps, and text is a short human-readable summary; it never throws and never returns isError. Limits: every call reads live facts (status_json, plus one sv_cheats query when the console is attached); cheats is null when it cannot be read, map is null and phase is 'unknown' when no map is loaded, and available_actions only lists tools whose prerequisites are met. Related tools: dota_launch_game, dota_advance_to_game, dota_restart, dota_run_lua, vfx_preview, dota_open_vconsole — every available_actions name is a callable tool.",
     {},
+    READ_ONLY_ANNOTATIONS,
     async () => {
-      if (!relay.dotaConnected) {
-        if (relay.dotaReady && !relay.guiConnected) {
-          return { content: [{ type: "text", text: vconsoleGuidanceEn(
-`Dota 2 is up, but vconsole is not open — and by design the relay does not connect to Dota until vconsole is attached (explicit contract: no window, no connection, no console tools).`) }] };
-        }
-        return { content: [{ type: "text", text:
-`Dota 2 is not connected. Ensure Dota 2 is running (with -vconsole or -tools). The relay reconnects automatically; if you just restarted Dota 2 and this persists, an old dota2.exe may not have fully exited — kill it completely and start again.
-
-Once connected, call dota_status again.` }] };
-      }
-      if (!relay.guiConnected) {
-        return { content: [{ type: "text", text: vconsoleGuidanceEn(
-`Dota 2 is connected, but vconsole is not open. Console tools require an open vconsole attached to 127.0.0.1:29001 (explicit contract: you can watch the agent's console activity there).`) }] };
-      }
-
-      startCaptureWatcherOnce();
-      // ADON 帧是 Dota 2 主动推送的，连接刚建立时可能还没到。
-      // addon 为空时稍等片刻再读一次，避免首次调用永远 "(detecting...)"。
-      if (!currentAddon) {
+      // 先收齐事实再产出：所有连接状态走同一矩阵，文本只是摘要，指引与 available_actions 不各说各话
+      const dota = relay.dotaConnected;
+      const vconsole = relay.guiConnected;
+      const connected = dota && vconsole;
+      if (connected) startCaptureWatcherOnce();
+      const state = connected ? parseGameState(await queryStatusJson(5000)) : parseGameState(null);
+      // ADON 帧是 Dota 2 主动推送的，连接刚建立时可能还没到；连上后稍等片刻再读一次
+      if (connected && !currentAddon) {
         for (let i = 0; i < 10 && !currentAddon; i++) {
           await new Promise(r => setTimeout(r, 300));
         }
       }
-
       const addon = resolveAddon();
       const maps = currentMaps.length > 0 ? currentMaps : scanMapsFs(addon);
-      const allMaps = currentAllMaps.length > 0 ? currentAllMaps : scanMapsFs(addon);
-      const status = await queryStatusJson(5000);
-      const state = parseGameState(status);
+      const cheats = connected ? await queryCheats() : null;
+      const actions = availableActions({
+        dota, dotaReady: relay.dotaReady, vconsole,
+        loaded: state.loaded, loading: state.loading, gameState: state.game_state,
+        cheats, hasAddon: !!addon || maps.length > 0,
+      });
 
-      // 根据状态给出下一步指引
-      let nextStep: string;
-      if (state.loading) {
-        nextStep = "Map is loading. Wait, then call dota_status again or watch console_output.";
+      let text: string;
+      if (!dota) {
+        text = relay.dotaReady && !vconsole
+          ? vconsoleGuidanceEn(`Dota 2 is up, but vconsole is not open — and by design the relay does not connect to Dota until vconsole is attached (explicit contract: no window, no connection, no console tools).`)
+          : `Dota 2 is not connected. Ensure Dota 2 is running (with -vconsole or -tools). The relay reconnects automatically; if you just restarted Dota 2 and this persists, an old dota2.exe may not have fully exited — kill it completely and start again.
+
+Once connected, call dota_status again.`;
+      } else if (!vconsole) {
+        text = vconsoleGuidanceEn(`Dota 2 is connected, but vconsole is not open. Console tools require an open vconsole attached to 127.0.0.1:29001 (explicit contract: you can watch the agent's console activity there).`);
+      } else if (state.loading) {
+        text = "Dota 2 connected; a map is loading. Wait, then call dota_status again or watch console_output.";
       } else if (!state.loaded) {
-        nextStep = `No map running. To test the addon, launch a map: dota_launch_game${maps.length > 0 ? ` (available: ${maps.join(", ")})` : ""}.`;
+        text = `Dota 2 connected; no map is loaded. Launch one with dota_launch_game${maps.length > 0 ? ` (available: ${maps.join(", ")})` : ""}.`;
       } else {
-        nextStep = `Map "${state.map}" is running (${state.phase}). To test/debug:
-- Check for errors → console_output (level 3, or channel filter 'VScript' for Lua errors)
-- Verify specific behavior / reproduce a bug → dota_run_lua
-- Inspect entities → dota_dump_entities; modifiers → dota_dump_modifiers
-- Reload after editing Lua/KV/Panorama → dota_restart${state.phase !== "playing" ? `
-- Stuck in phase "${state.game_state}"? See dota2_skill 'dota2-game-phases' for how to advance.` : ""}`;
+        const cheatText = cheats === null ? "unknown" : cheats ? "on" : "off";
+        text = `Dota 2 connected: map "${state.map}" is ${state.phase} (${state.game_state}); cheats ${cheatText}. `
+          + (actions.length > 0
+            ? `Available actions: ${actions.join(", ")}.`
+            : "No action is valid until the phase advances — watch console_output.");
       }
 
-      return { content: [{ type: "text", text: JSON.stringify({
-        connected: true,
-        vconsole: true,
-        addon: currentAddon || addon || "(detecting...)",
-        maps,
-        allMaps,
-        running: {
-          map: state.map,
-          loaded: state.loaded,
-          loading: state.loading,
-          game_state: state.game_state,
+      return okPretty({
+        data: {
+          daemon: relay instanceof RelayClient ? "daemon" : "local",
+          vconsole,
+          dota,
           phase: state.phase,
-          players: state.players,
-          clients_bot: state.clients_bot,
-          clients_proxies: state.clients_proxies,
-          first_player: state.first_player,
-          hibernating: state.hibernating,
-          cpu_usage: state.cpu_usage,
-          udp_port: state.udp_port,
-          network_lag_avg: state.network_lag_avg,
-          build_version: state.build_version,
-          process_uptime: state.process_uptime,
+          cheats,
+          addon: addon ?? null,
+          map: state.loaded ? state.map : null,
+          available_actions: actions,
+          game_state: state.game_state,
+          maps,
         },
-        nextStep,
-      }, null, 2) }] };
+        text,
+      });
     }
   );
 
@@ -824,7 +900,7 @@ Once connected, call dota_status again.` }] };
         const cur = parseGameState(status);
         if (cur.game_state !== state) { state = cur.game_state; stateSince = Date.now(); }
         if (!cur.loaded && !cur.loading && cur.phase === "menu") {
-          return { content: [{ type: "text", text: "No map is loaded. Call dota_launch_game first, then dota_advance_to_game." }], isError: true };
+          return { content: [{ type: "text", text: "No map is loaded. Call dota_launch_game first, then dota_advance_to_game. Call dota_status to see the actions valid right now." }], isError: true };
         }
         if (state.includes("GAME_IN_PROGRESS")) {
           const out = await lua("local P=PlayerResource for i=0,23 do if P:IsValidPlayerID(i) then local h=P:GetSelectedHeroEntity(i) " +
@@ -839,7 +915,7 @@ Once connected, call dota_status again.` }] };
           ].join("\n") }] };
         }
         if (state.includes("POST_GAME")) {
-          return { content: [{ type: "text", text: "Game has ended (POST_GAME). Call dota_restart, then dota_advance_to_game." }], isError: true };
+          return { content: [{ type: "text", text: "Game has ended (POST_GAME). Call dota_restart, then dota_advance_to_game. Call dota_status to see the actions valid right now." }], isError: true };
         }
         if (state.includes("CUSTOM_GAME_SETUP")) {
           await act("setup", "CUSTOM_GAME_SETUP: zeroed phase timers, called GameRules:FinishCustomGameSetup()", `${zeroTimers} GameRules:FinishCustomGameSetup()`);
@@ -889,6 +965,18 @@ Once connected, call dota_status again.` }] };
         isError: !r.ok,
       };
     }
+  );
+
+  // Tool: 游戏视频录制（同样不受 vconsole 门控；窗口矩形复用截图辅助程序）
+  server.tool("dota_record",
+    "Use when a single frame is not enough — for example to verify a VFX's motion, timing, or disappearance, or to capture a bug that only appears over time. Records the Dota 2 game window to a video file with FFmpeg's ddagrab (D3D11 desktop duplication), cropping to the window rectangle found by the same Windows window lookup as dota_screenshot; it sends no console command, needs no vconsole, and never steals focus. Returns {ok:true,data:{path,duration_s,fps,width,height,bytes},text} with the saved file and its metadata, or {ok:false,code,message} with code ffmpeg_missing (no FFmpeg binary), no_window (Dota 2 is not running, has no window, or is minimized), empty_capture (FFmpeg produced no frames), timeout, or internal. Limits: duration is clamped to 1–30 s, fps defaults to 30, Windows only; capture assumes the game window is on the primary monitor and unobstructed, and the recordings directory keeps no retention limit. Related tools: dota_screenshot (single frame), dota_status (is Dota 2 running), vfx_preview (spawn the effect to record).",
+    {
+      duration: z.number().describe("Recording length in seconds, clamped to 1–30."),
+      fps: z.number().int().min(1).max(240).optional().describe("Capture frame rate. Default 30."),
+      output: z.string().optional().describe("Output file path. Relative paths resolve against the recordings directory. Default dota-<timestamp>.mp4 there."),
+    },
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    async ({ duration, fps, output }) => recordVideo({ duration, fps, output })
   );
 
   // Tool: 打开 vconsole 窗口（AssetBrowser 按钮被引擎禁用时的显式路径）
