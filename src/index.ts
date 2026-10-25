@@ -26,6 +26,7 @@ import { ensureVrf, DEFAULT_VERSION } from "./tools/vrf-ensure.js";
 import { inspectAsset } from "./tools/asset-inspect.js";
 import { checkRefs } from "./tools/asset-check-refs.js";
 import { captureScreenshot, startScreenshotWatcher } from "./tools/screenshot.js";
+import { recordVideo } from "./tools/recorder.js";
 import { particlePrecacheNote } from "./tools/particle-precache.js";
 import { ok, fail, READ_ONLY_ANNOTATIONS } from "./tools/tool-result.js";
 import * as daemon from "./daemon-utils.js";
@@ -882,6 +883,18 @@ Once connected, call dota_status again.` }] };
         isError: !r.ok,
       };
     }
+  );
+
+  // Tool: 游戏视频录制（同样不受 vconsole 门控；窗口矩形复用截图辅助程序）
+  server.tool("dota_record",
+    "Use when a single frame is not enough — for example to verify a VFX's motion, timing, or disappearance, or to capture a bug that only appears over time. Records the Dota 2 game window to a video file with FFmpeg's ddagrab (D3D11 desktop duplication), cropping to the window rectangle found by the same Windows window lookup as dota_screenshot; it sends no console command, needs no vconsole, and never steals focus. Returns {ok:true,data:{path,duration_s,fps,width,height,bytes},text} with the saved file and its metadata, or {ok:false,code,message} with code ffmpeg_missing (no FFmpeg binary), no_window (Dota 2 is not running, has no window, or is minimized), empty_capture (FFmpeg produced no frames), timeout, or internal. Limits: duration is clamped to 1–30 s, fps defaults to 30, Windows only; capture assumes the game window is on the primary monitor and unobstructed, and the recordings directory keeps no retention limit. Related tools: dota_screenshot (single frame), dota_status (is Dota 2 running), vfx_preview (spawn the effect to record).",
+    {
+      duration: z.number().describe("Recording length in seconds, clamped to 1–30."),
+      fps: z.number().int().min(1).max(240).optional().describe("Capture frame rate. Default 30."),
+      output: z.string().optional().describe("Output file path. Relative paths resolve against the recordings directory. Default dota-<timestamp>.mp4 there."),
+    },
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    async ({ duration, fps, output }) => recordVideo({ duration, fps, output })
   );
 
   // Tool: 打开 vconsole 窗口（AssetBrowser 按钮被引擎禁用时的显式路径）

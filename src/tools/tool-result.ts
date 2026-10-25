@@ -12,6 +12,9 @@ export const ERROR_CODES = [
   "precache_missing",
   "invalid_arg",
   "internal",
+  "ffmpeg_missing",
+  "no_window",
+  "empty_capture",
 ] as const;
 
 export type ToolErrorCode = (typeof ERROR_CODES)[number];
