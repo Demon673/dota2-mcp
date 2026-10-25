@@ -537,6 +537,8 @@ static class DotaCapture {
   // Frames are written as a numbered PNG sequence for ffmpeg. One frame is emitted per tick even when
   // Windows delivers nothing new (the latest frame is repeated), so the video keeps its requested length;
   // a recording with no new frame at all is reported as no_new_frames instead of a useless still.
+  // shortcut: frames are PNG-encoded inline, so 30 fps on a very large window can lag real time;
+  // upgrade to raw BGRA streaming if exact frame pacing becomes necessary.
   static async Task<int> Record(string dir, int fps, int durationMs) {
     IntPtr hwnd = FindGameWindow();
     if (hwnd == IntPtr.Zero) { Fail("no_window", "No Dota 2 game window found."); return 2; }
