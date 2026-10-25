@@ -1721,10 +1721,10 @@ Once connected, call dota_status again.`;
       const startSeq = prntSeqNext;
 
       try {
-        // 列表调用留给 settle 1s：require 正常时结束标记紧随其后；sv_cheats 关闭时
-        // 引擎只打印 ignored 行，靠 settle 让通道层尽快报 cheats_off。
+        // 列表调用留给 settle 3s：require 正常时结束标记紧随其后；sv_cheats 关闭时
+        // 引擎只打印 ignored 行，靠 settle 让通道层尽快报 cheats_off（慢加载也留余量）。
         const listOut = await collectLuaWindow(testListBody(target.module),
-          { waitMs: Math.max(1, deadline - Date.now()), settleMs: 1000 });
+          { waitMs: Math.max(1, deadline - Date.now()), settleMs: 3000 });
         if (!Array.isArray(listOut)) return listOut;
 
         const names = new Map<number, string>();
