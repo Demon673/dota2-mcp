@@ -55,3 +55,9 @@ export function ok(payload: OkPayload): ToolResult {
 export function fail(code: ToolErrorCode, message: string): ToolResult {
   return { content: [{ type: "text", text: JSON.stringify({ ok: false, code, message }) }], isError: true };
 }
+
+/** 同一契约的缩进版本：dota_status 的载荷人会读，缩进空格也让既有活体脚本的
+ *  `"vconsole": true` / `"addon": "…"` text.includes 断言继续成立。 */
+export function okPretty(payload: OkPayload): ToolResult {
+  return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...payload }, null, 2) }] };
+}
