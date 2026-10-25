@@ -2,7 +2,7 @@
 
 English | [中文](CHANGELOG.zh.md)
 
-## Unreleased
+## 2.0.0 (2026-10-25)
 
 ### Added
 
@@ -13,6 +13,24 @@ English | [中文](CHANGELOG.zh.md)
 - **`dota2-vfx` gains a projectile recipe**: "Recipe: Projectile + trail + impact" explains why a short-lived high-rate head rides control point 0 while a longer-lived trail is left behind, why the impact is spawned at the landing point instead of as a delayed child, and the per-tick control-point update an ability needs.
 - **`dota2-vfx` gains an aura recipe**: "Recipe: Persistent buff/debuff aura" covers `PATTACH_ABSORIGIN_FOLLOW` as the alternative to owning a control point, a loop whose per-particle fade reads as breathing, the instant-versus-fade choice in `DestroyParticle`, and where team colour lives when one asset cannot be tinted per team. It ships the `LinkLuaModifier` wiring too, verified with a real modifier whose creation, duration expiry and removal each clear the scene.
 - **`vfx_preview` reports whether the particle can be drawn**: it resolves the path as an addon asset and scans the addon's `scripts/vscripts` for a `PrecacheResource` that names it. An undeclared asset comes back with `precache: MISSING` and the exact line to add, instead of an apparently successful preview that draws nothing; engine assets are reported as loading from the game's own packages.
+- **`dota_record`**: records the game window (Windows.Graphics.Capture, so an occluded or unfocused game records correctly) to an MP4 and returns path, duration, fps and encoded size. Default 12 fps, capped at 30. When Windows stops presenting frames of an unfocused window, the tool asks the connected console for `r_always_render_all_windows 1`, retries once and restores the value; without a console it fails with the remedy. A minimized window fails explicitly.
+- **`dota_perf`**: captures frame times with a pinned PresentMon release (downloaded and sha256-verified on first use) and returns p50/p95/p99 with the sample count and duration; a `baseline` lets two runs be compared. PresentMon needs an elevated terminal — without one the tool explains that rather than returning an empty sample.
+- **`dota_test_run`**: runs assertion tests from `scripts/vscripts/tests/<name>.lua` inside the real game. Each test runs in its own console statement, so one failure does not stop the rest, and a hanging test is bounded per test and per run. Returns structured `{name,status,detail}` rows with pass/fail/timeout counts.
+
+### Changed
+
+Every tool now returns one contract shape: `{"ok":true, ...}` with a `lines`, `text` or `data` payload, or `{"ok":false, "code": "...", "message": "..."}` with `isError`. All 36 tools carry the four MCP annotations, and every description states when to use it, what it does, what it returns, its limits and related tools. Tool names are unchanged; old parameter names keep working as aliases for this release.
+
+| Area | Before 2.0 | 2.0 |
+|---|---|---|
+| Every result | bare text, or raw JSON for a few tools | `{ok:true, lines\|text\|data}` / `{ok:false, code, message}` |
+| Tool metadata | no annotations | four hints on all tools (`readOnly`/`destructive`/`idempotent`/`openWorld`) |
+| `console_output` | last N lines; every read repeated them | cursor-incremental; `tail` / `since_seq` / `from_start`, `next_seq` and `dropped` reported, filters never consume unmatched lines; `lines` stays as an alias of `tail`; the first call tails 50 |
+| `console_send` | `Sent N command(s)` only | returns the command's own output window and advances the cursor; later output stays readable through `console_output` |
+| `dota_status` | text summary with `running` / `allMaps` | `data` capability matrix (`daemon`, `vconsole`, `dota`, `phase`, `cheats`, `addon`, `map`, `available_actions`); `running` / `allMaps` removed |
+| `dota_restart` | text | 20 s without a change is now a `timeout` failure |
+| `file_read` | raw file content | `data:{path,bytes,text}` |
+| `dota2_skill` | raw JSON for `data_path` | the JSON lives in the `text` field |
 
 ### Fixed
 

@@ -2,7 +2,7 @@
 
 [English](CHANGELOG.md) | 中文
 
-## 未发布
+## 2.0.0 (2026-10-25)
 
 ### 新增
 
@@ -13,6 +13,24 @@
 - **`dota2-vfx` 增加投射物配方**：“Recipe: Projectile + trail + impact” 说明为什么短寿命高频的头部会跟随控制点 0、而寿命更长的轨迹会留在原地，为什么命中特效要在落点单独创建而不是做成延迟子特效，以及 ability 需要每帧更新控制点。
 - **`dota2-vfx` 增加光环配方**：“Recipe: Persistent buff/debuff aura” 覆盖用 `PATTACH_ABSORIGIN_FOLLOW` 代替自己管理控制点、逐粒子淡入淡出让循环看起来像呼吸、`DestroyParticle` 即时截断与自然淡出的取舍，以及单个资产无法按队伍染色时颜色该放在哪里。配方同时带上 `LinkLuaModifier` 接线，并用真实 modifier 验证了创建、时长到期和移除三种情况下画面都会清干净。
 - **`vfx_preview` 会说明粒子到底能不能被画出来**：它先把路径解析为 addon 资产，再扫 addon 的 `scripts/vscripts` 找是否有 `PrecacheResource` 声明了这个路径。没声明的资产会返回 `precache: MISSING` 以及需要补的那一行，而不是给出一份看起来成功、实际什么都不画的预览结果；引擎自带资产则说明它从游戏自己的包里加载。
+- **`dota_record`**：录制游戏窗口（Windows.Graphics.Capture，窗口被遮挡或失焦也能录）为 MP4，返回路径、时长、帧率与实际编码尺寸。默认 12 fps，上限 30。当 Windows 对失焦窗口停止出帧时，工具会在控制台可用时自动设 `r_always_render_all_windows 1`、重试一次并还原；没有控制台时直接给出补救方法。窗口最小化会明确失败。
+- **`dota_perf`**：用固定版本的 PresentMon（首次使用时下载并做 sha256 校验）采集帧时间，返回 p50/p95/p99、样本数与采集时长；`baseline` 可对比两次采集。PresentMon 需要管理员终端——没有提权时工具会说明这一点，而不是返回空采样。
+- **`dota_test_run`**：在真实游戏里执行 `scripts/vscripts/tests/<name>.lua` 的断言测试。每条测试走独立控制台语句，单条失败不中断其余；挂起的测试按单条与整体两级预算限时。返回结构化的 `{name,status,detail}` 与 pass/fail/timeout 计数。
+
+### 变更
+
+所有工具现在返回同一种契约形状：成功为 `{"ok":true, ...}`，载荷为 `lines`、`text` 或 `data` 之一；失败为 `{"ok":false, "code": "...", "message": "..."}` 且 `isError`。36 个工具全部带四类 MCP annotations，每条描述都写明何时使用、做什么、返回什么、上限与相关工具。工具名保持不变；旧参数名在本版本内继续作为别名可用。
+
+| 范围 | 2.0 之前 | 2.0 |
+|---|---|---|
+| 所有返回值 | 裸文本，少数工具是原始 JSON | `{ok:true, lines\|text\|data}` / `{ok:false, code, message}` |
+| 工具元数据 | 没有 annotations | 全部工具四类 hint（`readOnly`/`destructive`/`idempotent`/`openWorld`） |
+| `console_output` | 最后 N 行，每次读取都重复 | 游标增量；`tail` / `since_seq` / `from_start`，回报 `next_seq` 与 `dropped`，过滤器不吞掉未匹配行；`lines` 保留为 `tail` 的别名；首次调用取最近 50 行 |
+| `console_send` | 只回 `Sent N command(s)` | 返回该命令自己的输出窗口并推进游标；之后的输出仍可用 `console_output` 读到 |
+| `dota_status` | 文本摘要，含 `running` / `allMaps` | `data` 能力矩阵（`daemon`、`vconsole`、`dota`、`phase`、`cheats`、`addon`、`map`、`available_actions`）；移除 `running` / `allMaps` |
+| `dota_restart` | 文本 | 20 秒无变化现在是 `timeout` 失败 |
+| `file_read` | 原始文件内容 | `data:{path,bytes,text}` |
+| `dota2_skill` | `data_path` 直接返回原始 JSON | JSON 放在 `text` 字段里 |
 
 ### 修复
 

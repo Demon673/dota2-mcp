@@ -223,6 +223,17 @@ Client → server command type: `CMND` (null-terminated UTF-8).
 | `vfx_preview` | `dota_run_lua` channel (ParticleManager:CreateParticle) | Spawn a particle preview in-game (runtime instance, not an asset file), returns pid. It also scans the addon's `scripts/vscripts` for a `PrecacheResource` naming the path and reports `precache: MISSING` when absent — an undeclared addon particle draws nothing while still returning a valid pid |
 | `vfx_preview_stop` | `dota_run_lua` channel (ParticleManager:DestroyParticle) | Destroy preview particle instances |
 
+**Capture and measurement**
+| Tool | Console command | Description |
+|------|-----------|------|
+| `dota_record` | none (Windows.Graphics.Capture via the screenshot helper) | Record the game window to MP4 even when it is occluded or unfocused; returns path, duration, fps, encoded size. When Windows stops presenting frames of an unfocused window it asks the console for `r_always_render_all_windows 1`, retries once and restores it; a minimized window fails explicitly |
+| `dota_perf` | none (pinned PresentMon CLI) | Frame-time capture: p50/p95/p99 + sample count, optional `baseline` comparison. PresentMon is downloaded and sha256-verified on first use and **needs an elevated terminal** — without one the tool says so instead of returning an empty sample |
+
+**Testing (in-game assertions)**
+| Tool | Console command | Description |
+|------|-----------|------|
+| `dota_test_run` | `dota_run_lua` channel, one statement per test | Runs `scripts/vscripts/tests/<name>.lua` (a table of `{name, fn}`) inside the real game. One failure does not stop the rest; per-test and overall budgets bound hangs; returns structured `{name,status,detail}` rows |
+
 **File operations (offline, no game needed)**
 | Tool | Description |
 |------|------|
@@ -252,6 +263,8 @@ Client → server command type: `CMND` (null-terminated UTF-8).
   - When the test project is unclear, **ask the developer** which addon/map to test — never silently assume.
   Self-check: `Grep "[A-Za-z]:[\\/]"` may only match URLs/placeholders; `Grep -i "<current project name>"` should have zero hits (except historical spec/plan/CHANGELOG)
 - **Tool descriptions**: each tool clearly states its console command, so the AI can discover them on its own via `console_find`
+- **Tool result contract (2.0)**: every tool returns `ok(payload)` / `fail(code, message)` from `src/tools/tool-result.ts`, never a hand-built string. Success carries exactly one payload: `lines` (console windows, with `count`/`next_seq`/`dropped`), `text`, or `data` (+ optional `text`). Failure carries a code from the append-only `ERROR_CODES` table and sets `isError`. Every tool carries all four annotations, and every description follows five parts: when to use it, what it does, what it returns, its limits, related tools. `scripts/test-mcp-offline.mjs` fails the build when a tool lacks annotations or the five-part shape.
+- **Console reads are incremental**: `console_output` advances a per-session cursor; explicit windows (`tail`/`since_seq`/`from_start`) are read-only views. Tools that act rather than read (Lua, VFX, tests) do not move the cursor.
 - **TSTL/SolidJS first**: edit `.ts`/`.tsx` source files, never the generated `.lua`/`.js`
 - **TODO marker semantics**: `FIXME` = release blocker; `TODO` = fix soon; `XXX` = fix someday. Choose by urgency, don't mix them
 - **Read `docs/defensive-patterns.md` before writing lifecycle/concurrency/subprocess/teardown code**
@@ -264,6 +277,8 @@ Client → server command type: `CMND` (null-terminated UTF-8).
 - Dota 2 must be launched with the `-vconsole` flag (or have the vconsole2 listener enabled) for the relay to connect to `:29000`
 - **WSL environment**: tool directories are probed by existence (a win64 hit means a Windows install), argument paths are auto-converted to Windows format, and the VRF CLI needs the invariant globalization env. When a leftover daemon causes port conflicts, kill the node/relay processes — the next session's startup self-heals stale lock/pid state (`livePid`); don't delete `relay.token` while the daemon is alive
 - Many API dump tools need the map to be loaded; calling them too early may return empty results
+- **`dota_perf` needs an elevated terminal** (measured: PresentMon writes no CSV without it, and reports that it cannot target processes). The tool returns an explicit error naming the remedy; start the MCP server from an Administrator shell to get samples
+- **`dota_record` records the window, not the screen** (Windows.Graphics.Capture). An unfocused game stops presenting frames until `r_always_render_all_windows 1`; the tool sets and restores that cvar when a console is connected, otherwise it returns the remedy. A minimized window is a hard failure, and inline PNG encoding can fall behind above ~20 fps on very large windows
 
 ## References
 

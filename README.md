@@ -193,6 +193,6 @@ See "How to open vconsole2" under "Configure the vconsole2 GUI port" above.
 
 ## Version
 
-Current version: `v1.6.0`
+Current version: `v2.0.0`
 
 See [CHANGELOG.md](./CHANGELOG.md) and [GitHub Releases](https://github.com/Demon673/dota2-mcp/releases) for details.

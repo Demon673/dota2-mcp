@@ -36,7 +36,7 @@ function getVersion(): string {
   try {
     return require("../package.json").version;
   } catch {
-    return "1.6.0";
+    return "2.0.0";
   }
 }
 
