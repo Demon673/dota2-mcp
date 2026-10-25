@@ -26,6 +26,7 @@ import { ensureVrf, DEFAULT_VERSION } from "./tools/vrf-ensure.js";
 import { inspectAsset } from "./tools/asset-inspect.js";
 import { checkRefs } from "./tools/asset-check-refs.js";
 import { captureScreenshot, startScreenshotWatcher } from "./tools/screenshot.js";
+import { particlePrecacheNote } from "./tools/particle-precache.js";
 import * as daemon from "./daemon-utils.js";
 
 function getVersion(): string {
@@ -1570,7 +1571,8 @@ Once connected, call dota_status again.` }] };
       const luaBody = "print('[MCP-VFX] IsServer: ' .. tostring(IsServer())) local pid = ParticleManager:CreateParticle('" + pathSafe + "', " + attachName + ", nil)" + posLua + " print('[MCP-VFX] pid=' .. tostring(pid) .. ' attach=" + attachName + "')";
       const execOut = await collectLuaOutput(luaBody, { waitMs: 15000, settleMs: 400 });
       const lines = execOut.filter((l) => l.includes("[MCP-VFX]") || /error|failed|missing/i.test(l));
-      return { content: [{ type: "text", text: lines.join("\n") || "Sent. Read console_output (channels Particles/ResourceSystem) for load errors." }] };
+      const note = dotaPath ? particlePrecacheNote(dotaPath, resolveAddon() ?? process.env.DOTA2_TEST_ADDON ?? null, pathSafe) : "";
+      return { content: [{ type: "text", text: [lines.join("\n") || "Sent. Read console_output (channels Particles/ResourceSystem) for load errors.", note].filter(Boolean).join("\n") }] };
     }
   );
 

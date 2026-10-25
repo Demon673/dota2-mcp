@@ -12,6 +12,7 @@
 - **`dota2-vfx` 提供第一个端到端配方**：“Recipe: AoE telegraph + impact” 覆盖父子结构、贴地环状 sprite、以控制点 0 作为标记位置、1.5 秒前摇、创建与销毁实例的 modifier 钩子，以及带分时证据的 sprite 预算。
 - **`dota2-vfx` 增加投射物配方**：“Recipe: Projectile + trail + impact” 说明为什么短寿命高频的头部会跟随控制点 0、而寿命更长的轨迹会留在原地，为什么命中特效要在落点单独创建而不是做成延迟子特效，以及 ability 需要每帧更新控制点。
 - **`dota2-vfx` 增加光环配方**：“Recipe: Persistent buff/debuff aura” 覆盖用 `PATTACH_ABSORIGIN_FOLLOW` 代替自己管理控制点、逐粒子淡入淡出让循环看起来像呼吸、`DestroyParticle` 即时截断与自然淡出的取舍，以及单个资产无法按队伍染色时颜色该放在哪里。
+- **`vfx_preview` 会说明粒子到底能不能被画出来**：它先把路径解析为 addon 资产，再扫 addon 的 `scripts/vscripts` 找是否有 `PrecacheResource` 声明了这个路径。没声明的资产会返回 `precache: MISSING` 以及需要补的那一行，而不是给出一份看起来成功、实际什么都不画的预览结果；引擎自带资产则说明它从游戏自己的包里加载。
 
 ### 修复
 

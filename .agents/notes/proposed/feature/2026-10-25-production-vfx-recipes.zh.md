@@ -41,6 +41,8 @@ Status: proposed
 
 还必须在真实 ability/modifier 中验证，而不只是通过预览工具验证。正确的世界坐标预览不能证明英雄挂接或 ability 时序正确。
 
+`vfx_preview` 目前只扩展了一处，这个选择也顺带说明了为什么答案不能去问控制台：未声明的资产照样返回有效 id，照样出现在 `cl_particles_dumpsimlist` 里，引擎输出里没有任何东西能区分“画出来了”和“没画”。工具改为扫 addon 的 `scripts/vscripts` 找有没有 `PrecacheResource` 声明该路径，没有就返回 `precache: MISSING` 和需要补的那一行。多控制点、方向、实体挂接和重播不进工具，配方里可复制的 `dota_run_lua` 片段已经覆盖它们。
+
 ## 当前证据
 
 addon 自建粒子现在能端到端显示。AoE 预警用本项目自己生成的贴图画出了半径 500 的圆环，父系统里延迟 1.5 秒的命中子特效也按预期触发，两者都在分时截图中拍到。

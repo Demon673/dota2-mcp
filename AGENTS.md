@@ -220,7 +220,7 @@ Client → server command type: `CMND` (null-terminated UTF-8).
 **VFX preview (needs a running game + vconsole + `sv_cheats=1`)**
 | Tool | Console command | Description |
 |------|-----------|------|
-| `vfx_preview` | `dota_run_lua` channel (ParticleManager:CreateParticle) | Spawn a particle preview in-game (runtime instance, not an asset file), returns pid. The addon's `Precache(context)` must list the particle or the client draws nothing while still returning a valid pid |
+| `vfx_preview` | `dota_run_lua` channel (ParticleManager:CreateParticle) | Spawn a particle preview in-game (runtime instance, not an asset file), returns pid. It also scans the addon's `scripts/vscripts` for a `PrecacheResource` naming the path and reports `precache: MISSING` when absent — an undeclared addon particle draws nothing while still returning a valid pid |
 | `vfx_preview_stop` | `dota_run_lua` channel (ParticleManager:DestroyParticle) | Destroy preview particle instances |
 
 **File operations (offline, no game needed)**

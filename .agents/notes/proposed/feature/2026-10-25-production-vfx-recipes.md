@@ -41,6 +41,8 @@ Extend `vfx_preview` only where a recipe exposes a real limitation: multiple con
 
 Validate integration in an actual ability/modifier as well as through the preview tool. A correct world-origin preview does not prove correct hero attachment or ability timing.
 
+`vfx_preview` has gained one extension, and it explains why the answer cannot come from the console: an undeclared asset still returns a valid id and still appears in `cl_particles_dumpsimlist`, so nothing the engine prints separates "drawn" from "not drawn". The tool instead scans the addon's `scripts/vscripts` for a `PrecacheResource` naming the path and answers `precache: MISSING` with the line to add. Multiple control points, orientation, entity attachment and replay stay out of the tool while the recipe's copyable `dota_run_lua` snippet covers them.
+
 ## Current evidence
 
 An addon-authored particle renders end to end. The AoE telegraph draws a 500-radius ring from a texture this project generates, and the parent system's delayed impact child fires 1.5 s later, both captured in timed screenshots.

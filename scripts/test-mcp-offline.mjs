@@ -1,10 +1,11 @@
 // 一次性离线 MCP 冒烟：服务器启动 + dota_status 不抛异常 + 契约报错 + 新 skill 可加载
 // 端口与 daemon 状态目录隔离：不受本机正在运行的 daemon/Dota 影响（env 直达 spawned daemon）
 import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { scrubbedEnv } from "../dist/tools/process-env.js";
+import { particlePrecacheNote } from "../dist/tools/particle-precache.js";
 import { freePortBlock } from "./lib-test-ports.mjs";
 
 const stateDir = mkdtempSync(path.join(tmpdir(), "mcp-offline-state-"));
@@ -20,6 +21,24 @@ process.env.TEST_MCP_SCRUB_TOKEN = "must-not-pass";
 const cleanEnv = scrubbedEnv({ EXTRA_CHECK: "kept" });
 delete process.env.TEST_MCP_SCRUB_TOKEN;
 assert(cleanEnv.TEST_MCP_SCRUB_TOKEN === undefined && cleanEnv.EXTRA_CHECK === "kept", "subprocess env drops credentials but keeps explicit config");
+
+// vfx_preview 的 precache 判定：客户端只绘制加载期声明过的粒子，三种结论都要可区分
+const fakeDota = mkdtempSync(path.join(tmpdir(), "precache-fixture-"));
+const fx = path.join(fakeDota, "content", "dota_addons", "fake", "particles", "fx");
+mkdirSync(fx, { recursive: true });
+writeFileSync(path.join(fx, "declared.vpcf"), "");
+writeFileSync(path.join(fx, "silent.vpcf"), "");
+const vscripts = path.join(fakeDota, "game", "dota_addons", "fake", "scripts", "vscripts");
+mkdirSync(vscripts, { recursive: true });
+writeFileSync(path.join(vscripts, "addon_game_mode.lua"),
+  'function Precache(context)\n  PrecacheResource("particle", "particles/fx/declared.vpcf", context)\nend\n');
+const declared = particlePrecacheNote(fakeDota, "fake", "particles/fx/declared.vpcf");
+assert(declared.includes("declared in") && declared.includes("addon_game_mode.lua"), "declared particle names its Precache site: " + declared);
+const missing = particlePrecacheNote(fakeDota, "fake", "particles/fx/silent.vpcf");
+assert(missing.includes("MISSING") && missing.includes('PrecacheResource("particle", "particles/fx/silent.vpcf", context)'), "undeclared addon particle reports the exact remedy: " + missing);
+assert(particlePrecacheNote(fakeDota, "fake", "particles/items_fx/black_king_bar_avatar.vpcf").includes("not an addon asset"), "engine asset is not reported as an addon precache miss");
+assert(particlePrecacheNote(fakeDota, null, "particles/fx/silent.vpcf") === "", "unknown addon yields no verdict");
+rmSync(fakeDota, { recursive: true, force: true });
 const { call, notify, kill } = spawnMcpServer({ timeoutMs: 45000, env, cleanupDaemon: true });
 await call("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "smoke", version: "0" } });
 notify("notifications/initialized");

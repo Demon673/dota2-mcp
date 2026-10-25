@@ -12,6 +12,7 @@ English | [中文](CHANGELOG.zh.md)
 - **`dota2-vfx` ships its first end-to-end recipe**: "Recipe: AoE telegraph + impact" covers the parent/child layout, the ground-aligned ring sprite, control point 0 as the marker position, the 1.5 s wind-up, the modifier hook that creates and destroys the instance, and a sprite budget with its timed evidence.
 - **`dota2-vfx` gains a projectile recipe**: "Recipe: Projectile + trail + impact" explains why a short-lived high-rate head rides control point 0 while a longer-lived trail is left behind, why the impact is spawned at the landing point instead of as a delayed child, and the per-tick control-point update an ability needs.
 - **`dota2-vfx` gains an aura recipe**: "Recipe: Persistent buff/debuff aura" covers `PATTACH_ABSORIGIN_FOLLOW` as the alternative to owning a control point, a loop whose per-particle fade reads as breathing, the instant-versus-fade choice in `DestroyParticle`, and where team colour lives when one asset cannot be tinted per team.
+- **`vfx_preview` reports whether the particle can be drawn**: it resolves the path as an addon asset and scans the addon's `scripts/vscripts` for a `PrecacheResource` that names it. An undeclared asset comes back with `precache: MISSING` and the exact line to add, instead of an apparently successful preview that draws nothing; engine assets are reported as loading from the game's own packages.
 
 ### Fixed
 
