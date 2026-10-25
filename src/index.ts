@@ -27,7 +27,7 @@ import { inspectAsset } from "./tools/asset-inspect.js";
 import { checkRefs } from "./tools/asset-check-refs.js";
 import { captureScreenshot, startScreenshotWatcher } from "./tools/screenshot.js";
 import { particlePrecacheNote } from "./tools/particle-precache.js";
-import { ok, fail, READ_ONLY_ANNOTATIONS } from "./tools/tool-result.js";
+import { ok, fail, READ_ONLY_ANNOTATIONS, DESTRUCTIVE_ANNOTATIONS, OPEN_WORLD_ANNOTATIONS, SCREENSHOT_ANNOTATIONS } from "./tools/tool-result.js";
 import * as daemon from "./daemon-utils.js";
 
 function getVersion(): string {
@@ -289,6 +289,11 @@ Then call dota_status again.`;
     if (!relay.guiConnected) return fail("vconsole_closed", vconsoleNotOpenText());
     startCaptureWatcherOnce();
     return null;
+  }
+
+  /** McpError 的 message 带 SDK 前缀（MCP error -32600:），信封里只保留可读正文 */
+  function errorText(e: unknown): string {
+    return (e as Error).message.replace(/^MCP error -?\d+: /, "");
   }
 
   /** 依赖 dotaPath 的工具在路径未检测到时返回的可操作错误 */
@@ -713,26 +718,28 @@ Once connected, call dota_status again.` }] };
 
   // Tool: 启动游戏（轮询到 GAME_IN_PROGRESS；卡相位返回推进指引）
   server.tool("dota_launch_game",
-    "Use to start / run / load a Dota 2 custom game map when the user wants to test or play their addon. Launches the map and polls until the game reaches GAME_IN_PROGRESS; if it gets stuck in a phase (e.g. CUSTOM_GAME_SETUP), returns the phase, how to advance it, and recent errors. To reach a playable game from a stuck pre-game phase, follow with dota_advance_to_game. Call dota_status first to see available maps. Requires an open vconsole (see dota_open_vconsole).",
+    "Use when the user wants to start, run, or load a Dota 2 custom game map for testing. Launches the map and polls until the game reaches GAME_IN_PROGRESS; if a phase stalls, returns the observed phase, how to advance it, and recent errors. Returns {ok:true,text} with the launch outcome or the stuck-phase guidance, or {ok:false,code,message} with dota_down/vconsole_closed when the console contract is not met, timeout when the launch never leaves the main menu, and invalid_arg when the addon or map cannot be resolved. Limits: default timeout 90 s (minimum 15 s); a phase counts as stuck after 15 s without a state change, while loading phases are never treated as stuck. Related tools: dota_status (available maps), dota_advance_to_game (reach a playable game), dota_restart, console_output.",
     {
       map: z.string().optional().describe("Map name. Auto-detected if omitted."),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
       timeout: z.number().optional().describe("Max seconds to wait for GAME_IN_PROGRESS. Default 90."),
     },
+    OPEN_WORLD_ANNOTATIONS,
     async ({ addon, map, timeout }) => {
-      requireConsole();
+      const blocked = consoleGate();
+      if (blocked) return blocked;
       const a = resolveAddon(addon);
       const maps = currentMaps.length > 0 ? currentMaps : scanMapsFs(a);
       const m = map || maps[0];
-      if (!a) throw new McpError(ErrorCode.InvalidRequest, "No addon detected. Load a project first or specify addon.");
-      if (!m) throw new McpError(ErrorCode.InvalidRequest, `No map specified and none found in addon '${a}'. Available: ${maps.length > 0 ? maps.join(", ") : "none"}`);
+      if (!a) return fail("invalid_arg", "No addon detected. Load a project first or specify addon.");
+      if (!m) return fail("invalid_arg", `No map specified and none found in addon '${a}'. Available: ${maps.length > 0 ? maps.join(", ") : "none"}`);
 
       const timeoutMs = Math.max(15, timeout || 90) * 1000;
 
       // 已进入 GAME_IN_PROGRESS 直接返回；已在加载/已加载则不发命令只观察
       const initial = parseGameState(await queryStatusJson(5000));
       if (initial.game_state.includes("GAME_IN_PROGRESS")) {
-        return { content: [{ type: "text", text: `Already in game: ${initial.map} (${initial.game_state})` }] };
+        return ok({ text: `Already in game: ${initial.map} (${initial.game_state})` });
       }
       // 已加载的是别的地图（如上一局停在 POST_GAME）也要发命令，否则只会干等到卡相位报告
       // 两侧都去目录、只去地图扩展名（名字里可以有点）、忽略大小写再比
@@ -747,7 +754,7 @@ Once connected, call dota_status again.` }] };
 
       while (Date.now() - startTime < timeoutMs) {
         if (!relay.dotaConnected) {
-          return { content: [{ type: "text", text: `Dota 2 disconnected while launching. ${disconnectedReasonText()}` }] };
+          return fail("dota_down", `Dota 2 disconnected while launching. ${disconnectedReasonText()}`);
         }
         await new Promise(r => setTimeout(r, 2000));
         const status = await queryStatusJson(5000);
@@ -755,23 +762,23 @@ Once connected, call dota_status again.` }] };
         if (!status) continue;
         const cur = parseGameState(status);
         if (cur.phase === "menu" && Date.now() - startTime > 15000) {
-          return { content: [{ type: "text", text: `Dota 2 is still at the main menu ${Math.round((Date.now() - startTime) / 1000)}s after dota_launch_custom_game ${a} ${m}: the launch did not start. Check console_output (level 1) for why, and dota_screenshot for what the game shows.` }], isError: true };
+          return fail("timeout", `Dota 2 is still at the main menu ${Math.round((Date.now() - startTime) / 1000)}s after dota_launch_custom_game ${a} ${m}: the launch did not start. Check console_output (level 1) for why, and dota_screenshot for what the game shows.`);
         }
         if (cur.game_state !== lastState) {
           lastState = cur.game_state;
           lastChangeAt = Date.now();
         }
         if (cur.game_state.includes("GAME_IN_PROGRESS")) {
-          return { content: [{ type: "text", text: `Launched and in game: ${a}/${m} (map: ${cur.map}, state: ${cur.game_state})` }] };
+          return ok({ text: `Launched and in game: ${a}/${m} (map: ${cur.map}, state: ${cur.game_state})` });
         }
         // INIT / WAIT_FOR_* 是加载期（大地图可达数分钟，且 loading 标志此时已为 false），不作卡住判定；
         // 加载真卡死由 timeout 兜底报告（含 ResourceSystem 错误）
         if (!cur.loading && !isLoadingPhase(lastState) && Date.now() - lastChangeAt > 15000) {
-          return { content: [{ type: "text", text: buildStuckReport(lastState, Date.now() - lastChangeAt) }] };
+          return ok({ text: buildStuckReport(lastState, Date.now() - lastChangeAt) });
         }
       }
 
-      return { content: [{ type: "text", text: buildStuckReport(lastState, timeoutMs) }] };
+      return ok({ text: buildStuckReport(lastState, timeoutMs) });
     }
   );
 
@@ -781,13 +788,15 @@ Once connected, call dota_status again.` }] };
   // STRATEGY/SHOWCASE → 计时清零；PRE_GAME 仍不走 → ForceGameStart。
   // ForceGameStart 绝不早于 PRE_GAME：英雄在进入 PRE_GAME 时才生成，提前调用得到没有英雄的「游戏中」。
   server.tool("dota_advance_to_game",
-    "Use after dota_launch_game or dota_restart, when the game sits in a pre-game phase (CUSTOM_GAME_SETUP, HERO_SELECTION, STRATEGY_TIME, TEAM_SHOWCASE, PRE_GAME), to get to a playable GAME_IN_PROGRESS with a hero for every player in one call. Standard, addon-independent flow driven by the observed game_state: waits out map loading; zeroes the strategy/showcase/pre-game timers (runtime only, for this match); ends custom game setup; picks a hero for each player that has none (random, or `hero`); force-starts only from PRE_GAME, after heroes have spawned. Returns the steps taken and each player's hero, or a stuck report with recent errors. Requires sv_cheats=1 and an open vconsole (see dota_open_vconsole).",
+    "Use when the game sits in a pre-game phase (CUSTOM_GAME_SETUP, HERO_SELECTION, STRATEGY_TIME, TEAM_SHOWCASE, PRE_GAME) after dota_launch_game or dota_restart and the user wants a playable game now. Standard, addon-independent flow driven by the observed game_state: waits out map loading; zeroes the strategy/showcase/pre-game timers (runtime only, for this match); ends custom game setup; picks a hero for each player that has none (random, or `hero`); force-starts only from PRE_GAME, after heroes have spawned. Returns {ok:true,text} with the steps taken and each player's hero, or {ok:false,code,message} with phase_wrong when no map is loaded, the game already ended, or the phase did not advance within the timeout, plus dota_down/vconsole_closed/cheats_off/lua_too_long/internal from the console or Lua layer. Limits: requires sv_cheats=1; default timeout 120 s (minimum 15 s, map loading counts); timers are zeroed for this match only. Related tools: dota_launch_game, dota_restart, dota_status, dota_run_lua.",
     {
       hero: z.string().regex(/^npc_dota_hero_[a-z0-9_]+$/).optional().describe("Hero for every player, e.g. 'npc_dota_hero_axe' (overrides an existing pick). Default: a random hero for each player that has none."),
       timeout: z.number().optional().describe("Max seconds to wait. Default 120 (map loading counts)."),
     },
+    DESTRUCTIVE_ANNOTATIONS,
     async ({ hero, timeout }) => {
-      requireConsole();
+      const blocked = consoleGate();
+      if (blocked) return blocked;
       const timeoutMs = Math.max(15, timeout || 120) * 1000;
       const lua = (code: string) => collectLuaOutput(code, { waitMs: 5000, settleMs: 400 });
       const zeroTimers = "GameRules:SetStrategyTime(0) GameRules:SetShowcaseTime(0) GameRules:SetPreGameTime(0)";
@@ -805,123 +814,140 @@ Once connected, call dota_status again.` }] };
         await lua(code);
       };
 
-      const start = Date.now();
-      let state = "";
-      let stateSince = Date.now();
-      while (Date.now() - start < timeoutMs) {
-        if (!relay.dotaConnected) {
-          return { content: [{ type: "text", text: `Dota 2 disconnected. ${disconnectedReasonText()}` }] };
+      try {
+        const start = Date.now();
+        let state = "";
+        let stateSince = Date.now();
+        while (Date.now() - start < timeoutMs) {
+          if (!relay.dotaConnected) {
+            return fail("dota_down", `Dota 2 disconnected. ${disconnectedReasonText()}`);
+          }
+          const status = await queryStatusJson(5000);
+          if (!status) { await new Promise(r => setTimeout(r, 1000)); continue; } // 引擎加载时可能数秒不应答
+          const cur = parseGameState(status);
+          if (cur.game_state !== state) { state = cur.game_state; stateSince = Date.now(); }
+          if (!cur.loaded && !cur.loading && cur.phase === "menu") {
+            return fail("phase_wrong", "No map is loaded. Call dota_launch_game first, then dota_advance_to_game.");
+          }
+          if (state.includes("GAME_IN_PROGRESS")) {
+            const out = await lua("local P=PlayerResource for i=0,23 do if P:IsValidPlayerID(i) then local h=P:GetSelectedHeroEntity(i) " +
+              "print('[MCP-ADV] player '..i..' team='..P:GetTeam(i)..' hero='..tostring(h and h:GetUnitName())) end end");
+            const players = out.filter(l => l.startsWith("[MCP-ADV]")).map(l => l.slice(10));
+            return ok({ text: [
+              `In game: ${cur.map} (${state}).`,
+              steps.length > 0 ? `Steps taken:\n${steps.map(s => "- " + s).join("\n")}` : "Already in progress; nothing to do.",
+              players.length > 0 ? `Players:\n${players.join("\n")}` : "No valid players found.",
+              ...(players.length > 0 && players.every(p => p.endsWith("hero=nil"))
+                ? ["No player has a hero yet. The addon may create heroes itself (for example after its own UI); call dota_screenshot to see what the game shows."] : []),
+            ].join("\n") });
+          }
+          if (state.includes("POST_GAME")) {
+            return fail("phase_wrong", "Game has ended (POST_GAME). Call dota_restart, then dota_advance_to_game.");
+          }
+          if (state.includes("CUSTOM_GAME_SETUP")) {
+            await act("setup", "CUSTOM_GAME_SETUP: zeroed phase timers, called GameRules:FinishCustomGameSetup()", `${zeroTimers} GameRules:FinishCustomGameSetup()`);
+          } else if (state.includes("HERO_SELECTION")) {
+            // 随机只补没选的（不动 addon 已分配的英雄）；显式 hero 覆盖所有玩家
+            await act("pick", hero ? `HERO_SELECTION: zeroed phase timers, set ${hero} for every player` : "HERO_SELECTION: zeroed phase timers, picked a random hero for every player without one",
+              `${zeroTimers} local P=PlayerResource for i=0,23 do if P:IsValidPlayerID(i)${hero ? "" : " and not P:HasSelectedHero(i)"} then ${pick} end end`);
+          } else if (state.includes("STRATEGY_TIME") || state.includes("TEAM_SHOWCASE")) {
+            await act("timers", `${state.replace("DOTA_GAMERULES_STATE_", "")}: zeroed phase timers`, zeroTimers);
+          } else if (state.includes("PRE_GAME") && Date.now() - stateSince > 3000) {
+            // 英雄在进入 PRE_GAME 时已生成；清零后仍未推进才强制开局
+            await act("force", "PRE_GAME: called GameRules:ForceGameStart()", "GameRules:ForceGameStart()");
+          }
+          await new Promise(r => setTimeout(r, 1000));
         }
-        const status = await queryStatusJson(5000);
-        if (!status) { await new Promise(r => setTimeout(r, 1000)); continue; } // 引擎加载时可能数秒不应答
-        const cur = parseGameState(status);
-        if (cur.game_state !== state) { state = cur.game_state; stateSince = Date.now(); }
-        if (!cur.loaded && !cur.loading && cur.phase === "menu") {
-          return { content: [{ type: "text", text: "No map is loaded. Call dota_launch_game first, then dota_advance_to_game." }], isError: true };
-        }
-        if (state.includes("GAME_IN_PROGRESS")) {
-          const out = await lua("local P=PlayerResource for i=0,23 do if P:IsValidPlayerID(i) then local h=P:GetSelectedHeroEntity(i) " +
-            "print('[MCP-ADV] player '..i..' team='..P:GetTeam(i)..' hero='..tostring(h and h:GetUnitName())) end end");
-          const players = out.filter(l => l.startsWith("[MCP-ADV]")).map(l => l.slice(10));
-          return { content: [{ type: "text", text: [
-            `In game: ${cur.map} (${state}).`,
-            steps.length > 0 ? `Steps taken:\n${steps.map(s => "- " + s).join("\n")}` : "Already in progress; nothing to do.",
-            players.length > 0 ? `Players:\n${players.join("\n")}` : "No valid players found.",
-            ...(players.length > 0 && players.every(p => p.endsWith("hero=nil"))
-              ? ["No player has a hero yet. The addon may create heroes itself (for example after its own UI); call dota_screenshot to see what the game shows."] : []),
-          ].join("\n") }] };
-        }
-        if (state.includes("POST_GAME")) {
-          return { content: [{ type: "text", text: "Game has ended (POST_GAME). Call dota_restart, then dota_advance_to_game." }], isError: true };
-        }
-        if (state.includes("CUSTOM_GAME_SETUP")) {
-          await act("setup", "CUSTOM_GAME_SETUP: zeroed phase timers, called GameRules:FinishCustomGameSetup()", `${zeroTimers} GameRules:FinishCustomGameSetup()`);
-        } else if (state.includes("HERO_SELECTION")) {
-          // 随机只补没选的（不动 addon 已分配的英雄）；显式 hero 覆盖所有玩家
-          await act("pick", hero ? `HERO_SELECTION: zeroed phase timers, set ${hero} for every player` : "HERO_SELECTION: zeroed phase timers, picked a random hero for every player without one",
-            `${zeroTimers} local P=PlayerResource for i=0,23 do if P:IsValidPlayerID(i)${hero ? "" : " and not P:HasSelectedHero(i)"} then ${pick} end end`);
-        } else if (state.includes("STRATEGY_TIME") || state.includes("TEAM_SHOWCASE")) {
-          await act("timers", `${state.replace("DOTA_GAMERULES_STATE_", "")}: zeroed phase timers`, zeroTimers);
-        } else if (state.includes("PRE_GAME") && Date.now() - stateSince > 3000) {
-          // 英雄在进入 PRE_GAME 时已生成；清零后仍未推进才强制开局
-          await act("force", "PRE_GAME: called GameRules:ForceGameStart()", "GameRules:ForceGameStart()");
-        }
-        await new Promise(r => setTimeout(r, 1000));
+        const report = buildStuckReport(state, Date.now() - stateSince);
+        return fail("phase_wrong", `${report}\n${steps.length > 0 ? `Steps taken:\n${steps.map(s => "- " + s).join("\n")}` : ""}`);
+      } catch (e) {
+        // Lua 通道的契约错误（超长 / cheats 关闭）映射回稳定 code
+        const m = errorText(e);
+        if (m.includes("Lua too long")) return fail("lua_too_long", m);
+        if (m.includes("sv_cheats is off")) return fail("cheats_off", m);
+        return fail("internal", m);
       }
-      const report = buildStuckReport(state, Date.now() - stateSince);
-      return { content: [{ type: "text", text: `${report}\n${steps.length > 0 ? `Steps taken:\n${steps.map(s => "- " + s).join("\n")}` : ""}` }], isError: true };
     }
   );
 
   // Tool: 断开
   server.tool("dota_disconnect",
-    "Use to disconnect / quit the current Dota 2 custom game and return to the main menu, e.g. after finishing a test run. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use when a test run is finished and the game should quit to the main menu, or when the current match is unusable and needs a clean disconnect. Sends the engine's disconnect command. Returns {ok:true,text} once the command is sent, or {ok:false,code,message} with dota_down/vconsole_closed when the console contract is not met. Limits: fire-and-forget — it does not wait for the main menu to appear; confirm with dota_status. Related tools: dota_status, dota_launch_game, dota_restart.",
     {},
+    DESTRUCTIVE_ANNOTATIONS,
     async () => {
-      requireConsole();
+      const blocked = consoleGate();
+      if (blocked) return blocked;
       relay.sendCommand("disconnect");
-      return { content: [{ type: "text", text: "Disconnected." }] };
+      return ok({ text: "Disconnected." });
     }
   );
 
   // Tool: 游戏截图（不受 vconsole 门控：截图就是用来排查控制台没反应、画面卡在哪的）
   server.tool("dota_screenshot",
-    "Use to see what the Dota 2 game is actually showing — e.g. when a launch or phase seems stuck, console output says nothing, or you need to check UI or visuals. Takes a game screenshot of the Dota 2 game window from outside the game (Windows.Graphics.Capture, no console command), so it works without a console connection, needs no vconsole, and never steals focus. A persistent helper shared across sessions starts when the console first connects to Dota or this tool first runs, and caches the latest frame. If no newer frame is available (including a hung game), it returns that cached image with captured_at and stale: true; if it has never captured a frame, it reports an error instead of substituting another image. hung: true means Windows reports the window as not responding. A minimized window is restored without focus, captured, and minimized again (restore: false to disable). Only the game viewport is captured, never the rest of the screen. After the helper is ready, each call shares a 5 s total deadline for startup, capture, and cleanup; cold compilation is reported separately. Windows only.",
+    "Use when you need to see what the Dota 2 game is actually showing — a launch or phase that seems stuck, console output that says nothing, or a UI/visual check. Captures the game window from outside the game through Windows.Graphics.Capture (no console command, no vconsole, no focus steal). Returns the image plus {ok:true,data:{path,stale,captured_at,width,height},text}, or {ok:false,code,message} with timeout when the capture deadline expires and internal for other capture failures (no window, helper unavailable, unsupported platform). Limits: Windows only; after the shared helper is ready each call has a 5 s total deadline; only the game viewport is captured; when no newer frame exists the cached frame is returned with stale:true; keeps only its 20 newest files. Related tools: dota_status, console_output, dota_open_vconsole.",
     {
       max_width: z.number().int().min(64).max(7680).optional().describe("Scale the image down to at most this width in pixels. Default 1280."),
       format: z.enum(["jpeg", "png"]).optional().describe("Image format. Default jpeg (quality 80)."),
       restore: z.boolean().optional().describe("Restore a minimized window (without focus) to capture it, then minimize it again. Default true."),
     },
+    SCREENSHOT_ANNOTATIONS,
     async ({ max_width, format, restore }) => {
       const fmt = format ?? "jpeg";
       const r = await captureScreenshot({ maxWidth: max_width ?? 1280, format: fmt, restore: restore ?? true, dotaPath });
+      if (!r.ok) return fail(/timed out|deadline/i.test(r.text) ? "timeout" : "internal", r.text);
+      const envelope = ok({ data: { path: r.path, stale: r.stale, captured_at: r.captured_at, width: r.width, height: r.height }, text: r.text });
       return {
-        content: r.image
-          ? [{ type: "image" as const, data: r.image.data, mimeType: r.image.mimeType }, { type: "text" as const, text: r.text }]
-          : [{ type: "text" as const, text: r.text }],
-        isError: !r.ok,
+        content: [
+          ...(r.image ? [{ type: "image" as const, data: r.image.data, mimeType: r.image.mimeType }] : []),
+          ...envelope.content,
+          // 原文再发一份：JSON 会转义 Windows 路径，而现有离线脚本在纯文本上断言完整路径
+          { type: "text" as const, text: r.text },
+        ],
       };
     }
   );
 
   // Tool: 打开 vconsole 窗口（AssetBrowser 按钮被引擎禁用时的显式路径）
   server.tool("dota_open_vconsole",
-    "Use to open the VConsole2 window for the user when console tools report 'vconsole 未打开'. Launches vconsole2.exe directly (the AssetBrowser vconsole button is disabled by the engine while this MCP holds port 29000) and waits for it to attach to the relay. Console tools require an attached vconsole (explicit contract).",
+    "Use when console tools report that vconsole is not open, or when the user needs the VConsole2 window; launches vconsole2.exe directly because the AssetBrowser button is disabled by the engine while this MCP holds port 29000. Waits up to 30 s for the window to attach to the relay. Returns {ok:true,text} when the window is already attached or attaches in time, or {ok:false,code,message} with invalid_arg when no Dota install or executable is found, internal when the process cannot start, vconsole_closed when a stale instance is running but not attached, and timeout when it launches but never attaches. Limits: vconsole2 is single-instance, so a second launch only focuses the existing window; the connection target must be 127.0.0.1:29001. Related tools: dota_status, console_output, dota_launch_game.",
     {},
+    OPEN_WORLD_ANNOTATIONS,
     async () => {
-      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
+      if (!dotaPath) return fail("invalid_arg", dotaPathNotDetectedText());
       if (relay.guiConnected) {
-        return { content: [{ type: "text", text: "vconsole is already open and attached." }] };
+        return ok({ text: "vconsole is already open and attached." });
       }
       // 已有实例但未接入：vconsole2 单实例，再 spawn 只会聚焦旧窗口（实测）
       if (consoleBridge.isProcessRunning(process.platform === "win32" ? "vconsole2.exe" : "vconsole2")) {
-        return { content: [{ type: "text", text: "A vconsole2.exe instance is already running but not attached to 127.0.0.1:29001 (stale window — vconsole2 is single-instance, launching another just focuses it). Close it and call dota_open_vconsole again, or in that window use Devices → Connect to 127.0.0.1:29001." }] };
+        return fail("vconsole_closed", "A vconsole2.exe instance is already running but not attached to 127.0.0.1:29001 (stale window — vconsole2 is single-instance, launching another just focuses it). Close it and call dota_open_vconsole again, or in that window use Devices → Connect to 127.0.0.1:29001.");
       }
       const exe = consoleBridge.resolveDotaToolPath(dotaPath, "vconsole2");
       if (!fs.existsSync(exe)) {
-        throw new McpError(ErrorCode.InvalidRequest, `vconsole2.exe not found at ${exe}`);
+        return fail("invalid_arg", `vconsole2.exe not found at ${exe}`);
       }
       const result = await runDotaTool("vconsole2", [], false);
       if (!result.ok) {
-        throw new McpError(ErrorCode.InvalidRequest, `Failed to launch vconsole2: ${result.stderr}`);
+        return fail("internal", `Failed to launch vconsole2: ${result.stderr}`);
       }
       // Qt 启动 + auto-connect 实测可达 ~20s，等 30s
       for (let i = 0; i < 60 && !relay.guiConnected; i++) {
         await new Promise(r => setTimeout(r, 500));
       }
-      return { content: [{ type: "text", text: relay.guiConnected
-        ? "vconsole opened and attached to relay (127.0.0.1:29001)."
-        : "vconsole2.exe launched but did not attach to 127.0.0.1:29001 within 30s. Check the vconsole2 connection target is 127.0.0.1:29001 (saved in its settings)."
-      }] };
+      return relay.guiConnected
+        ? ok({ text: "vconsole opened and attached to relay (127.0.0.1:29001)." })
+        : fail("timeout", "vconsole2.exe launched but did not attach to 127.0.0.1:29001 within 30s. Check the vconsole2 connection target is 127.0.0.1:29001 (saved in its settings).");
     }
   );
 
   // Tool: 重启当前游戏
   server.tool("dota_restart",
-    "Use to quickly reload / restart the current map after changing Lua, KV, or Panorama files, so the user can re-test without relaunching manually. Returns once the reload has begun; follow with dota_advance_to_game to get back to a playable game. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use when you need to quickly reload the current map after changing Lua, KV, or Panorama files, so the user can re-test without relaunching manually. Sends the engine restart command and waits until the reload has begun. Returns {ok:true,text} once a loading state or a different game_state is observed, or {ok:false,code,message} with timeout when the state does not change within 20 s and dota_down/vconsole_closed when the console contract is not met. Limits: it confirms only that the reload started, not that it finished; follow with dota_advance_to_game to reach a playable game. Related tools: dota_advance_to_game, dota_launch_game, dota_status, console_output.",
     {},
+    DESTRUCTIVE_ANNOTATIONS,
     async () => {
-      requireConsole();
+      const blocked = consoleGate();
+      if (blocked) return blocked;
       const before = parseGameState(await queryStatusJson(5000)).game_state;
       relay.sendCommand("restart");
       // restart 不是立即生效：在它生效前读到的仍是旧相位，紧随其后的 dota_advance_to_game 会误判「已在游戏中」
@@ -932,10 +958,10 @@ Once connected, call dota_status again.` }] };
         if (remaining <= 0) break;
         const cur = parseGameState(await queryStatusJson(Math.min(5000, remaining)));
         if (cur.loading || cur.game_state !== before) {
-          return { content: [{ type: "text", text: `Restarting current map (now ${cur.loading ? "loading" : cur.game_state}). Next: dota_advance_to_game.` }] };
+          return ok({ text: `Restarting current map (now ${cur.loading ? "loading" : cur.game_state}). Next: dota_advance_to_game.` });
         }
       }
-      return { content: [{ type: "text", text: `Sent restart, but the game state did not change within 20s (still ${before}). Check dota_status / console_output.` }] };
+      return fail("timeout", `Sent restart, but the game state did not change within 20s (still ${before}). Check dota_status / console_output.`);
     }
   );
 
@@ -1472,7 +1498,7 @@ Once connected, call dota_status again.` }] };
 
   // Tool: 编译 Source 2 资源
   server.tool("dota_compile_asset",
-    "Use to compile Source 2 assets (models, maps, particles, materials) after editing them, or decompile a compiled asset to inspect it. Target can be absolute, relative to addon content, or start with content/ / game/.",
+    "Use when you have edited a Source 2 asset (map, model, particle, material) and the game needs the compiled resource, or when a compiled asset should be decompiled for inspection. Runs resourcecompiler through the Dota toolchain, or Source2Viewer-CLI when decompile is set. Returns {ok:true,data:{path,output},text} with the resolved target path and up to 2000 characters of tool output, or {ok:false,code,message} with invalid_arg when the Dota install or addon cannot be resolved and internal when the compiler fails (message carries stderr). Limits: needs a detected Dota 2 install and the Workshop Tools binaries; recursive compilation of large trees can take minutes; captured output is truncated to 2000 characters. Related tools: asset_inspect, asset_check_refs, dota_status (map load errors).",
     {
       target: z.string().describe("File, folder, or VPK path to compile"),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
@@ -1480,11 +1506,17 @@ Once connected, call dota_status again.` }] };
       force: z.boolean().optional().describe("Force recompile even if up-to-date. Default false."),
       decompile: z.boolean().optional().describe("Use VRF decompile mode (Source2Viewer-CLI) instead of resourcecompiler. Default false."),
     },
+    OPEN_WORLD_ANNOTATIONS,
     async ({ target, addon, recursive, force, decompile }) => {
       if (!dotaPath) {
-        throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
+        return fail("invalid_arg", dotaPathNotDetectedText());
       }
-      const a = requireAddon(addon);
+      let a: string;
+      try {
+        a = requireAddon(addon);
+      } catch (e) {
+        return fail("invalid_arg", errorText(e));
+      }
 
       const resolved = resolveAssetPath(target, a);
       const r = recursive ?? false;
@@ -1496,10 +1528,9 @@ Once connected, call dota_status again.` }] };
           ...(r ? ["-r"] : []),
           "-d",
         ], true);
-        return { content: [{ type: "text", text: result.ok
-          ? `Decompiled ${resolved}\n${result.stdout.slice(0, 2000)}`
-          : `Decompile failed: ${result.stderr}`
-        }] };
+        return result.ok
+          ? ok({ data: { path: resolved, output: result.stdout.slice(0, 2000) }, text: `Decompiled ${resolved}\n${result.stdout.slice(0, 2000)}` })
+          : fail("internal", `Decompile failed: ${result.stderr}`);
       }
 
       const gameInfo = path.join(dotaPath!, "game", "dota");
@@ -1507,10 +1538,9 @@ Once connected, call dota_status again.` }] };
       if (r) args.push("-r");
       if (f) args.push("-f");
       const result = await runDotaTool("resourcecompiler", args, true);
-      return { content: [{ type: "text", text: result.ok
-        ? `Compiled ${resolved}\n${result.stdout.slice(0, 2000)}`
-        : `Compile failed: ${result.stderr}`
-      }] };
+      return result.ok
+        ? ok({ data: { path: resolved, output: result.stdout.slice(0, 2000) }, text: `Compiled ${resolved}\n${result.stdout.slice(0, 2000)}` })
+        : fail("internal", `Compile failed: ${result.stderr}`);
     }
   );
 
@@ -1674,69 +1704,79 @@ Once connected, call dota_status again.` }] };
   );
 
   server.tool("file_write",
-    "Write (create or overwrite) a text file inside the current Dota 2 addon. Offline tool: no game or vconsole required. Same path rules as file_read; parent directories are created.",
+    "Use when you need to create an addon file or replace one wholesale — Lua/KV/Panorama sources, particle assets, or configs — without leaving the agent. Writes UTF-8 text inside the current Dota 2 addon and creates missing parent directories; offline tool, no game or vconsole required. Returns {ok:true,data:{path,bytes},text} with the absolute path and bytes written, or {ok:false,code,message} with invalid_arg when no addon can be resolved, the path escapes content/dota_addons/{addon}/ or game/dota_addons/{addon}/, or the file cannot be written. Limits: UTF-8 text only (no binary payloads); an existing file is overwritten without a backup; the target must stay inside the addon. Related tools: file_read, file_edit, file_delete.",
     {
       target: z.string().describe("File path inside the addon"),
       content: z.string().describe("Full UTF-8 content to write"),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
     },
+    DESTRUCTIVE_ANNOTATIONS,
     async ({ target, content, addon }) => {
-      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
-      const a = requireAddon(addon);
-      const resolved = resolveFileOpsPath(target, a);
+      if (!dotaPath) return fail("invalid_arg", dotaPathNotDetectedText());
+      let resolved = "";
       try {
+        resolved = resolveFileOpsPath(target, requireAddon(addon));
         fs.mkdirSync(path.dirname(resolved), { recursive: true });
         fs.writeFileSync(resolved, content, "utf8");
-        return { content: [{ type: "text", text: `Wrote ${resolved} (${Buffer.byteLength(content, "utf8")} bytes)` }] };
+        const bytes = Buffer.byteLength(content, "utf8");
+        return ok({ data: { path: resolved, bytes }, text: `Wrote ${resolved} (${bytes} bytes)` });
       } catch (e) {
-        throw new McpError(ErrorCode.InvalidRequest, `Cannot write ${resolved}: ${(e as Error).message}`);
+        if (e instanceof McpError) return fail("invalid_arg", errorText(e));
+        return fail("invalid_arg", `Cannot write ${resolved}: ${(e as Error).message}`);
       }
     }
   );
 
   server.tool("file_edit",
-    "Replace one occurrence of old_string with new_string in a file inside the current Dota 2 addon. Offline tool. old_string must appear exactly once (report counts when not), so ambiguous edits fail loudly.",
+    "Use when you need a surgical change to an existing addon file — tweak a value, rename a field, replace one block — without rewriting the whole file. Replaces the single occurrence of old_string with new_string; offline tool. Returns {ok:true,data:{path,bytes},text} with the absolute path, the new byte count and '1 replacement', or {ok:false,code,message} with invalid_arg when old_string is missing or appears more than once (the message reports the count), the file cannot be read or written, or the path escapes the addon. Limits: exactly one match per call — make ambiguous old_string unique first; the replacement is literal (no regex). Related tools: file_read, file_write, file_delete.",
     {
       target: z.string().describe("File path inside the addon"),
       old_string: z.string().describe("Exact text to replace (must appear exactly once)"),
       new_string: z.string().describe("Replacement text (may be empty to delete)"),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
     },
+    DESTRUCTIVE_ANNOTATIONS,
     async ({ target, old_string, new_string, addon }) => {
-      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
-      const a = requireAddon(addon);
-      const resolved = resolveFileOpsPath(target, a);
+      if (!dotaPath) return fail("invalid_arg", dotaPathNotDetectedText());
+      let resolved = "";
       try {
+        resolved = resolveFileOpsPath(target, requireAddon(addon));
         const content = fs.readFileSync(resolved, "utf8");
         const count = content.split(old_string).length - 1;
         if (count === 0) throw new McpError(ErrorCode.InvalidRequest, `old_string not found in ${resolved}`);
         if (count > 1) throw new McpError(ErrorCode.InvalidRequest, `old_string appears ${count} times in ${resolved}; make it unique before editing`);
         // 函数形式：字符串替换参数会展开 $' $& $1 等特殊序列
-        fs.writeFileSync(resolved, content.replace(old_string, () => new_string), "utf8");
-        return { content: [{ type: "text", text: `Edited ${resolved} (1 replacement)` }] };
+        const next = content.replace(old_string, () => new_string);
+        fs.writeFileSync(resolved, next, "utf8");
+        const bytes = Buffer.byteLength(next, "utf8");
+        return ok({ data: { path: resolved, bytes }, text: `Edited ${resolved} (1 replacement, ${bytes} bytes)` });
       } catch (e) {
-        if (e instanceof McpError) throw e;
-        throw new McpError(ErrorCode.InvalidRequest, `Cannot edit ${resolved}: ${(e as Error).message}`);
+        if (e instanceof McpError) return fail("invalid_arg", errorText(e));
+        return fail("invalid_arg", `Cannot edit ${resolved}: ${(e as Error).message}`);
       }
     }
   );
 
   server.tool("file_delete",
-    "Delete a file inside the current Dota 2 addon. Offline tool. Returns a short snapshot of the deleted content so the deletion is auditable.",
+    "Use when a file inside the addon is obsolete, or to clean up a test asset or generated file. Deletes one file and returns a short snapshot of its content so the deletion is auditable; offline tool. Returns {ok:true,data:{path,bytes},text} with the absolute path, deleted byte count and the first 500 characters of the content, or {ok:false,code,message} with invalid_arg when the file cannot be read or deleted or the path escapes the addon. Limits: files only (directories are not removed); the snapshot is truncated to 500 characters; there is no undo. Related tools: file_read, file_write, file_edit.",
     {
       target: z.string().describe("File path inside the addon"),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
     },
+    DESTRUCTIVE_ANNOTATIONS,
     async ({ target, addon }) => {
-      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
-      const a = requireAddon(addon);
-      const resolved = resolveFileOpsPath(target, a);
+      if (!dotaPath) return fail("invalid_arg", dotaPathNotDetectedText());
+      let resolved = "";
       try {
-        const snapshot = fs.readFileSync(resolved, "utf8").slice(0, 500);
+        resolved = resolveFileOpsPath(target, requireAddon(addon));
+        const full = fs.readFileSync(resolved, "utf8");
+        const snapshot = full.slice(0, 500);
+        const bytes = Buffer.byteLength(full, "utf8");
         fs.unlinkSync(resolved);
-        return { content: [{ type: "text", text: `Deleted ${resolved}\n--- snapshot (first 500 chars) ---\n${snapshot}` }] };
+        return ok({ data: { path: resolved, bytes }, text: `Deleted ${resolved} (${bytes} bytes)\n--- snapshot (first 500 chars) ---\n${snapshot}` });
       } catch (e) {
-        throw new McpError(ErrorCode.InvalidRequest, `Cannot delete ${resolved}: ${(e as Error).message}`);
+        if (e instanceof McpError) return fail("invalid_arg", errorText(e));
+        return fail("invalid_arg", `Cannot delete ${resolved}: ${(e as Error).message}`);
       }
     }
   );

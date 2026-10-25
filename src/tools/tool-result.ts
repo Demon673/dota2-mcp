@@ -52,3 +52,27 @@ export function ok(payload: OkPayload): ToolResult {
 export function fail(code: ToolErrorCode, message: string): ToolResult {
   return { content: [{ type: "text", text: JSON.stringify({ ok: false, code, message }) }], isError: true };
 }
+
+/** 破坏性写操作类（改文件 / 重载或终止对局）：不可重复调用，无外部依赖副作用。 */
+export const DESTRUCTIVE_ANNOTATIONS: ToolHints = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: false,
+};
+
+/** 外部副作用类（拉起进程或窗口、驱动资源编译）：影响进程外的世界状态。 */
+export const OPEN_WORLD_ANNOTATIONS: ToolHints = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: true,
+};
+
+/** 截图：不改游戏状态，但每次调用落一个新文件，因此不幂等。 */
+export const SCREENSHOT_ANNOTATIONS: ToolHints = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+};
