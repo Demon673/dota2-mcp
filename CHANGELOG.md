@@ -10,6 +10,7 @@ English | [中文](CHANGELOG.zh.md)
 - **`dota_advance_to_game`**: one call takes a loaded game from any pre-game phase to GAME_IN_PROGRESS with a hero for every player (random, or a given `hero`), acting only on the observed game state. Standard flow: `dota_launch_game` or `dota_restart`, then `dota_advance_to_game`. The `dota2-game-phases` skill and stuck-phase guidance now point to it.
 - **Focused skill retrieval**: `dota2_skill` outlines include `###` subsections, `section` works for both skill prose and Markdown data, and JSON data accepts a dot-path `data_path` such as `e_combos.top10`. Full-body and whole-file reads remain available, but VFX/model authoring no longer needs them.
 - **`dota2-vfx` ships its first end-to-end recipe**: "Recipe: AoE telegraph + impact" covers the parent/child layout, the ground-aligned ring sprite, control point 0 as the marker position, the 1.5 s wind-up, the modifier hook that creates and destroys the instance, and a sprite budget with its timed evidence.
+- **`dota2-vfx` gains a projectile recipe**: "Recipe: Projectile + trail + impact" explains why a short-lived high-rate head rides control point 0 while a longer-lived trail is left behind, why the impact is spawned at the landing point instead of as a delayed child, and the per-tick control-point update an ability needs.
 
 ### Fixed
 

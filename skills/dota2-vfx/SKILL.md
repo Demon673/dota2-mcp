@@ -274,3 +274,51 @@ end
 ```
 
 **Budget and evidence** — peak 11 additive sprites in two collections (1 ring + 10 burst), all with a shared texture and no deferred light; per-frame cost is not yet measured, so treat the sprite count as the budget and re-measure before stacking several telegraphs. Timed capture at 0.7 s shows the flat ring at the control point, at 1.6 s the ring is gone and the burst is centred on it, at 2.1 s the scene is clear again. Both files must be listed in the addon's `Precache(context)`.
+
+## Recipe: Projectile + trail + impact
+
+A moving source that leaves a trail and bursts where it lands. Retrieve with `dota2_skill(name='dota2-vfx', section='Recipe: Projectile + trail + impact')`.
+
+**Assets** — one parent, three children: `projectile.vpcf` (children only), `head.vpcf`, `trail.vpcf`, `impact.vpcf`.
+
+The parent is the moving system; it owns no particles:
+
+```
+m_Children =
+[
+  { m_ChildRef = resource:"particles/<addon>/projectile/head.vpcf" },
+  { m_ChildRef = resource:"particles/<addon>/projectile/trail.vpcf" },
+]
+```
+
+**Why the head moves and the trail stays.** Both children spawn particles at control point 0, and neither uses a follow or lock operator. The difference is lifetime:
+
+| Child | Emit rate | Lifetime | Result |
+|-------|-----------|----------|--------|
+| `head` | 45/s | 0.08 s | every particle dies and respawns on CP0, so the glow rides the control point |
+| `trail` | 70/s | 0.35 s | particles stay where they spawned, so moving CP0 leaves them behind |
+
+A long lifetime on the head turns it into a second trail; a short lifetime on the trail breaks the ribbon. Size the head above the trail (55 vs 34 here) so the leading edge reads as the head.
+
+**Runtime mapping** — control point 0 is the projectile position, and the ability updates it every frame:
+
+```lua
+function modifier_<name>:OnIntervalThink()
+  ParticleManager:SetParticleControl(self.pid, 0, self:GetParent():GetAbsOrigin())
+end
+```
+
+Create the system with `PATTACH_WORLDORIGIN` and set CP0 in the same call that creates it — a system whose CP0 is never set sits at the world origin, off-screen.
+
+**Impact is spawned separately, not as a delayed child.** The landing point depends on how far the projectile travels, so the hit creates its own instance at the arrival position and the ability destroys both.
+
+```lua
+local hit = ParticleManager:CreateParticle("particles/<addon>/projectile/impact.vpcf", PATTACH_WORLDORIGIN, nil)
+ParticleManager:SetParticleControl(hit, 0, landing)
+```
+
+`impact.vpcf` is a one-shot: `m_nParticlesToEmit = 14`, `C_INIT_CreateWithinSphere` with a 120 radius around CP0, `C_OP_InterpolateRadius` from 0.4, `C_OP_FadeOutSimple 0.35`, lifespan 0.45.
+
+**Budget and evidence** — peak ≈ 4 head + 25 trail + 14 impact ≈ 43 additive sprites across four collections, one shared texture, no deferred light; per-frame cost is not yet measured. A travel capture shows the bright head with the trail behind it, and a separate capture shows the burst at the impact position. The test harness stepped CP0 by hand every ~90 ms, so its trail appears as discrete blobs; at frame rate the same asset draws a continuous ribbon.
+
+Both children and the impact must be listed in the addon's `Precache(context)`.
