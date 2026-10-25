@@ -52,16 +52,16 @@ for (const n of ["file_read", "file_write", "file_edit", "file_delete"]) {
 const w = await call("tools/call", { name: "file_write", arguments: { target: TEST_TARGET, addon: ADDON, content: "hello fileops\nline2\n" } });
 assert(callText(w).includes("Wrote"), "file_write works");
 const rd = await call("tools/call", { name: "file_read", arguments: { target: TEST_TARGET, addon: ADDON } });
-assert(callText(rd) === "hello fileops\nline2\n", "file_read returns written content");
+assert(JSON.parse(callText(rd)).data.text === "hello fileops\nline2\n", "file_read returns written content");
 const ed = await call("tools/call", { name: "file_edit", arguments: { target: TEST_TARGET, addon: ADDON, old_string: "hello", new_string: "HELLO" } });
 assert(callText(ed).includes("1 replacement"), "file_edit replaces unique match");
 const rd2 = await call("tools/call", { name: "file_read", arguments: { target: TEST_TARGET, addon: ADDON } });
-assert(callText(rd2) === "HELLO fileops\nline2\n", "file_edit content correct");
+assert(JSON.parse(callText(rd2)).data.text === "HELLO fileops\nline2\n", "file_edit content correct");
 // 替换文本里的 $' $& 必须原样写入（String.replace 字符串参数会展开它们）
 const edDollar = await call("tools/call", { name: "file_edit", arguments: { target: TEST_TARGET, addon: ADDON, old_string: "line2", new_string: "t = '$' + g; $&" } });
 assert(callText(edDollar).includes("1 replacement"), "file_edit with $ sequences");
 const rdDollar = await call("tools/call", { name: "file_read", arguments: { target: TEST_TARGET, addon: ADDON } });
-assert(callText(rdDollar) === "HELLO fileops\nt = '$' + g; $&\n", "file_edit keeps $' and $& literal");
+assert(JSON.parse(callText(rdDollar)).data.text === "HELLO fileops\nt = '$' + g; $&\n", "file_edit keeps $' and $& literal");
 const edDup = await call("tools/call", { name: "file_edit", arguments: { target: TEST_TARGET, addon: ADDON, old_string: "\n", new_string: "" } });
 expectError(edDup, "appears");
 const del = await call("tools/call", { name: "file_delete", arguments: { target: TEST_TARGET, addon: ADDON } });
