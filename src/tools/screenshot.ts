@@ -29,6 +29,9 @@ export interface ScreenshotResult {
   height?: number;
 }
 
+export interface WindowRect { x: number; y: number; width: number; height: number }
+export type WindowLookup = ({ ok: true } & WindowRect) | { ok: false; code: "no_window" | "internal"; message: string };
+
 const TOTAL_TIMEOUT_MS = 5000;
 const KEEP = 20;
 /** 本工具生成的文件名；prune 只删匹配它的文件（DOTA2_SCREENSHOT_DIR 可能指向用户自己的目录） */
@@ -280,6 +283,39 @@ export async function startScreenshotWatcher(): Promise<void> {
   await ensureWatcher(helper);
 }
 
+/** Dota 2 窗口矩形（虚拟屏幕坐标），供录制的 ddagrab 换算 video_size/offset。
+ *  复用截图的窗口查找与辅助程序缓存；找不到窗口/最小化/辅助程序失败都显式返回原因，绝不回退到整屏。 */
+export async function gameWindowRect(): Promise<WindowLookup> {
+  const override = process.env.DOTA2_CAPTURE_HELPER;
+  if (!override && process.platform !== "win32") {
+    return { ok: false, code: "no_window", message: "Recording the Dota 2 window requires Windows (FFmpeg ddagrab uses D3D11 desktop duplication). Nothing was recorded." };
+  }
+  let helper: string;
+  try {
+    helper = override || await ensureHelper();
+  } catch (e) {
+    return { ok: false, code: "internal", message: `Could not build the capture helper with the system C# compiler, so the window rectangle is unavailable:\n${(e as Error).message}` };
+  }
+  const inv = helperInvocation(helper, ["--rect"]);
+  const r = await run(inv.cmd, inv.args, TOTAL_TIMEOUT_MS);
+  if (r.error) return { ok: false, code: "internal", message: `The window lookup helper gave no result.\n${r.error}` };
+  let reply: HelperReply & Partial<WindowRect>;
+  try { reply = JSON.parse(r.stdout.trim().split(/\r?\n/).pop() || ""); } catch {
+    return { ok: false, code: "internal", message: `The window lookup helper returned no JSON.${r.stderr ? `\n${r.stderr}` : ""}` };
+  }
+  const { x, y, width, height } = reply;
+  if (reply.ok && typeof x === "number" && typeof y === "number" && typeof width === "number" && typeof height === "number" && width > 0 && height > 0) {
+    return { ok: true, x, y, width, height };
+  }
+  if (reply.error === "no_window") {
+    return { ok: false, code: "no_window", message: "No Dota 2 game window found. Start Dota 2 first; nothing was recorded." };
+  }
+  if (reply.error === "minimized") {
+    return { ok: false, code: "no_window", message: "The Dota 2 window is minimized. Restore it before recording; nothing was recorded." };
+  }
+  return { ok: false, code: "internal", message: `The window lookup helper failed: ${reply.message ?? reply.error ?? "unknown error"}` };
+}
+
 function readReply(file: string): HelperReply | null {
   try {
     const text = readFileSync(file, "utf8");
@@ -429,6 +465,7 @@ static class DotaCapture {
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll")] static extern bool IsHungAppWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
   [DllImport("d3d11.dll")] static extern int D3D11CreateDevice(IntPtr adapter, int driverType, IntPtr software, uint flags,
     IntPtr levels, uint numLevels, uint sdk, out IntPtr device, out int level, out IntPtr context);
@@ -453,6 +490,8 @@ static class DotaCapture {
         Console.WriteLine("{\"ok\":true}");
         return 0;
       }
+      // --rect: the game window rectangle in virtual-screen coordinates (dota_record crops ddagrab to it).
+      if (args.Length == 1 && args[0] == "--rect") return Rect();
       return Run(args).GetAwaiter().GetResult();
     }
     catch (Exception e) { Fail("internal", e.GetType().Name + ": " + e.Message); return 1; }
@@ -492,6 +531,21 @@ static class DotaCapture {
     }, IntPtr.Zero);
     windowPid = foundPid;
     return found;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  struct RECT { public int Left, Top, Right, Bottom; }
+
+  static int Rect() {
+    IntPtr w = FindGameWindow();
+    if (w == IntPtr.Zero) { Fail("no_window", "No Dota 2 game window found."); return 2; }
+    if (IsIconic(w)) { Fail("minimized", "The Dota 2 window is minimized."); return 2; }
+    RECT r;
+    if (!GetWindowRect(w, out r)) { Fail("no_window", "Could not read the Dota 2 window rectangle."); return 2; }
+    int width = r.Right - r.Left, height = r.Bottom - r.Top;
+    if (width <= 0 || height <= 0) { Fail("no_window", "The Dota 2 window has no visible area."); return 2; }
+    Console.WriteLine("{\"ok\":true,\"x\":" + r.Left + ",\"y\":" + r.Top + ",\"width\":" + width + ",\"height\":" + height + "}");
+    return 0;
   }
 
   static async Task<int> Run(string[] args) {

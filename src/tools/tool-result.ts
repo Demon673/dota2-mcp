@@ -12,6 +12,9 @@ export const ERROR_CODES = [
   "precache_missing",
   "invalid_arg",
   "internal",
+  "ffmpeg_missing",
+  "no_window",
+  "empty_capture",
 ] as const;
 
 export type ToolErrorCode = (typeof ERROR_CODES)[number];
@@ -51,6 +54,12 @@ export function ok(payload: OkPayload): ToolResult {
 
 export function fail(code: ToolErrorCode, message: string): ToolResult {
   return { content: [{ type: "text", text: JSON.stringify({ ok: false, code, message }) }], isError: true };
+}
+
+/** 同一契约的缩进版本：dota_status 的载荷人会读，缩进空格也让既有活体脚本的
+ *  `"vconsole": true` / `"addon": "…"` text.includes 断言继续成立。 */
+export function okPretty(payload: OkPayload): ToolResult {
+  return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...payload }, null, 2) }] };
 }
 
 /** 破坏性写操作类（改文件 / 重载或终止对局）：不可重复调用，无外部依赖副作用。 */
