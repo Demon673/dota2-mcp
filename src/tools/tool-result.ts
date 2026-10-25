@@ -62,8 +62,8 @@ export function okPretty(payload: OkPayload): ToolResult {
   return { content: [{ type: "text", text: JSON.stringify({ ok: true, ...payload }, null, 2) }] };
 }
 
-/** 破坏性写操作类（改文件 / 重载或终止对局）：不可重复调用，无外部依赖副作用。 */
-export const DESTRUCTIVE_ANNOTATIONS: ToolHints = {
+/** 任意执行类（console_send、文件写入、重载或终止对局）：会改状态、不可安全重复、无外部网络副作用。 */
+export const EXEC_ANNOTATIONS: ToolHints = {
   readOnlyHint: false,
   destructiveHint: true,
   idempotentHint: false,

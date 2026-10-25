@@ -29,7 +29,7 @@ import { captureScreenshot, startScreenshotWatcher } from "./tools/screenshot.js
 import { runPerf, PRESENTMON_VERSION } from "./tools/perf.js";
 import { recordVideo } from "./tools/recorder.js";
 import { particlePrecacheNote } from "./tools/particle-precache.js";
-import { ok, okPretty, fail, READ_ONLY_ANNOTATIONS, DESTRUCTIVE_ANNOTATIONS, OPEN_WORLD_ANNOTATIONS, SCREENSHOT_ANNOTATIONS, type ToolHints } from "./tools/tool-result.js";
+import { ok, okPretty, fail, READ_ONLY_ANNOTATIONS, EXEC_ANNOTATIONS, OPEN_WORLD_ANNOTATIONS, SCREENSHOT_ANNOTATIONS, type ToolHints } from "./tools/tool-result.js";
 import * as daemon from "./daemon-utils.js";
 
 function getVersion(): string {
@@ -557,13 +557,27 @@ Then call dota_status again.`;
 
   // Tool: send console command via VCon
   server.tool("console_send",
-    "Use to run any Dota 2 console command — change convars, trigger cheats, exec cfgs, or drive the engine directly while testing. Sends command(s) to the live Dota 2 console. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use when you need to run one or more Dota 2 console commands and read their output in the same call — change convars, trigger cheats, exec cfgs, or drive the engine directly while testing, without racing a second read against other sessions. Sends the newline-separated commands together inside one marker-delimited console window and returns that window's output. Returns {ok:true,lines,count,next_seq,dropped}: lines is the command window as one newline-joined string formatted '[channel][Llevel] text', count is the number of lines, next_seq is the session cursor just past the window (pass it to console_output as since_seq to continue explicitly), and dropped is 0 because the window is collected live. The session cursor advances past the echoed window, so a following console_output does not repeat it, while output the command emits later (slow loads, compiles) keeps its sequence numbers and stays readable. Limits: requires an open vconsole attached to 127.0.0.1:29001; the window closes when the engine echoes the end marker, so output printed after that marker arrives through console_output rather than this call; blank lines are dropped and an empty command list fails with invalid_arg. Related tools: console_output (read everything after the window), console_find/console_help (discover commands), dota_status (connection state).",
     { commands: z.string().describe("Command(s), newline-separated") },
+    EXEC_ANNOTATIONS,
     async ({ commands }) => {
-      requireConsole();
+      const blocked = consoleGate();
+      if (blocked) return blocked;
       const cmds = commands.split("\n").map(c => c.trim()).filter(Boolean);
-      cmds.forEach(c => relay.sendCommand(c));
-      return { content: [{ type: "text", text: `Sent ${cmds.length} command(s)` }] };
+      if (cmds.length === 0) return fail("invalid_arg", "commands must contain at least one non-empty line.");
+      let windowEnd: number | null = null;
+      // 结束标记处同步取边界：此刻 prntSeqNext 就是窗口末行的 seq+1（标记本身不入缓冲）。
+      // 不能在 await 之后取 prntSeqNext——标记之后、响应之前到达的延迟输出会被游标跳过。
+      const lines = await collectBetweenMarkers(
+        (begin, end) => `echo ${begin}; ${cmds.join("; ")}; echo ${end}`,
+        {
+          onEnd: () => { windowEnd = prntSeqNext; },
+          // 与 console_output 的行格式一致，agent 不必为两条读取路径写两种解析
+          formatLine: (m: any) => `[${m.channel || "?"}][L${m.verbosity ?? 0}] ${m.text}`,
+        }
+      );
+      if (windowEnd !== null) consoleCursor = windowEnd;
+      return ok({ lines: lines.join("\n"), count: lines.length, next_seq: windowEnd ?? prntSeqNext, dropped: 0 });
     }
   );
 
@@ -870,7 +884,7 @@ Once connected, call dota_status again.`;
       hero: z.string().regex(/^npc_dota_hero_[a-z0-9_]+$/).optional().describe("Hero for every player, e.g. 'npc_dota_hero_axe' (overrides an existing pick). Default: a random hero for each player that has none."),
       timeout: z.number().optional().describe("Max seconds to wait. Default 120 (map loading counts)."),
     },
-    DESTRUCTIVE_ANNOTATIONS,
+    EXEC_ANNOTATIONS,
     async ({ hero, timeout }) => {
       const blocked = consoleGate();
       if (blocked) return blocked;
@@ -951,7 +965,7 @@ Once connected, call dota_status again.`;
   server.tool("dota_disconnect",
     "Use when a test run is finished and the game should quit to the main menu, or when the current match is unusable and needs a clean disconnect. Sends the engine's disconnect command. Returns {ok:true,text} once the command is sent, or {ok:false,code,message} with dota_down/vconsole_closed when the console contract is not met. Limits: fire-and-forget — it does not wait for the main menu to appear; confirm with dota_status. Related tools: dota_status, dota_launch_game, dota_restart.",
     {},
-    DESTRUCTIVE_ANNOTATIONS,
+    EXEC_ANNOTATIONS,
     async () => {
       const blocked = consoleGate();
       if (blocked) return blocked;
@@ -1057,7 +1071,7 @@ Once connected, call dota_status again.`;
   server.tool("dota_restart",
     "Use when you need to quickly reload the current map after changing Lua, KV, or Panorama files, so the user can re-test without relaunching manually. Sends the engine restart command and waits until the reload has begun. Returns {ok:true,text} once a loading state or a different game_state is observed, or {ok:false,code,message} with timeout when the state does not change within 20 s and dota_down/vconsole_closed when the console contract is not met. Limits: it confirms only that the reload started, not that it finished; follow with dota_advance_to_game to reach a playable game. Related tools: dota_advance_to_game, dota_launch_game, dota_status, console_output.",
     {},
-    DESTRUCTIVE_ANNOTATIONS,
+    EXEC_ANNOTATIONS,
     async () => {
       const blocked = consoleGate();
       if (blocked) return blocked;
@@ -1193,7 +1207,7 @@ Once connected, call dota_status again.`;
     return out;
   }
 
-  async function collectBetweenMarkers(buildCmd: (begin: string, end: string) => string, opts: { waitMs?: number; settleMs?: number }): Promise<string[]> {
+  async function collectBetweenMarkers(buildCmd: (begin: string, end: string) => string, opts: { waitMs?: number; settleMs?: number; onEnd?: () => void; formatLine?: (msg: any) => string }): Promise<string[]> {
     const { waitMs = 3000, settleMs } = opts;
     const r = relay; // respawn 会替换 relay，off 必须落在同一个对象上
     const { begin, end } = newMcpMarkers();
@@ -1203,8 +1217,8 @@ Once connected, call dota_status again.`;
     const onPrnt = (msg: any) => {
       const text = String(msg.text).trim();
       if (text === begin) { inside = true; return; }
-      if (text === end) { finishEarly?.(); return; }
-      if (inside) collected.push(msg.text);
+      if (text === end) { opts.onEnd?.(); finishEarly?.(); return; }
+      if (inside) collected.push(opts.formatLine ? opts.formatLine(msg) : msg.text);
     };
     r.on("prnt", onPrnt);
     r.sendCommand(buildCmd(begin, end));
@@ -1823,7 +1837,7 @@ Once connected, call dota_status again.`;
       content: z.string().describe("Full UTF-8 content to write"),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
     },
-    DESTRUCTIVE_ANNOTATIONS,
+    EXEC_ANNOTATIONS,
     async ({ target, content, addon }) => {
       if (!dotaPath) return fail("invalid_arg", dotaPathNotDetectedText());
       let resolved = "";
@@ -1848,7 +1862,7 @@ Once connected, call dota_status again.`;
       new_string: z.string().describe("Replacement text (may be empty to delete)"),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
     },
-    DESTRUCTIVE_ANNOTATIONS,
+    EXEC_ANNOTATIONS,
     async ({ target, old_string, new_string, addon }) => {
       if (!dotaPath) return fail("invalid_arg", dotaPathNotDetectedText());
       let resolved = "";
@@ -1876,7 +1890,7 @@ Once connected, call dota_status again.`;
       target: z.string().describe("File path inside the addon"),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
     },
-    DESTRUCTIVE_ANNOTATIONS,
+    EXEC_ANNOTATIONS,
     async ({ target, addon }) => {
       if (!dotaPath) return fail("invalid_arg", dotaPathNotDetectedText());
       let resolved = "";
