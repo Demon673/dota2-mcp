@@ -25,7 +25,8 @@ const env = {
 
 // precache_missing 需要一个真实 addon 目录：沿用 test-fileops 的做法——本机有 Steam 时用注册表
 // 找到的真实 Dota 目录，没有 Steam 的 CI 经 STEAM_PATH 落到临时搭的最小 Steam 库。
-const ADDON = "mcp17fixture";
+// 固定名字会在并行运行的工作树之间互相删除夹具（清理走 process exit），加 PID 隔离
+const ADDON = "mcp17fix" + process.pid;
 const fakeSteam = mkdtempSync(path.join(tmpdir(), "lua-vfx-steam-"));
 mkdirSync(path.join(fakeSteam, "steamapps", "common", "dota 2 beta", "game", "dota"), { recursive: true });
 env.STEAM_PATH = process.env.STEAM_PATH || fakeSteam;
