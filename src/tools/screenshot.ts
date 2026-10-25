@@ -23,7 +23,7 @@ export interface ScreenshotResult {
   image?: { data: string; mimeType: string };
 }
 
-const TIMEOUT_MS = 5000;
+const TOTAL_TIMEOUT_MS = 5000;
 const KEEP = 20;
 /** 本工具生成的文件名；prune 只删匹配它的文件（DOTA2_SCREENSHOT_DIR 可能指向用户自己的目录） */
 const SHOT_NAME = /^dota-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{4}\.(jpg|png)$/;
@@ -193,7 +193,7 @@ function removeWatcherLock(dir: string, expectedRaw: string): boolean {
   } catch { return !existsSync(lock); }
 }
 
-async function stopWatcher(dir: string): Promise<boolean> {
+async function stopWatcher(dir: string, deadline: number): Promise<boolean> {
   const info = readWatcherInfo(dir);
   if (!info) return true;
   const lock = path.join(dir, "watcher.lock");
@@ -202,9 +202,9 @@ async function stopWatcher(dir: string): Promise<boolean> {
   if (validPid(info.pid) && ownerAlive(dir, info)) {
     try { process.kill(info.pid); killed = true; } catch { /* 已退出 */ }
   }
-  for (let i = 0; killed && i < 80; i++) {
+  while (killed && Date.now() < deadline) {
     if (heldMode ? !lockHeld(lock) : !processAlive(info.pid)) break;
-    await new Promise(r => setTimeout(r, 25));
+    await new Promise(r => setTimeout(r, Math.min(25, Math.max(0, deadline - Date.now()))));
   }
   const stopped = heldMode ? !lockHeld(lock) : !validPid(info.pid) || !processAlive(info.pid);
   return stopped && removeWatcherLock(dir, info.raw);
@@ -221,7 +221,7 @@ function watcherLog(dir: string): string {
 }
 
 /** 全机共享一个常驻助手。v2 锁把 PID 与助手路径绑定到同一次启动，来源判断不再依赖独立文件的写入时序。 */
-async function ensureWatcher(helper: string): Promise<void> {
+async function ensureWatcher(helper: string, deadline = Date.now() + TOTAL_TIMEOUT_MS): Promise<void> {
   const dir = watchDir();
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const desiredSource = path.resolve(helper);
@@ -229,19 +229,20 @@ async function ensureWatcher(helper: string): Promise<void> {
   const state: { error: Error | null; exited: boolean } = { error: null, exited: false };
   let child: import("node:child_process").ChildProcess | null = null;
 
-  for (let i = 0; i < 100; i++) {
+  for (;;) {
+    if (Date.now() >= deadline) break;
     const info = readWatcherInfo(dir);
     if (info && liveWatcher(dir)) {
       if (sameHelper(info.source, desiredSource)) return;
-      if (!await stopWatcher(dir)) throw new Error("The previous capture helper could not be stopped.");
+      if (!await stopWatcher(dir, deadline)) throw new Error("The previous capture helper could not be stopped before the 5s deadline.");
       continue;
     }
     if (info && ownerAlive(dir, info)) {
-      await new Promise(r => setTimeout(r, 50)); // 另一个会话已创建锁，等它写完并就绪
+      await new Promise(r => setTimeout(r, Math.min(50, Math.max(0, deadline - Date.now())))); // 另一个会话已创建锁，等它写完并就绪
       continue;
     }
     if (info && !removeWatcherLock(dir, info.raw)) {
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise(r => setTimeout(r, Math.min(50, Math.max(0, deadline - Date.now()))));
       continue;
     }
     if (!child) {
@@ -259,11 +260,11 @@ async function ensureWatcher(helper: string): Promise<void> {
       const why = watcherLog(dir);
       throw new Error(`Capture helper exited before it was ready.${why ? `\n${why}` : ""}`);
     }
-    await new Promise(r => setTimeout(r, 50));
+    await new Promise(r => setTimeout(r, Math.min(50, Math.max(0, deadline - Date.now()))));
   }
   try { child?.kill(); } catch { /* 已退出 */ }
   const why = watcherLog(dir);
-  throw new Error(`Capture helper did not become ready within 5s.${why ? `\n${why}` : ""}`);
+  throw new Error(`Screenshot timed out after ${TOTAL_TIMEOUT_MS / 1000}s; the capture helper did not become ready.${why ? `\n${why}` : ""}`);
 }
 
 export async function startScreenshotWatcher(): Promise<void> {
@@ -280,17 +281,20 @@ function readReply(file: string): HelperReply | null {
   } catch { return null; }
 }
 
-async function minimizeAfterRestore(helper: string, restoring: boolean): Promise<string> {
+async function minimizeAfterRestore(helper: string, restoring: boolean, deadline: number): Promise<string> {
   if (!restoring) return "";
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return " The window had been restored and could not be minimized again before the 5s deadline.";
   const invocation = helperInvocation(helper, ["--minimize"]);
-  const m = await run(invocation.cmd, invocation.args, TIMEOUT_MS);
+  const m = await run(invocation.cmd, invocation.args, remaining);
   return m.timedOut || m.error
     ? " The window had been restored and could not be minimized again."
     : " The window had been restored; it was minimized again.";
 }
 
 async function watchCapture(helper: string, out: string, maxWidth: number, format: string, restore: boolean): Promise<WatchOutcome> {
-  await ensureWatcher(helper);
+  const deadline = Date.now() + TOTAL_TIMEOUT_MS;
+  await ensureWatcher(helper, deadline);
   const dir = watchDir();
   const id = randomBytes(8).toString("hex");
   const request = path.join(dir, `${id}.request`);
@@ -302,8 +306,7 @@ async function watchCapture(helper: string, out: string, maxWidth: number, forma
 
   let restoring = false;
   let accepted = false;
-  const start = Date.now();
-  while (Date.now() - start < TIMEOUT_MS) {
+  while (Date.now() < deadline) {
     const reply = readReply(replyFile);
     if (reply?.accepted) accepted = true;
     if (reply?.restoring) { restoring = true; accepted = true; }
@@ -314,22 +317,22 @@ async function watchCapture(helper: string, out: string, maxWidth: number, forma
     if (!liveWatcher(dir)) {
       cleanup();
       const why = watcherLog(dir);
-      const note = await minimizeAfterRestore(helper, restoring);
+      const note = await minimizeAfterRestore(helper, restoring, deadline);
       return { reply: null, timedOut: false, error: `Capture helper exited while capturing.${why ? `\n${why}` : ""}`, note };
     }
-    await new Promise(r => setTimeout(r, 25));
+    await new Promise(r => setTimeout(r, Math.min(25, Math.max(0, deadline - Date.now()))));
   }
 
   // 只有已开始处理的请求才可能卡死助手；仍在串行队列中的请求超时不能杀掉别人的共享助手。
   let note = "";
   if (accepted) {
-    const stopped = await stopWatcher(dir);
+    const stopped = await stopWatcher(dir, deadline);
     note = stopped ? " The capture helper was stopped." : " The capture helper could not be stopped cleanly.";
   } else {
     note = " The request was still queued; the shared capture helper was left running.";
   }
   cleanup();
-  note += await minimizeAfterRestore(helper, restoring);
+  note += await minimizeAfterRestore(helper, restoring, deadline);
   return { reply: null, timedOut: true, error: null, note };
 }
 
@@ -357,10 +360,12 @@ export async function captureScreenshot(opts: ScreenshotOptions): Promise<Screen
   try {
     r = await watchCapture(helper, out, opts.maxWidth, opts.format, opts.restore && !exclusive);
   } catch (e) {
-    return fail(`Capture helper gave no result.\n${(e as Error).message}`);
+    const message = (e as Error).message;
+    if (message.startsWith("Screenshot timed out")) return fail(message);
+    return fail(`Capture helper gave no result.\n${message}`);
   }
   if (r.timedOut) {
-    return fail(`Screenshot timed out after ${TIMEOUT_MS / 1000}s; the capture helper did not respond. Nothing was captured.${r.note}`);
+    return fail(`Screenshot timed out after ${TOTAL_TIMEOUT_MS / 1000}s; the capture helper did not respond. Nothing was captured.${r.note}`);
   }
   if (r.error) return fail(`Capture helper gave no result.\n${r.error}${r.note}`);
   const reply = r.reply;

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/feature/2026-10-18-dota-screenshot.md
-2026-10-18-dota-screenshot.md: 78068cd6badd2d48020255b3aa3f4d8beaa99a7b
-2026-10-18-dota-screenshot.zh.md: 2a73bf86113625e2802644189faab82ec7c99676
+2026-10-18-dota-screenshot.md: 10d8b816093a96ab6245ed1e71702bea9b250795
+2026-10-18-dota-screenshot.zh.md: 2e226dcc59b0a30063c98381f73ab15726e4afeb

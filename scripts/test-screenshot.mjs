@@ -2,6 +2,7 @@
 // 只替换截图辅助程序这一个边界：DOTA2_CAPTURE_HELPER 指向下面生成的假辅助程序（node 脚本，Windows/Linux 都能跑），
 // 它按 MODE 文件里的指令处理常驻 watcher 的 request/reply 文件协议。不需要 Dota、vconsole 或 relay 连接（同时证明工具不受门控）。
 // 独占全屏、辅助程序启动失败、非 Windows 三条路径在进程内直接调 captureScreenshot（要传 dotaPath / 换掉辅助程序）。
+// 还覆盖启动+请求的总 5s deadline，以及到期后无法完成补最小化的明确错误；冷编译不在此预算内。
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -23,7 +24,7 @@ let cached = null;
 const publicReply = () => { if (!cached) return null; const { data, ...reply } = cached; return reply; };
 function respond(outPath, maxWidth, format, restore) {
   const mode = readFileSync(${JSON.stringify(modeFile)}, "utf8").trim();
-  if (mode === "hang" || mode === "queue") return {};
+  if (mode === "hang" || mode === "queue" || mode === "slow_start") return {};
   if (mode === "hang_restoring") return { progress: { restoring: true } };
   if (mode === "stale") {
     if (!cached) return { reply: { ok: false, error: "no_frame", message: "no cache", hung: true } };
@@ -43,6 +44,7 @@ function respond(outPath, maxWidth, format, restore) {
 }
 if (process.argv[2] === "--watch") {
   const dir = process.argv[3];
+  if (readFileSync(${JSON.stringify(modeFile)}, "utf8").trim() === "slow_start") await new Promise((r) => setTimeout(r, 4000));
   const lock = path.join(dir, "watcher.lock");
   const lockText = ["v2", String(process.pid), process.argv[4]].join("\\n");
   try { writeFileSync(lock, lockText, { flag: "wx" }); } catch { process.exit(0); }
@@ -143,7 +145,7 @@ assert(none.isError && /No Dota 2 game window/i.test(text(none)) && !image(none)
 // 超时：已开始处理的助手挂住时 5s 内返回错误，并真正停掉它
 const t0 = Date.now();
 const hang = await shoot("hang");
-assert(hang.isError && /timed out/i.test(text(hang)) && Date.now() - t0 < 9000, "hung helper killed on timeout: " + text(hang));
+assert(hang.isError && /timed out/i.test(text(hang)) && Date.now() - t0 < 7000, "hung helper killed on timeout: " + text(hang));
 assert(!pidAlive(watcherPid) && (!existsSync(watcherLock) || lockPid(readFileSync(watcherLock, "utf8")) !== watcherPid), "timed-out watcher is stopped and its lock is gone");
 assert(!existsSync(minimizedMarker), "no re-minimize when the window was never restored");
 
@@ -153,10 +155,15 @@ assert(queued.isError && /still queued/.test(text(queued)) && existsSync(watcher
 const queuePid = lockPid(readFileSync(watcherLock, "utf8"));
 assert(pidAlive(queuePid), "queued watcher process is still alive");
 
-// 超时且辅助程序已恢复过窗口：它的 finally 跑不到，工具要补一次最小化
+// 超时且辅助程序已恢复过窗口：总 deadline 到期后不再额外等待补最小化，错误会明确说明
 const hangRestoring = await shoot("hang_restoring");
-assert(hangRestoring.isError && /minimized again/.test(text(hangRestoring)) && existsSync(minimizedMarker), "timeout after restore re-minimizes the window: " + text(hangRestoring));
+assert(hangRestoring.isError && /could not be minimized again before the 5s deadline/.test(text(hangRestoring)) && !existsSync(minimizedMarker), "timeout after restore reports incomplete re-minimize within the total deadline: " + text(hangRestoring));
 assert(!pidAlive(queuePid), "accepted restoring timeout stops the old watcher");
+
+// 启动等待与请求共享同一个 deadline，不能叠加成 5s + 5s
+const slowStarted = Date.now();
+const slowStart = await shoot("slow_start");
+assert(slowStart.isError && /timed out/.test(text(slowStart)) && Date.now() - slowStarted < 6500, "startup and capture share one 5s deadline: " + text(slowStart));
 
 // 助手在 restoring 进度之后崩溃/被杀：非超时分支同样要补最小化
 rmSync(minimizedMarker, { force: true });
