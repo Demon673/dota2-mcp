@@ -20,7 +20,7 @@ The engine loads only `game/` outputs. A particle that exists as source but not 
 
 ## .vpcf authoring quick reference (KV3)
 
-**First principle: work from existing sources, don't guess the structure.** Every structural fact below is verified against real engine-accepted sources. When you need a shape you haven't seen, copy a working source and change parameters — a guessed field name or a misplaced block can crash the engine on preview.
+**First principle: work from existing sources.** Every structural fact below is verified against real engine-accepted sources. When you need a shape you haven't seen, copy a working source and change parameters — a guessed field name or a misplaced block can crash the engine on preview.
 
 Sources are KV3 text: a header comment line, then `{ key = value ... }` blocks. The root is a particle system definition:
 
@@ -42,7 +42,7 @@ Key vocabulary (verified against a real basic-template addon):
 - **`m_Children`** — array of child particle systems, each an object with `m_ChildRef = resource:"particles/<path>.vpcf"`.
 - **`m_nMaxParticles`** — particle budget of this system.
 - **References** use KV3 `resource:"path"` syntax. Material/texture refs point into `materials/` (e.g. `resource:"materials/particle/basic_glow.vtex"`). Paths are relative to the content root and carry no addon prefix.
-- **Emitters** live in their own `m_Emitters` block (never inside `m_Operators`): `C_OP_InstantaneousEmitter` takes `m_nParticlesToEmit` (count), `C_OP_ContinuousEmitter` takes `m_flEmitRate` (per second). Wrong field names are silently dropped and fall back to engine defaults (100) — no compile error.
+- **Emitters** live in their own `m_Emitters` block: `C_OP_InstantaneousEmitter` takes `m_nParticlesToEmit` (count), `C_OP_ContinuousEmitter` takes `m_flEmitRate` (per second). Wrong field names are silently dropped and fall back to engine defaults (100) — no compile error.
 
 Common emitter/operator/initializer classes seen in the basic template: `C_OP_InstantaneousEmitter`, `C_OP_BasicMovement`, `C_OP_Decay`, `C_OP_FadeOutSimple`, `C_OP_InterpolateRadius`, `C_OP_RenderTrails`, `C_INIT_RandomLifeTime`, `C_INIT_RandomTrailLength`.
 
@@ -75,7 +75,7 @@ Root scalars: `m_nMaxParticles`, `m_nInitialParticles`, `m_ConstantColor` [R,G,B
 
 ### Common Initializers (m_Initializers)
 
-- `C_INIT_CreateWithinSphere`: `m_fRadiusMin/Max`, `m_fSpeedMin/Max`, `m_LocalCoordinateSystemSpeedMin/Max`, `m_nControlPointNumber`.
+- `C_INIT_CreateWithinSphere`: position fields `m_fRadiusMin/Max`, velocity `m_fSpeedMin/Max`, `m_LocalCoordinateSystemSpeedMin/Max`. Bind the spawn transform with a full `m_TransformInput` struct (`m_bUseOrientation`, `m_nControlPoint`); the legacy `m_nControlPointNumber` and any short struct form are dropped by the compiler (see Pitfalls).
 - `C_INIT_CreateWithinBox`: `m_vecMin` / `m_vecMax`.
 - `C_INIT_CreateSequentialPath`: `m_flNumToAssign`, `m_PathParams`.
 - **Random* are editor shortcuts**, compiled to the generic `C_INIT_InitFloat` writing scalar properties: RandomLifeTime→field 1 (lifetime), RandomRadius→0 (radius), RandomRotation→4, RandomRotationSpeed→5, RandomAlpha→7 (stores 0..1). The full attribute index, with its empirical verification, is `dota2_skill(name='dota2-vfx', data='vpcf-official-findings.md', section='3.4 Random lifetime — there is no C_INIT_RandomLifeTime')`; keep the two in step. Also RandomColor / RandomYawFlip / RandomTrailLength / InitialVelocityNoise / RemapParticleCountToScalar.
@@ -125,22 +125,25 @@ Source: GameTracking-Dota2 engine schema (507 header files, cross-validated agai
 ### Pitfalls (all verified)
 
 1. Wrong field names are **silently dropped** and fall back to engine defaults (e.g. writing `m_flSpawnRate` → actual m_nParticlesToEmit=100), with no compile error.
-2. The compiler does **not** move an emitter/initializer placed in the wrong block — wrong block = wrong behavior.
-3. Use `m_ChildRef` external links, don't inline child systems.
-4. Choose one of `m_flConstantLifespan` (constant) or `C_INIT_RandomLifeTime` (random), don't mix them.
-5. Texture references must use the `resource:"materials/…vtex"` form.
-6. InstantaneousEmitter does not show in the Particle Editor static preview.
-7. Write `m_hTexture` in source, not `m_vecTexturesInput` (that's the compiled-output form).
-8. Decompiled output being ~40x larger than source is the engine filling in defaults, not an error.
+2. **`m_nControlPointNumber` is one of those dropped names**, and so is any struct written short. Use `m_TransformInput` with its full field set (`m_bUseOrientation`, `m_nControlPoint`). Without the binding the system never follows the control point, so `SetParticleControl(pid, 0, position)` does nothing and the effect stays at the world origin — while the create call still returns a valid id and the system still appears in `cl_particles_dumpsimlist`. Verify by decompiling your own `.vpcf_c`: the initializer must carry `m_TransformInput` with a control point.
+3. **Precache decides whether anything is drawn.** The client renders only systems it loaded at map start, so the path must appear in the addon's `Precache(context)` as `PrecacheResource( "particle", "particles/…vpcf", context )`. Precaching runs at load time, so a runtime `PrecacheResource` call leaves the asset unloaded. A missing entry shows a valid id, a live entry in `cl_particles_dumpsimlist`, and an empty screen.
+4. The compiler does **not** move an emitter/initializer placed in the wrong block — wrong block = wrong behavior.
+5. Use `m_ChildRef` external links to compose child systems.
+6. Choose one of `m_flConstantLifespan` (constant) or `C_INIT_RandomLifeTime` (random) for a given system.
+7. Texture references must use the `resource:"materials/…vtex"` form.
+8. InstantaneousEmitter does not show in the Particle Editor static preview.
+9. Write `m_hTexture` in source, not `m_vecTexturesInput` (that's the compiled-output form).
+10. Decompiled output being ~40x larger than source is the engine filling in defaults, not an error.
 
 ## Workflow SOP
 
 1. **Write source file** — `file_write` to `content/dota_addons/<addon>/particles/<name>.vpcf` (KV3 as above), or `file_edit` to tweak an existing one. Editing a source does not require the game; FileOps tools are offline.
 2. **Compile** — `dota_compile_asset` with the source path. resourcecompiler emits `game/dota_addons/<addon>/particles/<name>.vpcf_c`. Non-zero exit or stderr means a source syntax error — read the reported line.
-3. **Preview** — with the game running (launch your map via `dota_launch_game` if needed) call `vfx_preview` with `particle_path: "particles/<name>.vpcf"` (content-root relative, no `_c`, no addon prefix) and `attach: 8` (PATTACH_WORLDORIGIN) plus a visible `position`, such as the player's hero origin. It returns a runtime particle id; the call executes server Lua through the `dota_run_lua` channel.
-4. **Verify visually and in the console** — do not trust the id alone. Read `console_output` for load errors in the Particles/ResourceSystem channels; `pid=0` means the create call failed. Take `dota_screenshot` with the effect visible, then call `vfx_preview_stop` and take another to confirm the runtime instance disappeared. A nonzero id proves creation, not visibility: check the renderer, control-point position, and camera. If the game is not presenting frames in the background, the screenshot's `stale` marker tells you the image is old. For continuous visual iteration, temporarily set `r_always_render_all_windows 1` and restore it to `0` afterward; the live template verification used this setting.
-5. **Stop preview** — `vfx_preview_stop` with the id (runtime instance only; the asset file stays).
-6. **Delete asset** — `file_delete` on the source (and recompile or leave stale outputs to `asset_check_refs`).
+3. **Precache** — add `PrecacheResource( "particle", "particles/<name>.vpcf", context )` to the addon's `Precache(context)` in `scripts/vscripts/addon_game_mode.lua`, then reload the map. A missing entry produces a valid id, a live entry in `cl_particles_dumpsimlist`, and an empty screen, because the client renders only what the map load registered — so the fix is the load-time entry plus a reload, where a later runtime precache call leaves the client without the asset.
+4. **Preview** — with the game running (launch your map via `dota_launch_game` if needed) call `vfx_preview` with `particle_path: "particles/<name>.vpcf"` (content-root relative, no `_c`, no addon prefix) and `attach: 8` (PATTACH_WORLDORIGIN) plus a visible `position`, such as the player's hero origin. It returns a runtime particle id; the call executes server Lua through the `dota_run_lua` channel.
+5. **Verify visually and in the console** — confirm the effect in a screenshot before treating the preview as successful. Read `console_output` for load errors in the Particles/ResourceSystem channels; `pid=0` means the create call failed. Take `dota_screenshot` with the effect visible, then call `vfx_preview_stop` and take another to confirm the runtime instance disappeared. A nonzero id proves creation only, so check the renderer, the control-point binding, the precache entry, and the camera. A screenshot marked `stale: true` is an old frame: capture again, and when the game window is unfocused, temporarily set `r_always_render_all_windows 1` and restore it to `0` afterward. Use an addon-precached particle as the control, because engine particles render without an addon precache and say nothing about your own asset. When a live frame shows nothing, decompile the compiled `_c` and confirm the initializer carries the control point before touching any other field.
+6. **Stop preview** — `vfx_preview_stop` with the id (runtime instance only; the asset file stays).
+7. **Delete asset** — `file_delete` on the source (and recompile or leave stale outputs to `asset_check_refs`).
 
 ## Tool mapping table
 
@@ -166,12 +169,12 @@ Source: GameTracking-Dota2 engine schema (507 header files, cross-validated agai
 | Game stuck in `CUSTOM_GAME_SETUP` | addon never calls `GameRules:FinishCustomGameSetup()` (basic template doesn't) | `dota_run_lua` with code `GameRules:FinishCustomGameSetup()` |
 | Particle loads but shows nothing | missing renderer, control point position off-screen, or effect not in camera view | include `m_Renderers` (the minimal template shows `C_OP_RenderSprites`), pass a visible `position`, and compare `dota_screenshot` before/after creation |
 | Particle Editor preview shows nothing | `C_OP_InstantaneousEmitter` fires once at t=0 and the editor's static preview is past it | use `C_OP_ContinuousEmitter` for editor-visible particles; burst-style particles only show in the live game (or the editor's simulate/play) |
-| Editor preview shows nothing, asset crashes on preview | hand-written structure with guessed fields (e.g. `m_vecTexturesInput` on RenderSprites — that's RenderTrails' field; emitter placed in m_Operators instead of m_Emitters) | copy a known-good source asset and change parameters; never hand-write a structure you haven't seen in a working source |
+| Editor preview shows nothing, asset crashes on preview | hand-written structure with guessed fields (e.g. `m_vecTexturesInput` on RenderSprites — that's RenderTrails' field; emitter placed in m_Operators instead of m_Emitters) | copy a known-good source asset and change parameters |
 | `asset_check_refs` reports `uncompiled` | source exists, compiled output missing | run dota_compile_asset on the source |
 
 ## Minimal template
 
-A minimal continuous glow verified live through write → compile → preview → screenshot → destroy. The renderer is required: emitters create simulation particles, but without `m_Renderers` nothing is drawn. Retrieve only this section with `dota2_skill(name='dota2-vfx', section='Minimal template')`; use `outline` and `section` for other prose, and `data_path` for small slices of JSON statistics instead of reading the whole skill or data file.
+A minimal continuous glow. The renderer is required: emitters create simulation particles, but without `m_Renderers` nothing is drawn. The initializer binds control point 0, so the position passed to the preview actually places the effect, and the file must be listed in the addon's `Precache(context)`, because the client draws only what the map load registered. Retrieve only this section with `dota2_skill(name='dota2-vfx', section='Minimal template')`; use `outline` and `section` for other prose, and `data_path` for small slices of JSON statistics instead of reading the whole skill or data file.
 
 ```
 <!-- kv3 encoding:text:version{e21c7f3c-8a33-41c5-9977-a76d3a32aa0d} format:generic:version{7412167c-06e9-4698-aff2-e63eb59037e7} -->
@@ -196,7 +199,14 @@ A minimal continuous glow verified live through write → compile → preview �
   ]
   m_Initializers =
   [
-    { _class = "C_INIT_CreateWithinSphere" },
+    {
+      _class = "C_INIT_CreateWithinSphere"
+      m_TransformInput =
+      {
+        m_bUseOrientation = false
+        m_nControlPoint = 0
+      }
+    },
   ]
   m_Emitters =
   [
@@ -204,3 +214,5 @@ A minimal continuous glow verified live through write → compile → preview �
   ]
 }
 ```
+
+`m_TransformInput` is what makes the effect follow control point 0. It must be written as the full struct shown above: a short form such as `m_TransformInput = { m_nControlPoint = 0 }` is dropped by the compiler without a warning, the system then stays at the world origin, and you get a valid id and a live simulation entry for an effect nobody can see.

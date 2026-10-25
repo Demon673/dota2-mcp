@@ -46,7 +46,14 @@ const vpcf = `
   ]
   m_Initializers =
   [
-    { _class = \"C_INIT_CreateWithinSphere\" },
+    {
+      _class = \"C_INIT_CreateWithinSphere\"
+      m_TransformInput =
+      {
+        m_bUseOrientation = false
+        m_nControlPoint = 0
+      }
+    },
   ]
   m_Emitters =
   [

@@ -23,8 +23,10 @@
 - **晚接入的瘦客户端用 `console_channels` 查不到通道**：守护进程握手现在带上已经从 Dota 注册的通道表。
 - **Lua 与 VFX 结果错误**：标量 `expression` 直接打印结果；工具描述改用有效 API 示例并写明 `sv_cheats=1` 要求；`vfx_preview_stop` 不再把 `DestroyParticle` 的 void 返回值写成 `ok=nil`。
 - **卡死截图失败的原因含糊**：持续无响应导致 Windows.Graphics.Capture 不再供帧时，`dota_screenshot` 返回常驻缓存，并明确标注 `stale` 和采集时间。如果从未缓存到帧，则报告真实原因，而不是提示窗口正在启动或位于其他桌面。它不会改为截取屏幕或返回没有旧帧标记的旧图片。
+- **截图超时预算含糊**：helper 就绪后，每次调用在 watcher 启动、捕获、停止和补最小化之间共享一个 5 秒墙钟 deadline。冷编译仍是独立的一次性准备阶段。若恢复窗口时到期，结果明确说明清理未完成，而不是无限等待。
 - **截图新鲜度被高估**：watcher 不再定时重建捕获会话，新会话不能把同一张旧窗口画面重新标成新帧。后台画面保持旧帧标记，直到既有会话真正交付新帧。
 - **VFX 最小模板无法渲染**：现在包含经过实机验证的 `C_OP_RenderSprites` 路径，工作流除检查非零粒子 PID 外，还要求比较创建和停止后的截图。旧演练中放错块的 emitter 和错误发射字段已修正。
+- **自建粒子因为没 precache 而永远不显示**：客户端只绘制地图加载时已载入的系统，因此没写进 addon `Precache(context)` 的路径会返回有效粒子 ID、在 `cl_particles_dumpsimlist` 里也照样有条目，但画面上什么都没有。`dota2-vfx` skill 现在把 precache 写成工作流的一步和一条陷阱，`vfx_preview` 的工具描述也写明了这一点。同一轮还记录了两件事：resourcecompiler 会静默丢弃 `m_nControlPointNumber` 和任何简写形式的 `m_TransformInput` 结构体，导致特效停在世界原点；以及带 `stale: true` 的截图是旧帧，不代表画面为空。
 - **VRF 与粒子引用兼容性**：VRF pin 升级到 20.1，可读取当前引擎的 KV 类型 26。`asset_check_refs` 现在会解析共享 addon 产物和 `pak01_dir.vpk` 中的精确路径，不再把有效的引擎材质误报为 broken。`asset_inspect` 现在同时统计持续和瞬时 emitter。VRF 失败产物留在临时工作目录，不再写入调用方仓库。
 
 - **`file_edit` 写坏含 `$` 的文件**：`new_string` 里的 `$'`、`$&`、`$1` 现在按字面写入，不再被展开。

@@ -179,7 +179,7 @@ Client → server command type: `CMND` (null-terminated UTF-8).
 | `dota_disconnect` | `disconnect` | Disconnect |
 | `dota_advance_to_game` | `dota_run_lua` channel (GameRules / player controller) | Standard flow: any loaded pre-game phase → GAME_IN_PROGRESS with a hero per player (requires `sv_cheats=1`) |
 | `dota_restart` | `restart` | Reload the map; waits until the reload has begun |
-| `dota_screenshot` | none (persistent Windows.Graphics.Capture helper) | Game screenshot from outside the game; ungated; shared watcher caches the latest frame and marks cached results `stale` with `captured_at` |
+| `dota_screenshot` | none (persistent Windows.Graphics.Capture helper) | Game screenshot from outside the game; ungated; shared watcher caches the latest frame and marks cached results `stale` with `captured_at`; after the helper is ready, each call has a 5 s total deadline |
 | `dota_open_vconsole` | spawn vconsole2.exe | Open the vconsole window (the explicit path when the AssetBrowser button is disabled by the engine) |
 
 **Console communication**
@@ -220,7 +220,7 @@ Client → server command type: `CMND` (null-terminated UTF-8).
 **VFX preview (needs a running game + vconsole + `sv_cheats=1`)**
 | Tool | Console command | Description |
 |------|-----------|------|
-| `vfx_preview` | `dota_run_lua` channel (ParticleManager:CreateParticle) | Spawn a particle preview in-game (runtime instance, not an asset file), returns pid |
+| `vfx_preview` | `dota_run_lua` channel (ParticleManager:CreateParticle) | Spawn a particle preview in-game (runtime instance, not an asset file), returns pid. The addon's `Precache(context)` must list the particle or the client draws nothing while still returning a valid pid |
 | `vfx_preview_stop` | `dota_run_lua` channel (ParticleManager:DestroyParticle) | Destroy preview particle instances |
 
 **File operations (offline, no game needed)**

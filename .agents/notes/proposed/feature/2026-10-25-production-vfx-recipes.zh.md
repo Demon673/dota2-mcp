@@ -41,6 +41,17 @@ Status: proposed
 
 还必须在真实 ability/modifier 中验证，而不只是通过预览工具验证。正确的世界坐标预览不能证明英雄挂接或 ability 时序正确。
 
+## 当前证据
+
+addon 自建粒子现在能端到端显示。AoE 预警用本项目自己生成的贴图画出了半径 500 的圆环，父系统里延迟 1.5 秒的命中子特效也按预期触发，两者都在分时截图中拍到。
+
+此前的所有“看不见”都来自两个编写陷阱，它们属于配方契约，而不是排错附录：
+
+- **控制点绑定。** `m_nControlPointNumber` 和简写的 `m_TransformInput = { m_nControlPoint = 0 }` 都会被 resourcecompiler 静默丢弃。只有完整结构体（`m_bUseOrientation`、`m_nControlPoint`）能保留，也只有这样 `SetParticleControl` 才真正决定特效位置。
+- **Precache。** 没有写进 addon `Precache(context)` 的粒子永远不会被绘制，而创建调用照样返回有效 id、系统照样出现在 `cl_particles_dumpsimlist` 里。precache 发生在加载期，所以正确做法是加上条目并重载地图。
+
+还有第三个陷阱会污染验收本身：游戏窗口失焦后停止出帧，`dota_screenshot` 会返回旧图。每张验收截图都必须确认 `stale: false`。
+
 ## Alternatives considered
 
 - **增加更多语料统计和文字说明。** 否决：它们能补充参考覆盖，但无法教授组合、时序、接入或验收。

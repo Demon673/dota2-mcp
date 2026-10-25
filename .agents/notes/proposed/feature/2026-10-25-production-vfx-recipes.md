@@ -41,6 +41,17 @@ Extend `vfx_preview` only where a recipe exposes a real limitation: multiple con
 
 Validate integration in an actual ability/modifier as well as through the preview tool. A correct world-origin preview does not prove correct hero attachment or ability timing.
 
+## Current evidence
+
+An addon-authored particle renders end to end. The AoE telegraph draws a 500-radius ring from a texture this project generates, and the parent system's delayed impact child fires 1.5 s later, both captured in timed screenshots.
+
+Two authoring traps accounted for every earlier false negative, and both belong in the recipe contract rather than in a troubleshooting note:
+
+- **Control-point binding.** `m_nControlPointNumber` and a short `m_TransformInput = { m_nControlPoint = 0 }` are both dropped by resourcecompiler without a warning. Only the full struct (`m_bUseOrientation`, `m_nControlPoint`) survives, and only then does `SetParticleControl` place the effect.
+- **Precache.** A particle that is not listed in the addon's `Precache(context)` is never drawn, while the create call still returns a valid id and the system still appears in `cl_particles_dumpsimlist`. Precaching happens at map load, so the entry plus a reload is the fix.
+
+A third trap corrupts verification itself: an unfocused game window stops presenting frames, so `dota_screenshot` returns an old image. Every acceptance capture must be checked for `stale: false`.
+
 ## Alternatives considered
 
 - **Add more corpus statistics and prose.** Rejected: they improve reference coverage but cannot teach composition, timing, integration, or acceptance.
