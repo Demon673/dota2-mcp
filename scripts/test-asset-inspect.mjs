@@ -104,7 +104,7 @@ const ADDON = env.DOTA2_TEST_ADDON;
 async function inspect(target, extra = {}) {
   const r = await call("tools/call", { name: "asset_inspect", arguments: { target, addon: ADDON, ...extra } });
   assert(!r.result.isError, "inspect " + target + " ok");
-  return JSON.parse(r.result.content[0].text);
+  return JSON.parse(r.result.content[0].text).data;
 }
 
 // vpcf

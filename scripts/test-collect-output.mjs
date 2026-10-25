@@ -142,7 +142,7 @@ const panorama = textOf(await call("tools/call", { name: "dota_api_panorama_js",
 assert(panorama.includes("CPanoramaScript_GameUI") && !panorama.includes("CPanoramaScript_GameEvents"), "Panorama query returns only matching class blocks");
 const events = textOf(await call("tools/call", { name: "dota_api_events", arguments: { event: "SetPanelSelected" } }));
 assert(events.includes("Select this panel") && !events.includes("SetChildPanelsSelected") && !events.includes("AddStyle"), "event query returns only the exact event and its description");
-const missing = textOf(await call("tools/call", { name: "dota_api_lua", arguments: { func: "NoSuchFunction" } }));
+const missing = JSON.parse(textOf(await call("tools/call", { name: "dota_api_lua", arguments: { func: "NoSuchFunction" } }))).text;
 assert(missing.startsWith("No entry matching") && !missing.includes("CreateUnitByName"), "unknown API query does not fall back to the full dump");
 
 const entities = textOf(await call("tools/call", { name: "dota_dump_entities", arguments: { filter: "PHOENIX" } }));

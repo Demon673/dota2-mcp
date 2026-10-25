@@ -29,7 +29,7 @@ import { captureScreenshot, startScreenshotWatcher } from "./tools/screenshot.js
 import { runPerf, PRESENTMON_VERSION } from "./tools/perf.js";
 import { recordVideo } from "./tools/recorder.js";
 import { particlePrecacheNote } from "./tools/particle-precache.js";
-import { ok, okPretty, fail, READ_ONLY_ANNOTATIONS, EXEC_ANNOTATIONS, OPEN_WORLD_ANNOTATIONS, SCREENSHOT_ANNOTATIONS, type ToolHints } from "./tools/tool-result.js";
+import { ok, okPretty, fail, READ_ONLY_ANNOTATIONS, EXEC_ANNOTATIONS, OPEN_WORLD_ANNOTATIONS, SCREENSHOT_ANNOTATIONS, type ToolHints, type ToolResult } from "./tools/tool-result.js";
 import * as daemon from "./daemon-utils.js";
 
 function getVersion(): string {
@@ -305,6 +305,18 @@ Then call dota_status again.`;
   /** McpError 的 message 带 SDK 前缀（MCP error -32600:），信封里只保留可读正文 */
   function errorText(e: unknown): string {
     return (e as Error).message.replace(/^MCP error -?\d+: /, "");
+  }
+
+  /** 已迁移工具的异常边界：McpError（参数/路径/契约错误）→ invalid_arg，其余异常 → internal */
+  function failFromError(e: unknown): ToolResult {
+    if (e instanceof McpError) return fail("invalid_arg", e.message.replace(/^MCP error -\d+: /, ""));
+    return fail("internal", e instanceof Error ? e.message : String(e));
+  }
+
+  /** Lua/VFX 工具返回窗口的游标字段：按 console_output 的 since_seq 语义计算，
+   *  如实报告扫描到的缓冲位置与缺口；这些工具是动作而非读取，不移动会话游标。 */
+  function windowCursor(startSeq: number): { next_seq: number; dropped: number } {
+    return { next_seq: Math.max(prntSeqNext, startSeq), dropped: Math.max(0, prntEvicted - startSeq) };
   }
 
   /** 依赖 dotaPath 的工具在路径未检测到时返回的可操作错误 */
@@ -626,7 +638,7 @@ Then call dota_status again.`;
 
   // Tool: 获取内置 skill — 教 agent 怎么用这套 MCP（Roblox skill 模式）
   server.tool("dota2_skill",
-    "Retrieve built-in Dota 2 development knowledge without dumping unnecessary context. Call with no argument to list skills, name + outline for a table of contents, then name + section for one '##' or '###' section (for Markdown data, data + section works the same way). For JSON data, use data + data_path to return only a dot-path such as 'e_combos.top10' (numeric array indices also work). name alone returns the full skill; data alone returns the whole data file, so prefer targeted retrieval for large VFX/model references. Learn the runtime development model before testing or editing.",
+    "Use when you need built-in Dota 2 development knowledge (runtime model, game phases, VFX/model formats, official recipes) without dumping the whole corpus into context. Call with no argument to list skills, then name+outline for a table of contents and name+section for one '##'/'###' section, or name+data+data_path for one JSON fragment. Returns {ok:true,text} with the requested Markdown or JSON fragment, or {ok:false,code,message} with code invalid_arg for an unknown skill/section/data file/data_path. Limits: name alone returns the whole skill and data alone returns the whole data file — prefer targeted retrieval for large references; sections are exact headings or unique case-insensitive prefixes, and numeric array indices work in data_path. Related tools: dota_status (phase guidance), dota_api_lua (live API lookup), asset_inspect (asset formats).",
     {
       name: z.string().optional().describe("Skill name, e.g. 'dota2-runtime-dev'. Omit to list available skills."),
       section: z.string().optional().describe("Exact '##' or '###' heading, or a unique case-insensitive heading prefix (without hashes). With data, selects a section inside that Markdown data file. Requires name."),
@@ -634,34 +646,35 @@ Then call dota_status again.`;
       data: z.string().optional().describe("Name of a data file under skills/<name>/data/ (e.g. 'vpcf-stats.json'). Use data='list' to list files. Requires name."),
       data_path: z.string().optional().describe("Dot-separated path inside a JSON data file, e.g. 'e_combos.top10' or 'e_combos.top10.0'. Requires data."),
     },
+    READ_ONLY_ANNOTATIONS,
     async ({ name, section, outline, data, data_path }) => {
       const skills = loadSkills();
       if (skills.length === 0) {
-        return { content: [{ type: "text", text: "No built-in skills found (skills/ directory missing)." }] };
+        return fail("internal", "No built-in skills found (skills/ directory missing).");
       }
       if (!name) {
         const list = skills.map(s => `- ${s.name}: ${s.description}`).join("\n");
-        return { content: [{ type: "text", text: `Available skills:\n${list}\n\nPrefer name + outline, then name + section for targeted retrieval. Use name alone only when the full skill is needed.` }] };
+        return ok({ text: `Available skills:\n${list}\n\nPrefer name + outline, then name + section for targeted retrieval. Use name alone only when the full skill is needed.` });
       }
       const skill = skills.find(s => s.name === name || s.name === `dota2-${name}`);
       if (!skill) {
-        return { content: [{ type: "text", text: `Unknown skill '${name}'. Available: ${skills.map(s => s.name).join(", ")}` }] };
+        return fail("invalid_arg", `Unknown skill '${name}'. Available: ${skills.map(s => s.name).join(", ")}`);
       }
       if (data_path && !data) {
-        return { content: [{ type: "text", text: "data_path requires data (the JSON file name)." }] };
+        return fail("invalid_arg", "data_path requires data (the JSON file name).");
       }
       if (data_path && section) {
-        return { content: [{ type: "text", text: "Use either section (Markdown) or data_path (JSON), not both." }] };
+        return fail("invalid_arg", "Use either section (Markdown) or data_path (JSON), not both.");
       }
       const headings = markdownHeadings(skill.body);
       if (outline) {
-        return { content: [{ type: "text", text: `Sections of ${skill.name}:\n${headings.map(h => "- " + h).join("\n")}` }] };
+        return ok({ text: `Sections of ${skill.name}:\n${headings.map(h => "- " + h).join("\n")}` });
       }
       if (section && !data) {
         const result = markdownSection(skill.body, section);
-        return { content: [{ type: "text", text: result.text ?? (result.candidates.length > 1
+        return ok({ text: result.text ?? (result.candidates.length > 1
           ? `Ambiguous section '${section}': ${result.candidates.join(", ")}`
-          : `Unknown section '${section}'. Sections: ${result.headings.join(", ")}`) }] };
+          : `Unknown section '${section}'. Sections: ${result.headings.join(", ")}`) });
       }
       if (data) {
         const dataDir = path.join(skillsDir(), skill.name, "data");
@@ -672,39 +685,39 @@ Then call dota_status again.`;
             .map(e => e.name);
         } catch { dataFiles = []; }
         if (data === "list") {
-          return { content: [{ type: "text", text: dataFiles.length > 0
+          return ok({ text: dataFiles.length > 0
             ? `Data files of ${skill.name}:\n${dataFiles.map(f => "- " + f).join("\n")}`
-            : `No data files bundled with ${skill.name}.` }] };
+            : `No data files bundled with ${skill.name}.` });
         }
         const file = dataFiles.find(f => f === data || f === data + ".json" || f === data + ".md");
         if (!file) {
-          return { content: [{ type: "text", text: `Unknown data file '${data}'. Available: ${dataFiles.join(", ") || "(none)"}` }] };
+          return fail("invalid_arg", `Unknown data file '${data}'. Available: ${dataFiles.join(", ") || "(none)"}`);
         }
         try {
           const content = fs.readFileSync(path.join(dataDir, file), "utf-8");
           if (section) {
             const result = markdownSection(content, section);
-            return { content: [{ type: "text", text: result.text ?? (result.candidates.length > 1
+            return ok({ text: result.text ?? (result.candidates.length > 1
               ? `Ambiguous section '${section}' in ${file}: ${result.candidates.join(", ")}`
-              : `Unknown section '${section}' in ${file}. Sections: ${result.headings.join(", ")}`) }] };
+              : `Unknown section '${section}' in ${file}. Sections: ${result.headings.join(", ")}`) });
           }
           if (data_path) {
             let value: unknown;
-            try { value = JSON.parse(content); } catch { return { content: [{ type: "text", text: `data_path requires JSON; ${file} is not JSON.` }] }; }
+            try { value = JSON.parse(content); } catch { return fail("invalid_arg", `data_path requires JSON; ${file} is not JSON.`); }
             for (const part of data_path.split(".").filter(Boolean)) {
               if (Array.isArray(value) && /^\d+$/.test(part)) value = value[Number(part)];
               else if (value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, part)) value = (value as Record<string, unknown>)[part];
-              else return { content: [{ type: "text", text: `Unknown data_path '${data_path}' in ${file} at '${part}'.` }] };
+              else return fail("invalid_arg", `Unknown data_path '${data_path}' in ${file} at '${part}'.`);
             }
-            if (value === undefined) return { content: [{ type: "text", text: `Unknown data_path '${data_path}' in ${file}.` }] };
-            return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
+            if (value === undefined) return fail("invalid_arg", `Unknown data_path '${data_path}' in ${file}.`);
+            return ok({ text: JSON.stringify(value, null, 2) });
           }
-          return { content: [{ type: "text", text: content }] };
+          return ok({ text: content });
         } catch (e) {
-          return { content: [{ type: "text", text: `Cannot read data file ${file}: ${(e as Error).message}` }] };
+          return fail("internal", `Cannot read data file ${file}: ${(e as Error).message}`);
         }
       }
-      return { content: [{ type: "text", text: skill.body }] };
+      return ok({ text: skill.body });
     }
   );
 
@@ -1103,41 +1116,53 @@ Once connected, call dota_status again.`;
 
   // Tool: 列出所有实体
   server.tool("dota_dump_entities",
-    "Use to inspect live game state while debugging — lists entities currently in the scene (heroes, units, thinkers) to verify spawns, positions, or whether an entity exists at all. Use filter to avoid the full dump. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use when you need to confirm which entities (heroes, units, thinkers) actually exist in the live scene — an expected spawn is missing, a position looks wrong, or you want to know whether an entity exists at all. Runs `dump_entity_report` and keeps only lines matching filter. Returns {ok:true,text} with the matching report lines, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached. Limits: only loaded entities appear (call after the map finishes loading), the filter is a case-insensitive substring over report lines, and a 5s capture window can miss late output. Related tools: dota_dump_modifiers (buffs), dota_entity_inspect (one entity's script scope), console_output (raw follow-up).",
     { filter: z.string().optional().describe("Case-insensitive substring; keep only matching entity report lines, e.g. 'npc_dota_hero' or 'phoenix'. Empty = full dump.") },
+    READ_ONLY_ANNOTATIONS,
     async ({ filter }) => {
-      requireConsole();
-      const out = filterDumpLines(await collectOutput("dump_entity_report", { waitMs: 5000, settleMs: 300 }), filter);
-      return { content: [{ type: "text", text: out.join("\n") || (filter ? `No entity report lines match '${filter}'.` : "Sent. Use console_output.") }] };
+      const blocked = consoleGate();
+      if (blocked) return blocked;
+      try {
+        const out = filterDumpLines(await collectOutput("dump_entity_report", { waitMs: 5000, settleMs: 300 }), filter);
+        return ok({ text: out.join("\n") || (filter ? `No entity report lines match '${filter}'.` : "Sent. Use console_output.") });
+      } catch (e) { return failFromError(e); }
     }
   );
 
   // Tool: 列出所有 modifier
   server.tool("dota_dump_modifiers",
-    "Use to debug buffs/debuffs/modifiers while testing — dumps active modifiers on entities (server, default) or all registered modifier types (client, usually large) to verify an ability applied its modifier correctly. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use when a buff, debuff, or ability modifier seems missing or wrong and you need to see what is actually applied. Runs `dota_modifier_dump` for active server modifiers (default) or `cl_dump_modifier_list` for the client's registered modifier types, then keeps only lines matching filter. Returns {ok:true,text} with the matching lines, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached. Limits: the client list is a large registry dump — always pass a filter; output is captured for only ~3s. Related tools: dota_dump_entities (who has them), dota_entity_inspect (script scope), console_output (raw stream).",
     {
       side: z.enum(["server","client"]).optional().describe("server = active modifiers on entities (default); client = all registered modifier types."),
       filter: z.string().optional().describe("Case-insensitive substring; keep only matching lines, e.g. 'modifier_phoenix' or a hero name. Empty = full dump."),
     },
+    READ_ONLY_ANNOTATIONS,
     async ({ side, filter }) => {
-      requireConsole();
-      const s = side ?? "server";
-      const cmd = s === "server" ? "dota_modifier_dump" : "cl_dump_modifier_list";
-      const out = filterDumpLines(await collectOutput(cmd, { waitMs: 3000, settleMs: 300 }), filter);
-      return { content: [{ type: "text", text: out.join("\n") || (filter ? `No modifier lines match '${filter}'.` : "(no results)") }] };
+      const blocked = consoleGate();
+      if (blocked) return blocked;
+      try {
+        const s = side ?? "server";
+        const cmd = s === "server" ? "dota_modifier_dump" : "cl_dump_modifier_list";
+        const out = filterDumpLines(await collectOutput(cmd, { waitMs: 3000, settleMs: 300 }), filter);
+        return ok({ text: out.join("\n") || (filter ? `No modifier lines match '${filter}'.` : "(no results)") });
+      } catch (e) { return failFromError(e); }
     }
   );
 
   // Tool: 查看实体脚本作用域
   server.tool("dota_entity_inspect",
-    "Use to inspect a specific entity's Lua script scope (its properties, functions, member values) while debugging ability or unit behavior. Pass entity name/class/entindex. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use when you need an entity's Lua script scope — its properties, functions, or member values — to debug ability or unit behavior. Runs `ent_script_dump <entity>` (server) or `cl_ent_script_dump <entity>` (client, default). Returns {ok:true,text} with the dumped scope, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached. Limits: the entity must exist in the live scene; unknown names usually yield an empty scope, and output is captured for only ~3s. Related tools: dota_dump_entities (find a valid name), dota_run_lua (probe values directly), console_output (raw stream).",
     { entity: z.string().describe("Entity identifier"), side: z.enum(["server","client"]).optional().describe("server or client. Default client.") },
+    READ_ONLY_ANNOTATIONS,
     async ({ entity, side }) => {
-      requireConsole();
-      const s = side ?? "client";
-      const cmd = s === "server" ? "ent_script_dump" : "cl_ent_script_dump";
-      const out = await collectOutput(`${cmd} ${entity}`, { waitMs: 3000, settleMs: 300 });
-      return { content: [{ type: "text", text: out.join("\n") || "(no data)" }] };
+      const blocked = consoleGate();
+      if (blocked) return blocked;
+      try {
+        const s = side ?? "client";
+        const cmd = s === "server" ? "ent_script_dump" : "cl_ent_script_dump";
+        const out = await collectOutput(`${cmd} ${entity}`, { waitMs: 3000, settleMs: 300 });
+        return ok({ text: out.join("\n") || "(no data)" });
+      } catch (e) { return failFromError(e); }
     }
   );
 
@@ -1185,6 +1210,24 @@ Once connected, call dota_status again.`;
     return collectBetweenMarkers((begin, end) => `echo ${begin}; ${cmd}; echo ${end}`, opts);
   }
 
+  /** collectLuaOutput 的稳定失败：长度上限与 sv_cheats 关闭由三个 Lua/VFX 工具映射成错误码。
+   *  仍继承 McpError，非契约调用方（如 dota_advance_to_game）保持原有 InvalidRequest 行为。 */
+  class LuaChannelError extends McpError {
+    constructor(readonly toolCode: "lua_too_long" | "cheats_off", readonly plainMessage: string) {
+      super(ErrorCode.InvalidRequest, plainMessage);
+    }
+  }
+
+  /** 三个 Lua/VFX 工具的收集入口：契约失败映射成 fail envelope，其余错误继续上抛。 */
+  async function collectLuaWindow(luaBody: string): Promise<string[] | ToolResult> {
+    try {
+      return await collectLuaOutput(luaBody, { waitMs: 15000, settleMs: 400 });
+    } catch (e) {
+      if (e instanceof LuaChannelError) return fail(e.toolCode, e.plainMessage);
+      throw e;
+    }
+  }
+
   /** 在服务端 Lua 里执行代码并收集输出。ent_fire RunScriptCode 下一帧才执行，晚于 relay 包在命令外的
    * `ai_disabled` 屏蔽窗口，所以 Lua 自己打印 `ai_disabled = …` 开关行（relay 按这种行切换 GUI 屏蔽）
    * 和结束标记。xpcall 保证运行时报错也会打印收尾开关与结束标记（否则 GUI 屏蔽卡死在开启态）；
@@ -1197,12 +1240,12 @@ Once connected, call dota_status again.`;
       `ent_fire 0 RunScriptCode "${toggle}xpcall(function() ${code} end, function(e) print(debug.traceback(e)) end) print('${end}') ${toggle}"`;
     const bytes = Buffer.byteLength(statement(newMcpMarkers().end), "utf8");
     if (bytes > LUA_STATEMENT_MAX_BYTES) {
-      throw new McpError(ErrorCode.InvalidRequest, `Lua too long: ${bytes} bytes after wrapping, but the Dota console drops any single statement over ${LUA_STATEMENT_MAX_BYTES} bytes. Shorten the code (about ${LUA_STATEMENT_MAX_BYTES - (bytes - Buffer.byteLength(code, "utf8"))} bytes are available), split it into several calls, or put it in an addon script and call that.`);
+      throw new LuaChannelError("lua_too_long", `Lua too long: ${bytes} bytes after wrapping, but the Dota console drops any single statement over ${LUA_STATEMENT_MAX_BYTES} bytes. Shorten the code (about ${LUA_STATEMENT_MAX_BYTES - (bytes - Buffer.byteLength(code, "utf8"))} bytes are available), split it into several calls, or put it in an addon script and call that.`);
     }
     const out = await collectBetweenMarkers((begin, end) => `echo ${begin}; ${statement(end)}`, opts);
     // sv_cheats 关闭时引擎不执行 ent_fire，只打印这一行（活体实测）
     if (out.some(l => l.includes("Cheat command 'ent_fire' ignored"))) {
-      throw new McpError(ErrorCode.InvalidRequest, "The Lua did not run: the engine ignored ent_fire because sv_cheats is off. Lua-based tools run server Lua through ent_fire, which is a cheat command. Run console_send 'sv_cheats 1' and try again; if sv_cheats keeps switching off, the addon itself is turning it off and needs a development exception.");
+      throw new LuaChannelError("cheats_off", "The Lua did not run: the engine ignored ent_fire because sv_cheats is off. Lua-based tools run server Lua through ent_fire, which is a cheat command. Run console_send 'sv_cheats 1' and try again; if sv_cheats keeps switching off, the addon itself is turning it off and needs a development exception.");
     }
     return out;
   }
@@ -1352,55 +1395,71 @@ Once connected, call dota_status again.`;
 
   // Tool: Lua API（服务端 + 客户端）
   server.tool("dota_api_lua",
-    "Use to look up a Dota 2 Lua API function or class signature while writing server-side script — e.g. 'what args does CreateUnitByName take' or 'what methods does CDOTA_BaseNPC have'. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use when writing server or client Lua and you need a real signature — e.g. 'what arguments does CreateUnitByName take' or 'what methods does CDOTA_BaseNPC have'. Runs `script_help2` (server, default) or `cl_script_help2` (client) and extracts the requested block. Returns {ok:true,text} with the matching entries, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached. Limits: the engine ignores the name argument and dumps everything (filtering is local); APIs registered only after map load are absent — use dota_api_help for a class/scope. Related tools: dota_api_help (scope inspection), console_output (raw dump), dota2_skill (runtime development model).",
     { func: z.string().optional().describe("Function/class name. Empty=full dump."), side: z.enum(["server","client"]).optional().describe("server or client. Default server.") },
+    READ_ONLY_ANNOTATIONS,
     async ({ func, side }) => {
-      requireConsole();
-      const s = side ?? "server";
-      const cmd = s === "client" ? "cl_script_help2" : "script_help2";
-      const out = await collectOutput(func ? `${cmd} ${func}` : cmd, { waitMs: 3000, settleMs: 300 });
-      const text = func
-        ? filterDumpBlocks(out, func, l => l.match(/---\[\[\s*([^\s\]]+)/)?.[1] ?? null)
-        : out.join("\n");
-      return { content: [{ type: "text", text: text || "(no results)" }] };
+      const blocked = consoleGate();
+      if (blocked) return blocked;
+      try {
+        const s = side ?? "server";
+        const cmd = s === "client" ? "cl_script_help2" : "script_help2";
+        const out = await collectOutput(func ? `${cmd} ${func}` : cmd, { waitMs: 3000, settleMs: 300 });
+        const text = func
+          ? filterDumpBlocks(out, func, l => l.match(/---\[\[\s*([^\s\]]+)/)?.[1] ?? null)
+          : out.join("\n");
+        return ok({ text: text || "(no results)" });
+      } catch (e) { return failFromError(e); }
     }
   );
 
   // Tool: Panorama JS API
   server.tool("dota_api_panorama_js",
-    "Use to look up Panorama JS API enums/classes (GameUI, CustomUIElement, $) while writing custom HUD / UI for the custom game. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use when writing custom HUD/UI JavaScript and you need a Panorama JS enum, class, or built-in signature (GameUI, CustomUIElement, $). Runs `cl_panorama_script_help_2` and extracts the named block. Returns {ok:true,text} with the matching entry, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached. Limits: the full list is large and the engine always dumps it (filtering is local); client-side only, and some APIs appear only after the UI loads. Related tools: dota_api_css (styling), dota_api_events (panel events), console_output (raw dump).",
     { name: z.string().optional().describe("Enum/class name. Empty=full list.") },
+    READ_ONLY_ANNOTATIONS,
     async ({ name }) => {
-      requireConsole();
-      const out = await collectOutput(name ? `cl_panorama_script_help_2 ${name}` : "cl_panorama_script_help_2", { waitMs: 3000, settleMs: 300 });
-      const text = name ? filterDumpBlocks(out, name, equalsDumpName) : out.join("\n");
-      return { content: [{ type: "text", text: text || "(no results)" }] };
+      const blocked = consoleGate();
+      if (blocked) return blocked;
+      try {
+        const out = await collectOutput(name ? `cl_panorama_script_help_2 ${name}` : "cl_panorama_script_help_2", { waitMs: 3000, settleMs: 300 });
+        const text = name ? filterDumpBlocks(out, name, equalsDumpName) : out.join("\n");
+        return ok({ text: text || "(no results)" });
+      } catch (e) { return failFromError(e); }
     }
   );
 
   // Tool: Panorama CSS 属性
   server.tool("dota_api_css",
-    "Use to look up a Panorama CSS property (e.g. wash-color, blur) with description and examples while styling the custom game's UI. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use when styling the custom game's UI and you need a Panorama CSS property's description or examples (e.g. wash-color, blur). Runs `dump_panorama_css_properties` and extracts the named block. Returns {ok:true,text} with the matching property, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached. Limits: the engine ignores the property argument and dumps all 128 properties (filtering is local); client-side only. Related tools: dota_api_panorama_js (UI JavaScript), dota_api_events (panel events), console_output (raw dump).",
     { prop: z.string().optional().describe("CSS property name, e.g. 'wash-color'. Empty=all 128.") },
+    READ_ONLY_ANNOTATIONS,
     async ({ prop }) => {
-      requireConsole();
-      const out = await collectOutput(prop ? `dump_panorama_css_properties ${prop}` : "dump_panorama_css_properties", { waitMs: 3000, settleMs: 300 });
-      const text = prop ? filterDumpBlocks(out, prop, equalsDumpName) : out.join("\n");
-      return { content: [{ type: "text", text: text || "(no results)" }] };
+      const blocked = consoleGate();
+      if (blocked) return blocked;
+      try {
+        const out = await collectOutput(prop ? `dump_panorama_css_properties ${prop}` : "dump_panorama_css_properties", { waitMs: 3000, settleMs: 300 });
+        const text = prop ? filterDumpBlocks(out, prop, equalsDumpName) : out.join("\n");
+        return ok({ text: text || "(no results)" });
+      } catch (e) { return failFromError(e); }
     }
   );
 
   // Tool: Panorama Panel 事件
   server.tool("dota_api_events",
-    "Use to look up Panorama panel event handlers (e.g. SetPanelSelected, onactivate) and their signatures while wiring UI interactions. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use when wiring Panorama UI interactions and you need a panel event's handler signature (e.g. SetPanelSelected, onactivate). Runs `dump_panorama_events` and extracts the named block. Returns {ok:true,text} with the matching events, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached. Limits: the engine dumps every event regardless of the argument (filtering is local); client-side only. Related tools: dota_api_panorama_js (UI API), dota_api_css (styling), console_output (raw dump).",
     { event: z.string().optional().describe("Event name, e.g. 'SetPanelSelected'. Empty=all events.") },
+    READ_ONLY_ANNOTATIONS,
     async ({ event }) => {
-      requireConsole();
-      const out = await collectOutput(event ? `dump_panorama_events ${event}` : "dump_panorama_events", { waitMs: 3000, settleMs: 300 });
-      const text = event
-        ? filterDumpBlocks(out, event, l => l.match(/^\|\s*<code>([A-Za-z0-9_]+)\s*\(/)?.[1] ?? null)
-        : out.join("\n");
-      return { content: [{ type: "text", text: text.split("\n").filter(l => !/^\s*(?:\|-|\|})\s*$/.test(l)).join("\n") || "(no results)" }] };
+      const blocked = consoleGate();
+      if (blocked) return blocked;
+      try {
+        const out = await collectOutput(event ? `dump_panorama_events ${event}` : "dump_panorama_events", { waitMs: 3000, settleMs: 300 });
+        const text = event
+          ? filterDumpBlocks(out, event, l => l.match(/^\|\s*<code>([A-Za-z0-9_]+)\s*\(/)?.[1] ?? null)
+          : out.join("\n");
+        return ok({ text: text.split("\n").filter(l => !/^\s*(?:\|-|\|})\s*$/.test(l)).join("\n") || "(no results)" });
+      } catch (e) { return failFromError(e); }
     }
   );
 
@@ -1408,36 +1467,41 @@ Once connected, call dota_status again.`;
 
   // Tool: 搜索所有 5248 个 console 指令/cvar
   server.tool("console_find",
-    "Use to discover a Dota 2 console command or convar when you don't know its exact name — e.g. find a cheat, a debug flag, or a launch option. Use prefixes like 'dota_', 'sv_', 'cl_' to narrow. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use when you know roughly what a Dota 2 console command or convar does but not its exact name — find a cheat, a debug flag, or a launch option before sending it. Runs the engine's `find <query>` and returns matching command rows. Returns {ok:true,text} with up to 50 matching lines plus a count of the rest, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached. Limits: substring match over the current session's command table, results are not cached, and only the first 50 rows are shown — narrow the query with prefixes like 'dota_', 'sv_', 'cl_' to see more. Related tools: console_help (one command's help), console_send (run the command), dota_status (connection state).",
     { query: z.string().describe("Search keyword") },
+    READ_ONLY_ANNOTATIONS,
     async ({ query }) => {
-      requireConsole();
-      const out = await collectOutput(`find ${query}`, { waitMs: 3000, settleMs: 250 });
-      // Dota `find` output: header + separator + rows. Drop header/separator, keep rows that mention the query.
-      const results = out.filter(l =>
-        l.includes(query) && /^\S+/.test(l) && !/^=+$/.test(l.trim()) && !/^name\s+value/.test(l)
-      );
-      if (results.length === 0) return { content: [{ type: "text", text: `No match. Try different keyword or shorter prefix.` }] };
-      return {
-        content: [{
-          type: "text",
+      const blocked = consoleGate();
+      if (blocked) return blocked;
+      try {
+        const out = await collectOutput(`find ${query}`, { waitMs: 3000, settleMs: 250 });
+        // Dota `find` output: header + separator + rows. Drop header/separator, keep rows that mention the query.
+        const results = out.filter(l =>
+          l.includes(query) && /^\S+/.test(l) && !/^=+$/.test(l.trim()) && !/^name\s+value/.test(l)
+        );
+        if (results.length === 0) return ok({ text: `No match. Try different keyword or shorter prefix.` });
+        return ok({
           text: `${results.length} results:\n\n${results.slice(0, 50).join("\n")}${results.length > 50 ? `\n... +${results.length - 50} more (narrow search with longer keyword)` : ""}`,
-        }],
-      };
+        });
+      } catch (e) { return failFromError(e); }
     }
   );
 
   // Tool: 查看命令用途
   server.tool("console_help",
-    "Use to check what a specific Dota 2 console command or convar does and its current value before using it. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use when you already have a console command name and need its usage, description, or current value before sending it. Runs the engine's `help <command>`. Returns {ok:true,text} with the matching help lines (falls back to the raw dump when nothing matches), or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached. Limits: the engine prints a batch of unrelated enumeration first and help is not a full manual — one command per call. Related tools: console_find (discover names), console_send (execute), dota_status (connection state).",
     { command: z.string().describe("Command name") },
+    READ_ONLY_ANNOTATIONS,
     async ({ command }) => {
-      requireConsole();
-      const out = await collectOutput(`help ${command}`, { waitMs: 3000, settleMs: 250 });
-      // help 命令常先 dump 一批枚举，再给出目标命令行；过滤出真正相关的行
-      const relevant = out.filter(l => l.toLowerCase().includes(command.toLowerCase()));
-      const text = relevant.length > 0 ? relevant.join("\n") : out.join("\n");
-      return { content: [{ type: "text", text: text || "(no help available)" }] };
+      const blocked = consoleGate();
+      if (blocked) return blocked;
+      try {
+        const out = await collectOutput(`help ${command}`, { waitMs: 3000, settleMs: 250 });
+        // help 命令常先 dump 一批枚举，再给出目标命令行；过滤出真正相关的行
+        const relevant = out.filter(l => l.toLowerCase().includes(command.toLowerCase()));
+        const text = relevant.length > 0 ? relevant.join("\n") : out.join("\n");
+        return ok({ text: text || "(no help available)" });
+      } catch (e) { return failFromError(e); }
     }
   );
 
@@ -1452,51 +1516,60 @@ Once connected, call dota_status again.`;
     "^\\s*\"[^\"]+\":", // JSON 键值行
   ];
   server.tool("console_gui_filter",
-    "Control whether MCP-generated console output is forwarded to the vconsole2 GUI. Default: MCP command output is wrapped with markers and hidden from GUI. Call with auto:false to show all MCP output in GUI.",
+    "Use when MCP-generated console output is flooding the human's vconsole2 window, or when they want to see it there again while you keep reading the same output yourself. Toggles relay-side GUI forwarding: auto hides all output from MCP-sent commands, enabled+patterns installs manual regex filters, and calling with no flags just reports the current state. Returns {ok:true,data} with the effective manualEnabled, manualPatterns, and mcpSuppressEnabled values. Limits: only what reaches the vconsole2 GUI changes — the MCP console stream is never filtered; state lives in the relay process and is not persisted across daemon restarts. Related tools: console_output (MCP-side reading), dota_status (relay state).",
     {
       enabled: z.boolean().optional().describe("Manual override: true = always suppress lines matching given/custom patterns, false = clear manual patterns."),
       auto: z.boolean().optional().describe("MCP marker suppress: true = hide all output from MCP-sent commands (default). false = show MCP output in GUI."),
       patterns: z.array(z.string()).optional().describe("Optional custom regex patterns for manual mode. If omitted, default JSON-like patterns are used."),
     },
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async ({ enabled, auto, patterns }) => {
-      // 处理 manual 模式
-      if (typeof enabled === "boolean") {
-        const newPatterns = enabled ? (patterns ?? DEFAULT_GUI_SUPPRESS_PATTERNS) : [];
-        relay.setGuiSuppressPatterns(newPatterns);
-      }
-      // 处理 MCP 屏蔽开关
-      if (typeof auto === "boolean") {
-        relay.setMcpSuppressEnabled(auto);
-      }
-      return { content: [{ type: "text", text: JSON.stringify({
-        manualEnabled: relay.guiSuppressPatterns.length > 0,
-        manualPatterns: relay.guiSuppressPatterns,
-        mcpSuppressEnabled: relay.mcpSuppressEnabled,
-        note: "MCP console_output still receives all output; only vconsole2 GUI forwarding is affected.",
-      }, null, 2) }] };
+      try {
+        // 处理 manual 模式
+        if (typeof enabled === "boolean") {
+          const newPatterns = enabled ? (patterns ?? DEFAULT_GUI_SUPPRESS_PATTERNS) : [];
+          relay.setGuiSuppressPatterns(newPatterns);
+        }
+        // 处理 MCP 屏蔽开关
+        if (typeof auto === "boolean") {
+          relay.setMcpSuppressEnabled(auto);
+        }
+        return ok({ data: {
+          manualEnabled: relay.guiSuppressPatterns.length > 0,
+          manualPatterns: relay.guiSuppressPatterns,
+          mcpSuppressEnabled: relay.mcpSuppressEnabled,
+          note: "MCP console_output still receives all output; only vconsole2 GUI forwarding is affected.",
+        } });
+      } catch (e) { return failFromError(e); }
     }
   );
 
   // Tool: 查询 Lua 脚本作用域
   server.tool("dota_api_help",
-    "Use to inspect a Dota 2 Lua class/scope (script_help), e.g. 'CDOTAGameRules'. This command accepts scopes, not global functions: use dota_api_lua for CreateUnitByName and other function signatures. Requires an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use when you need to inspect a Dota 2 Lua class or scope (e.g. CDOTAGameRules) and the global-function signature style of dota_api_lua does not fit. Runs `script_help <query>`; omit the query to list available scopes. Returns {ok:true,text} with the scope listing, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached. Limits: scopes only — global functions belong to dota_api_lua; some scopes register only after the map loads. Related tools: dota_api_lua (function signatures), console_output (raw dump), dota2_skill (runtime model).",
     { query: z.string().optional().describe("Class/scope name, e.g. 'CDOTAGameRules'. Empty = list available scopes.") },
+    READ_ONLY_ANNOTATIONS,
     async ({ query }) => {
-      requireConsole();
-      const out = await collectOutput(query ? `script_help ${query}` : "script_help", { waitMs: 4000, settleMs: 300 });
-      return { content: [{ type: "text", text: out.join("\n") || "Sent. Use console_output to see results." }] };
+      const blocked = consoleGate();
+      if (blocked) return blocked;
+      try {
+        const out = await collectOutput(query ? `script_help ${query}` : "script_help", { waitMs: 4000, settleMs: 300 });
+        return ok({ text: out.join("\n") || "Sent. Use console_output to see results." });
+      } catch (e) { return failFromError(e); }
     }
   );
 
   // Tool: 在运行中的游戏里执行 Lua 代码
   server.tool("dota_run_lua",
-    "Use to run server-side Lua in the live game while testing — verify a function works, inspect a value, spawn a unit, or reproduce a bug without editing files and reloading. 'expression' prints its result (DeepPrintTable for tables, plain values directly). Single-line snippets only: the console drops a statement over ~510 bytes, so code over ~300 bytes is rejected — put longer logic in an addon script. To advance game phases use dota_advance_to_game, not hand-written phase calls. Requires sv_cheats=1 and an open vconsole (attach to 127.0.0.1:29001; see dota_open_vconsole).",
+    "Use when you need to run server-side Lua in the live game while testing — verify a function works, inspect a value, spawn a unit, or reproduce a bug without editing files and reloading. 'expression' evaluates and prints a value (DeepPrintTable for tables, plain values directly); 'code' runs statements. Returns {ok:true,lines,count,next_seq,dropped}: lines is the captured Lua output as one newline-joined string, count is its number of lines, and next_seq/dropped describe the shared console window without moving this session's console_output cursor (pass next_seq to console_output as since_seq to continue explicitly). Failures return {ok:false,code,message} with lua_too_long (the message reports the bytes still available), cheats_off (sv_cheats is off), dota_down, or vconsole_closed. Limits: one console statement of at most 510 bytes after wrapping — code over about 300 bytes is usually rejected, so keep snippets short or put the logic in an addon script; requires sv_cheats=1 and an open vconsole attached to 127.0.0.1:29001 (see dota_open_vconsole), because Lua-based tools run through ent_fire, a cheat command. Related tools: dota_advance_to_game (standard phase flow), vfx_preview (spawn particles), console_output (read the full console), console_send (send console commands).",
     {
       code: z.string().optional().describe("Arbitrary Lua statements to run. Use single quotes inside to avoid shell escaping issues."),
       expression: z.string().optional().describe("Lua expression to evaluate and print, e.g. 'GameRules:State_Get()'. Tables use DeepPrintTable; numbers, strings, booleans and nil print directly."),
     },
+    { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     async ({ code, expression }) => {
-      requireConsole();
+      const blocked = consoleGate();
+      if (blocked) return blocked;
 
       let luaBody: string;
       if (expression) {
@@ -1504,17 +1577,21 @@ Once connected, call dota_status again.`;
       } else if (code) {
         luaBody = `print('[MCP-LUA] IsServer: ' .. tostring(IsServer())) ${code}`;
       } else {
-        return { content: [{ type: "text", text: "Provide either 'code' or 'expression'." }] };
+        return fail("invalid_arg", "Provide either 'code' or 'expression'.");
       }
 
-      const execOut = await collectLuaOutput(luaBody, { waitMs: 15000, settleMs: 400 });
+      const startSeq = prntSeqNext;
+      const execOut = await collectLuaWindow(luaBody);
+      if (!Array.isArray(execOut)) return execOut;
+      const cursor = windowCursor(startSeq);
 
       const markerIdx = execOut.findIndex(l => l.includes("[MCP-LUA] IsServer"));
       if (markerIdx === -1) {
         const fallback = execOut.filter(l =>
           l.includes("[MCP-LUA]") || l.includes("DeepPrint") || l.includes("RunScriptCode") || /^\s*\d+\s*=/.test(l) || /error/i.test(l)
         );
-        return { content: [{ type: "text", text: fallback.join("\n") || "Sent. Check console_output for results." }] };
+        const lines = fallback.length > 0 ? fallback.join("\n") : "Sent. Check console_output for results.";
+        return ok({ lines, count: lines.split("\n").length, ...cursor });
       }
 
       // expression 模式：捕获 DeepPrintTable 输出的 { ... } 块
@@ -1528,8 +1605,8 @@ Once connected, call dota_status again.`;
               else if (ch === "}") depth--;
             }
             if (depth === 0) {
-              const result = execOut.slice(markerIdx, i + 1).join("\n");
-              return { content: [{ type: "text", text: result }] };
+              const lines = execOut.slice(markerIdx, i + 1).join("\n");
+              return ok({ lines, count: lines.split("\n").length, ...cursor });
             }
           }
         }
@@ -1551,7 +1628,8 @@ Once connected, call dota_status again.`;
         if (unrelatedPatterns.some(re => re.test(l))) break;
         block.push(l);
       }
-      return { content: [{ type: "text", text: block.join("\n") }] };
+      const lines = block.join("\n");
+      return ok({ lines, count: block.length, ...cursor });
     }
   );
 
@@ -1674,49 +1752,60 @@ Once connected, call dota_status again.`;
 
   // Tool: 确保 VRF CLI（Source2Viewer-CLI）可用（离线安全：仅缺失时联网下载）
   server.tool("vrf_ensure",
-    `Ensure the ValveResourceFormat CLI (Source2Viewer-CLI) is available for asset inspection. Returns the cached path, or downloads the pinned release (default v${DEFAULT_VERSION}, self-contained, no .NET runtime needed), verifies its sha256, and caches under os.tmpdir()/dota2-mcp/vrf/. Offline-safe: touches the network only when the CLI is missing. Used automatically by asset_inspect and asset_check_refs.`,
+    `Use when asset_inspect or asset_check_refs reports that the VRF CLI (Source2Viewer-CLI) is missing, or before relying on them on a fresh machine. Detects the cached CLI or downloads the pinned release (default v${DEFAULT_VERSION}, self-contained, no .NET runtime needed), verifies its sha256, and caches it under os.tmpdir()/dota2-mcp/vrf/. Returns {ok:true,text} with the executable path and version, or {ok:false,code,message} with code internal when the release lookup, download, or digest verification fails. Limits: touches the network only when the CLI is missing; a pinned version overrides the default; failed downloads are not retried. Related tools: asset_inspect, asset_check_refs, dota_compile_asset.`,
     {
       version: z.string().optional().describe(`Pin a VRF release version. Default ${DEFAULT_VERSION} (VRF_VERSION env overrides).`),
     },
+    OPEN_WORLD_ANNOTATIONS,
     async ({ version }) => {
-      const info = await ensureVrf({ version });
-      return { content: [{ type: "text", text: info.message }] };
+      try {
+        const info = await ensureVrf({ version });
+        return info.ok ? ok({ text: info.message }) : fail("internal", info.message);
+      } catch (e) { return failFromError(e); }
     }
   );
 
 
   // Tool: 反编译 + 结构化摘要单个资产（VRF CLI，离线）
   server.tool("asset_inspect",
-    "Decompile and structurally summarize a single Source 2 asset (offline; no game needed). Uses the VRF CLI (Source2Viewer-CLI, auto-installed by vrf_ensure). Returns a stable JSON summary keyed by asset type: vpcf (particle system/emitter/operator counts, child and material refs, max particles), vmdl (mesh count, material refs, LOD group, skeleton ref), vmat (shader, texture refs, param count), vtex (PNG dimensions). Unknown types pass through the decompiled text. raw_decompiled is omitted unless include_raw=true (then truncated to 4000 chars). Single-level references only: recursive reference walking is asset_check_refs' job.",
+    "Use when you need to know what a single Source 2 asset contains (particles, meshes, materials, textures) after editing or compiling it. Decompiles with the VRF CLI and returns a stable per-type summary: vpcf (particle system/emitter/operator counts, child and material refs, max particles), vmdl (mesh count, material refs, LOD group, skeleton ref), vmat (shader, texture refs, param count), vtex (PNG dimensions); unknown types pass through the decompiled text. Returns {ok:true,data} with the parsed summary, or {ok:false,code,message} when the VRF CLI or the asset cannot be read. Limits: single asset and single-level references; raw decompiled text is omitted unless include_raw=true (then truncated to 4000 chars) — use asset_check_refs to walk a reference chain. Related tools: vrf_ensure (CLI availability), asset_check_refs (recursive refs), dota_compile_asset (compile first).",
     {
       target: z.string().describe("Asset to inspect (absolute, or content/ / game/ prefixed, or addon-content relative)"),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
       include_raw: z.boolean().optional().describe("Include the raw decompiled text (truncated to 4000 chars). Default false."),
     },
+    READ_ONLY_ANNOTATIONS,
     async ({ target, addon, include_raw }) => {
-      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
-      const a = requireAddon(addon);
-      const resolved = resolveAssetPath(target, a);
-      const result = await inspectAsset(dotaPath, resolved, { includeRaw: include_raw ?? false });
-      return { content: [{ type: "text", text: result.text }], isError: !result.ok };
+      if (!dotaPath) return fail("internal", dotaPathNotDetectedText());
+      try {
+        const a = requireAddon(addon);
+        const resolved = resolveAssetPath(target, a);
+        const result = await inspectAsset(dotaPath, resolved, { includeRaw: include_raw ?? false });
+        if (!result.ok) return fail("internal", result.text);
+        return ok({ data: JSON.parse(result.text) });
+      } catch (e) { return failFromError(e); }
     }
   );
 
 
   // Tool: 单资产递归引用完整性检查（VRF CLI，离线）
   server.tool("asset_check_refs",
-    "Recursively check one asset's reference chain for integrity (offline; no game needed). Decompiles with the VRF CLI and walks asset refs (vmdl→vmat→vtex, vpcf→vmat→vtex) up to max_depth (default 3, visited-set cycle guard). Two-level resolution per ref: inside the addon (content source + compiled game output) → then game/dota (engine assets, reported as engine_refs). Reports four buckets: ok, uncompiled (source exists but compiled output missing — did you forget to compile?), engine_refs (legit engine assets, depth not walked), broken (not found anywhere).",
+    "Use when you need to know whether one asset's reference chain resolves — especially after adding a model/material/particle and before running the map. Decompiles each asset with the VRF CLI and walks its refs up to max_depth, resolving addon source/output, engine VPKs, and shared addons. Returns {ok:true,data} with checked counts and ok/uncompiled/engine_refs/broken buckets, or {ok:false,code,message} when the root asset cannot be decompiled. Limits: depth defaults to 3 (max 10) with a visited-set cycle guard; engine refs are reported but not walked further; offline only (no game needed). Related tools: asset_inspect (single asset), dota_compile_asset (compile missing outputs), vrf_ensure (CLI availability).",
     {
       target: z.string().describe("Asset to check (absolute, or content/ / game/ prefixed, or addon-content relative)"),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
       max_depth: z.number().int().min(0).max(10).optional().describe("Max reference chain depth. Default 3."),
     },
+    READ_ONLY_ANNOTATIONS,
     async ({ target, addon, max_depth }) => {
-      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
-      const a = requireAddon(addon);
-      const resolved = resolveAssetPath(target, a);
-      const result = await checkRefs(dotaPath, a, resolved, { maxDepth: max_depth ?? 3 });
-      return { content: [{ type: "text", text: result.text }], isError: !result.ok };
+      if (!dotaPath) return fail("internal", dotaPathNotDetectedText());
+      try {
+        const a = requireAddon(addon);
+        const resolved = resolveAssetPath(target, a);
+        const result = await checkRefs(dotaPath, a, resolved, { maxDepth: max_depth ?? 3 });
+        if (!result.ok) return fail("internal", result.text);
+        return ok({ data: JSON.parse(result.text) });
+      } catch (e) { return failFromError(e); }
     }
   );
 
@@ -1726,14 +1815,16 @@ Once connected, call dota_status again.`;
   const PATTACH_NAMES = ["PATTACH_ABSORIGIN", "PATTACH_ABSORIGIN_FOLLOW", "PATTACH_CUSTOMORIGIN", "PATTACH_CUSTOMORIGIN_FOLLOW", "PATTACH_POINT", "PATTACH_POINT_FOLLOW", "PATTACH_EYES_FOLLOW", "PATTACH_OVERHEAD_FOLLOW", "PATTACH_WORLDORIGIN", "PATTACH_ROOTBONE_FOLLOW", "PATTACH_RENDERORIGIN_FOLLOW", "PATTACH_MAIN_VIEW", "PATTACH_WATERWAKE", "PATTACH_CENTER_FOLLOW", "PATTACH_CUSTOM_GAME_STATE_1", "PATTACH_HEALTHBAR"];
 
   server.tool("vfx_preview",
-    "Spawn a particle effect in the running game to preview it (runtime instance, NOT an asset file — create/edit/delete .vpcf sources with file_write/file_edit/file_delete instead). Runs ParticleManager:CreateParticle via the dota_run_lua channel, so it needs a running game, sv_cheats=1, and an open vconsole. The client draws only particles it loaded at map start: the path must be listed in the addon's Precache(context), otherwise the call returns a valid id and draws nothing — add the entry and reload the map, since a runtime PrecacheResource call leaves the client without the asset. `position` only takes effect when the system binds control point 0; see the dota2-vfx skill for that and other silent-drop traps. The returned id feeds vfx_preview_stop; confirm the effect in a screenshot and read the Particles/ResourceSystem channels with console_output.",
+    "Use when you want to see a particle effect in the running game without wiring it into an ability or unit — spawn it, look at it with dota_screenshot, then destroy it. Spawns a runtime particle instance via ParticleManager:CreateParticle through the dota_run_lua channel (it is NOT an asset file — create/edit/delete .vpcf sources with file_write/file_edit/file_delete) and returns the instance id. Returns {ok:true,lines,count,next_seq,dropped}: lines is the captured '[MCP-VFX]' output plus a precache verdict where one applies, count is its number of lines, and next_seq/dropped describe the shared console window without moving this session's console_output cursor; failures return {ok:false,code,message} with precache_missing when the path is an addon asset that no PrecacheResource in scripts/vscripts names (the client then draws nothing even though CreateParticle returns a valid id), cheats_off, dota_down, or vconsole_closed. Limits: the client only draws particles precached at map load, so add the PrecacheResource entry and reload the map (a runtime PrecacheResource call leaves the client without the asset); position only affects systems that bind control point 0; requires a running game, sv_cheats=1, and an open vconsole attached to 127.0.0.1:29001. Related tools: vfx_preview_stop (destroy the instance), dota_screenshot (confirm the effect), console_output (read Particles/ResourceSystem errors), dota2_skill with name 'dota2-vfx' (recipes and silent-drop traps).",
     {
       particle_path: z.string().describe("Particle path relative to content root, e.g. 'particles/basic_explosion/basic_explosion.vpcf'"),
       attach: z.number().int().min(0).max(15).optional().describe("ParticleAttachment_t value. Default 8 (PATTACH_WORLDORIGIN)."),
       position: z.array(z.number()).length(3).optional().describe("World position [x,y,z] for control point 0 (only meaningful with world-origin attaches)."),
     },
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     async ({ particle_path, attach, position }) => {
-      requireConsole();
+      const blocked = consoleGate();
+      if (blocked) return blocked;
       const attachIdx = attach ?? 8;
       const attachName = PATTACH_NAMES[attachIdx] ?? "PATTACH_WORLDORIGIN";
       const pathSafe = particle_path.replace(/'/g, "");
@@ -1741,24 +1832,36 @@ Once connected, call dota_status again.`;
         ? " ParticleManager:SetParticleControl(pid, 0, Vector(" + position.join(",") + ")) "
         : " ";
       const luaBody = "print('[MCP-VFX] IsServer: ' .. tostring(IsServer())) local pid = ParticleManager:CreateParticle('" + pathSafe + "', " + attachName + ", nil)" + posLua + " print('[MCP-VFX] pid=' .. tostring(pid) .. ' attach=" + attachName + "')";
-      const execOut = await collectLuaOutput(luaBody, { waitMs: 15000, settleMs: 400 });
-      const lines = execOut.filter((l) => l.includes("[MCP-VFX]") || /error|failed|missing/i.test(l));
-      const note = dotaPath ? particlePrecacheNote(dotaPath, resolveAddon() ?? process.env.DOTA2_TEST_ADDON ?? null, pathSafe) : "";
-      return { content: [{ type: "text", text: [lines.join("\n") || "Sent. Read console_output (channels Particles/ResourceSystem) for load errors.", note].filter(Boolean).join("\n") }] };
+      const startSeq = prntSeqNext;
+      const execOut = await collectLuaWindow(luaBody);
+      if (!Array.isArray(execOut)) return execOut;
+      const note = dotaPath ? particlePrecacheNote(dotaPath, process.env.DOTA2_TEST_ADDON ?? resolveAddon() ?? null, pathSafe) : "";
+      const body = execOut.filter((l) => l.includes("[MCP-VFX]") || /error|failed|missing/i.test(l));
+      // 引擎资产不受 addon Precache 约束；只有 addon 内资产缺声明才是"画不出来"的根因
+      if (note.startsWith("precache: MISSING")) {
+        return fail("precache_missing", [body.join("\n"), note].filter(Boolean).join("\n"));
+      }
+      const lines = [body.join("\n"), note].filter(Boolean).join("\n") || "Sent. Read console_output (channels Particles/ResourceSystem) for load errors.";
+      return ok({ lines, count: lines.split("\n").length, ...windowCursor(startSeq) });
     }
   );
 
   server.tool("vfx_preview_stop",
-    "Destroy a runtime particle instance spawned by vfx_preview (stops the on-screen preview). Give the particle id returned by vfx_preview. Needs a running game, sv_cheats=1, and an open vconsole.",
+    "Use when a particle spawned by vfx_preview should stop — after taking the screenshot or when it is cluttering the test. Destroys one runtime particle instance by id (it does not touch asset files and does not unload the precache). Returns {ok:true,lines,count,next_seq,dropped}: lines contains '[MCP-VFX] destroyed pid=N' and count is its number of lines, because DestroyParticle returns nothing and the call never reports a nil return value; next_seq/dropped describe the shared console window without moving this session's console_output cursor. Failures return {ok:false,code,message} with cheats_off, dota_down, or vconsole_closed. Limits: needs a running game, sv_cheats=1, and an open vconsole attached to 127.0.0.1:29001; the id must come from this game session's vfx_preview call. Related tools: vfx_preview (spawn the instance), console_output (read full console output), dota_screenshot (confirm the effect disappeared).",
     {
       particle_id: z.number().int().min(0).describe("Particle id returned by vfx_preview"),
     },
+    { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async ({ particle_id }) => {
-      requireConsole();
+      const blocked = consoleGate();
+      if (blocked) return blocked;
       const luaBody = "print('[MCP-VFX] destroy pid=' .. tostring(" + particle_id + ")) ParticleManager:DestroyParticle(" + particle_id + ", false) print('[MCP-VFX] destroyed pid=" + particle_id + "')";
-      const execOut = await collectLuaOutput(luaBody, { waitMs: 15000, settleMs: 400 });
-      const lines = execOut.filter((l) => l.includes("[MCP-VFX]") || /error|failed/i.test(l));
-      return { content: [{ type: "text", text: lines.join("\n") || "Sent. Check console_output for errors." }] };
+      const startSeq = prntSeqNext;
+      const execOut = await collectLuaWindow(luaBody);
+      if (!Array.isArray(execOut)) return execOut;
+      const body = execOut.filter((l) => l.includes("[MCP-VFX]") || /error|failed/i.test(l));
+      const lines = body.join("\n") || "Sent. Check console_output for errors.";
+      return ok({ lines, count: lines.split("\n").length, ...windowCursor(startSeq) });
     }
   );
 
@@ -1807,26 +1910,24 @@ Once connected, call dota_status again.`;
   const FILEOPS_MAX_BYTES = 5 * 1024 * 1024;
 
   server.tool("file_read",
-    "Read a text file inside the current Dota 2 addon. Offline tool: no game or vconsole required. Target can start with content/ or game/ (relative to the Dota 2 install), or be relative to the addon content dir. Paths outside content/dota_addons/{addon}/ and game/dota_addons/{addon}/ are rejected.",
+    "Use when you need the current contents of a text file inside the addon — before editing it, or to verify a write. Reads UTF-8 text from content/ or game/ prefixed paths, or paths relative to the addon content dir. Returns {ok:true,data} with {path, bytes, text}, or {ok:false,code,message} for a path outside the addon, a missing file, or an oversized file. Limits: text only and at most 5 MB per call; paths outside content/dota_addons/{addon}/ and game/dota_addons/{addon}/ are rejected; no game or vconsole is needed. Related tools: file_write (create/overwrite), file_edit (targeted replacement), asset_inspect (binary assets).",
     {
       target: z.string().describe("File path inside the addon"),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
     },
+    READ_ONLY_ANNOTATIONS,
     async ({ target, addon }) => {
-      if (!dotaPath) throw new McpError(ErrorCode.InvalidRequest, dotaPathNotDetectedText());
-      const a = requireAddon(addon);
-      const resolved = resolveFileOpsPath(target, a);
+      if (!dotaPath) return fail("internal", dotaPathNotDetectedText());
       try {
+        const a = requireAddon(addon);
+        const resolved = resolveFileOpsPath(target, a);
         const stat = fs.statSync(resolved);
         if (stat.size > FILEOPS_MAX_BYTES) {
-          throw new McpError(ErrorCode.InvalidRequest, `File too large (${stat.size} bytes, max ${FILEOPS_MAX_BYTES}). Use asset_inspect for binary assets.`);
+          return fail("invalid_arg", `File too large (${stat.size} bytes, max ${FILEOPS_MAX_BYTES}). Use asset_inspect for binary assets.`);
         }
         const content = fs.readFileSync(resolved, "utf8");
-        return { content: [{ type: "text", text: content }] };
-      } catch (e) {
-        if (e instanceof McpError) throw e;
-        throw new McpError(ErrorCode.InvalidRequest, `Cannot read ${resolved}: ${(e as Error).message}`);
-      }
+        return ok({ data: { path: resolved, bytes: stat.size, text: content } });
+      } catch (e) { return failFromError(e); }
     }
   );
 

@@ -70,11 +70,11 @@ export const EXEC_ANNOTATIONS: ToolHints = {
   openWorldHint: false,
 };
 
-/** 外部副作用类（拉起进程或窗口、驱动资源编译）：影响进程外的世界状态。 */
+/** 外部副作用类（如 vrf_ensure 可能联网下载并写缓存，或拉起游戏进程/窗口）：不是纯读，重复调用收敛到同一结果。 */
 export const OPEN_WORLD_ANNOTATIONS: ToolHints = {
   readOnlyHint: false,
   destructiveHint: false,
-  idempotentHint: false,
+  idempotentHint: true,
   openWorldHint: true,
 };
 

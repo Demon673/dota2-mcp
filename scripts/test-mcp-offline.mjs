@@ -101,8 +101,9 @@ assert(recipe.result.content[0].text.includes("ContinuousEmitter") && !recipe.re
 const ambiguous = await call("tools/call", { name: "dota2_skill", arguments: { name: "dota2-vfx", section: "Common" } });
 assert(ambiguous.result.content[0].text.includes("Ambiguous section"), "ambiguous section prefixes fail clearly");
 const stats = await call("tools/call", { name: "dota2_skill", arguments: { name: "dota2-vfx", data: "vpcf-stats.json", data_path: "e_combos.top10.0" } });
-const firstRecipe = JSON.parse(stats.result.content[0].text);
-assert(Array.isArray(firstRecipe) && firstRecipe.length > 0 && !stats.result.content[0].text.includes("filesAnalyzed"), "JSON data_path returns only the requested array entry");
+const statsEnvelope = JSON.parse(stats.result.content[0].text);
+const firstRecipe = JSON.parse(statsEnvelope.text);
+assert(Array.isArray(firstRecipe) && firstRecipe.length > 0 && !statsEnvelope.text.includes("filesAnalyzed"), "JSON data_path returns only the requested array entry");
 const dataSection = await call("tools/call", { name: "dota2_skill", arguments: { name: "dota2-vfx", data: "vpcf-official-findings.md", section: "Sources" } });
 assert(dataSection.result.content[0].text.includes("## Sources") && !dataSection.result.content[0].text.includes("TL;DR"), "Markdown data files support focused section retrieval");
 const badPath = await call("tools/call", { name: "dota2_skill", arguments: { name: "dota2-vfx", data: "vpcf-stats.json", data_path: "e_combos.top10.999" } });
