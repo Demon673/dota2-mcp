@@ -337,6 +337,14 @@ self.pid = ParticleManager:CreateParticle("particles/<addon>/aura/aura.vpcf", PA
 
 `PATTACH_ABSORIGIN_FOLLOW` makes the engine re-anchor the system every frame, so the aura follows movement, teleports and turns with no `SetParticleControl` calls at all. This is the difference from the telegraph and projectile recipes: those own their control point because the position is gameplay data, while an aura's position is the entity it is attached to.
 
+**Wiring** — the engine resolves a modifier only when `LinkLuaModifier` named it at load, so one call next to the game-mode setup makes the file reachable:
+
+```lua
+LinkLuaModifier( "modifier_<name>", "modifiers/modifier_<name>", LUA_MODIFIER_MOTION_NONE )
+```
+
+`AddNewModifier(unit, nil, "modifier_<name>", { duration = 8 })` then drives the whole lifecycle: `OnCreated` runs the create call, and `OnDestroy` runs on both the duration expiring and an explicit `RemoveModifierByName`.
+
 **Loop lifecycle** — a continuous emitter with no end and a lifetime shorter than any buff:
 
 ```
@@ -364,6 +372,6 @@ function modifier_<name>:OnDestroy()
 end
 ```
 
-**Budget and evidence** — peak ≈ 34/s × 0.9 s ≈ 31 additive sprites in one collection with one shared texture; per-frame cost is not yet measured, and an aura is usually on several units at once, so re-measure with a full team before shipping. Captures: the aura sits on the unit, it stays on the unit after a 260-unit teleport, and the scene is clear after `DestroyParticle`.
+**Budget and evidence** — peak ≈ 34/s × 0.9 s ≈ 31 additive sprites in one collection with one shared texture; per-frame cost is not yet measured, and an aura is usually on several units at once, so re-measure with a full team before shipping. Captures: the aura sits on the unit, it stays on the unit after a 260-unit teleport, the scene is clear after `DestroyParticle`, and a `modifier_<name>` applied with `duration = 8` draws the aura on creation and leaves a clean scene when the duration expires and again when the modifier is removed by name.
 
 The asset must be listed in the addon's `Precache(context)`.

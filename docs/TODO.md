@@ -16,10 +16,8 @@ This is the active follow-up list. Remove items as they are completed; keep the 
 
 Follow [Production-grade VFX recipes and visual acceptance](../.agents/notes/proposed/feature/2026-10-25-production-vfx-recipes.md).
 
-- [ ] **Carry the precache entry into every recipe.** An addon-authored particle now renders end to end: the AoE telegraph draws a 500-radius ring and its 1.5 s delayed impact appears, once the file is listed in the addon's `Precache(context)`. Recipes must ship that entry, or the effect silently never draws.
-- [ ] Implement the initial three complete recipes: **AoE telegraph + impact**, **projectile + trail + impact**, and **persistent buff/debuff aura**. Each must include full source-safe assets, runtime mapping, timing, integration, a measured performance budget, and timed visual evidence.
-- [ ] Extend preview controls only where those recipes need them: multiple control points, orientation, entity attachment, and replay/restart. Verify every ParticleManager API through the live console before implementation.
-- [ ] Validate at least one recipe inside a real ability/modifier, not only through `vfx_preview`: creation, duration, attachment, and destruction on modifier removal.
+- [ ] **Measure per-frame cost for the three recipes.** Each recipe records its sprite count; none has a measured frame cost. Measure against a baseline scene and state the measurement context, since a budget cannot become a universal constant.
+- [ ] Validate the AoE and projectile recipes inside a real ability/modifier, not only through `vfx_preview`. The aura already runs through a `LinkLuaModifier` modifier with creation, duration expiry and removal captured.
 - [ ] Add a fresh-agent evaluation: using only the selected recipe, adapt color, radius, and duration, then complete compile → reference check → preview → timed visual acceptance → stop without structural errors or leaked instances.
 - [ ] Decide separately whether motion requires a video/sequence-capture path. Do not weaken the existing single-frame screenshot contract by implication.
 

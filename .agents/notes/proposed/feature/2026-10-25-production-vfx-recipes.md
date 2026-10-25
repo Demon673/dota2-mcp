@@ -54,6 +54,8 @@ Two authoring traps accounted for every earlier false negative, and both belong 
 
 A third trap corrupts verification itself: an unfocused game window stops presenting frames, so `dota_screenshot` returns an old image. Every acceptance capture must be checked for `stale: false`.
 
+**Modifier integration.** The aura recipe now runs through a real modifier rather than the preview tool alone: `LinkLuaModifier` registers it at load, `OnCreated` attaches the system to the parent unit, and `OnDestroy` destroys it. Applied with `duration = 8` it draws on creation and leaves a clean scene when the duration expires; applied with `duration = 60` and removed by name it also clears. The server log pairs every creation with its destruction. The telegraph and projectile recipes have only been exercised through timed previews so far.
+
 ## Alternatives considered
 
 - **Add more corpus statistics and prose.** Rejected: they improve reference coverage but cannot teach composition, timing, integration, or acceptance.
