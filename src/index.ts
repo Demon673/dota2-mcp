@@ -732,8 +732,9 @@ Then call dota_status again.`;
     if (!relay.guiConnected) return null;
     const out = await collectOutput("sv_cheats", { waitMs: 1500, settleMs: 100 });
     for (const line of out) {
-      const m = line.match(/sv_cheats"?\s*=\s*"?([01])/i);
-      if (m) return m[1] === "1";
+      // 实测引擎回显 "sv_cheats = true"（布尔），部分版本回 "1"
+      const m = line.match(/sv_cheats"?\s*=\s*"?([01]|true|false)/i);
+      if (m) return /^(1|true)$/i.test(m[1]);
       if (/^\s*[01]\s*$/.test(line)) return line.trim() === "1";
     }
     return null;

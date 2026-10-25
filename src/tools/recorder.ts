@@ -52,12 +52,16 @@ export async function recordVideo(opts: RecordOptions): Promise<ToolResult> {
   rmSync(out, { force: true }); // 覆盖语义：旧文件不能冒充本次产物
 
   const ffmpeg = process.env.DOTA2_FFMPEG || "ffmpeg";
+  // libx264 + yuv420p 要求宽高为偶数；实测游戏窗口高度常为奇数（1936x1119），
+  // 不取偶会直接编码失败，因此向下取偶并回报实际尺寸。
+  const even = (n: number) => Math.max(2, n - (n % 2));
+  const vw = even(window.width), vh = even(window.height);
   // shortcut: offset 按主显示器输出 0 的屏幕坐标传给 ddagrab，多显示器（窗口不在主屏）时会裁错；
   // 活体验证发现后改成 MonitorFromWindow + DXGI 输出索引映射
   const args = [
     "-hide_banner", "-loglevel", "error", "-y",
     "-f", "lavfi",
-    "-i", `ddagrab=output_idx=0:framerate=${fps}:video_size=${window.width}x${window.height}:offset_x=${window.x}:offset_y=${window.y}:draw_mouse=0`,
+    "-i", `ddagrab=output_idx=0:framerate=${fps}:video_size=${vw}x${vh}:offset_x=${window.x}:offset_y=${window.y}:draw_mouse=0`,
     "-vf", "hwdownload,format=bgra",
     "-t", String(duration),
     "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
@@ -87,6 +91,6 @@ export async function recordVideo(opts: RecordOptions): Promise<ToolResult> {
   }
 
   const bytes = statSync(out).size;
-  const data = { path: out, duration_s: duration, fps, width: window.width, height: window.height, bytes };
-  return ok({ data, text: `Recorded ${out} (${duration}s at ${fps} fps, ${window.width}x${window.height}, ${bytes} bytes).` });
+  const data = { path: out, duration_s: duration, fps, width: vw, height: vh, bytes };
+  return ok({ data, text: `Recorded ${out} (${duration}s at ${fps} fps, ${vw}x${vh}, ${bytes} bytes).` });
 }

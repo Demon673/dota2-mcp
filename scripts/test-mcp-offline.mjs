@@ -67,6 +67,17 @@ assert(!names.includes("project_info"), "project_info removed");
 assert(names.includes("dota_open_vconsole"), "dota_open_vconsole registered");
 assert(names.length === 36, `36 tools total (got ${names.length})`);
 
+// 工具 2.0 全局契约：每个工具都要带四类 annotations，描述遵循五段式
+const HINTS = ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"];
+const missingHints = tools.result.tools
+  .filter(t => !t.annotations || HINTS.some(k => typeof t.annotations[k] !== "boolean"))
+  .map(t => t.name);
+assert(missingHints.length === 0, "all tools carry four annotation hints (missing: " + missingHints.join(", ") + ")");
+const badDescriptions = tools.result.tools
+  .filter(t => !/Use when/.test(t.description || "") || !/Returns/.test(t.description || ""))
+  .map(t => t.name);
+assert(badDescriptions.length === 0, "all tool descriptions follow the five-part shape (missing: " + badDescriptions.join(", ") + ")");
+
 // 工具 2.0：首个迁移工具 console_channels 的五段式描述、annotations 与失败壳
 const channelsTool = tools.result.tools.find((t) => t.name === "console_channels");
 assert(channelsTool?.description.includes("Use when") && channelsTool.description.includes("Returns")

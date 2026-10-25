@@ -3,3 +3,4 @@ dist/
 *.tsbuildinfo
 sea-prep.blob
 pnpm-lock.yaml
+.claude/worktrees/
