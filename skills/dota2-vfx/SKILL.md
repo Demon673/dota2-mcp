@@ -322,3 +322,48 @@ ParticleManager:SetParticleControl(hit, 0, landing)
 **Budget and evidence** — peak ≈ 4 head + 25 trail + 14 impact ≈ 43 additive sprites across four collections, one shared texture, no deferred light; per-frame cost is not yet measured. A travel capture shows the bright head with the trail behind it, and a separate capture shows the burst at the impact position. The test harness stepped CP0 by hand every ~90 ms, so its trail appears as discrete blobs; at frame rate the same asset draws a continuous ribbon.
 
 Both children and the impact must be listed in the addon's `Precache(context)`.
+
+## Recipe: Persistent buff/debuff aura
+
+A looping effect attached to a unit that lasts as long as the modifier does. Retrieve with `dota2_skill(name='dota2-vfx', section='Recipe: Persistent buff/debuff aura')`.
+
+**One asset, no parent.** `aura.vpcf` is a single continuous system; nothing orbits or moves independently, so a parent with children would only add collections.
+
+**Runtime mapping** — attach it to the unit rather than positioning it:
+
+```lua
+self.pid = ParticleManager:CreateParticle("particles/<addon>/aura/aura.vpcf", PATTACH_ABSORIGIN_FOLLOW, self:GetParent())
+```
+
+`PATTACH_ABSORIGIN_FOLLOW` makes the engine re-anchor the system every frame, so the aura follows movement, teleports and turns with no `SetParticleControl` calls at all. This is the difference from the telegraph and projectile recipes: those own their control point because the position is gameplay data, while an aura's position is the entity it is attached to.
+
+**Loop lifecycle** — a continuous emitter with no end and a lifetime shorter than any buff:
+
+```
+m_flConstantLifespan = 0.9
+m_Emitters = [ { _class = "C_OP_ContinuousEmitter" m_flEmitRate = 34.0 } ]
+m_Operators = [ C_OP_BasicMovement, C_OP_Decay,
+                C_OP_InterpolateRadius (m_flStartScale 0.4),
+                C_OP_FadeInSimple (0.15), C_OP_FadeOutSimple (0.45) ]
+m_Initializers = [ C_INIT_CreateWithinSphere (m_fRadiusMax 70, full m_TransformInput),
+                   C_INIT_InitialVelocityNoise (30–65 upward) ]
+```
+
+The fade-in and fade-out on every particle make the loop read as breathing rather than as a hard particle churn; the upward velocity drift stops it from looking like a static sphere.
+
+**Team colour.** Colour lives in the asset (`m_ConstantColor`), so a buff and a debuff are two files that differ only in that line. A single asset tinted per team through a control point needs a colour operator the project has not verified yet; until then, ship one asset per colour role and keep the durations in data.
+
+**Stop and cleanup** — destroy on modifier removal, with `true` for an instant cut and `false` to let the existing particles fade:
+
+```lua
+function modifier_<name>:OnDestroy()
+  if IsServer() and self.pid then
+    ParticleManager:DestroyParticle(self.pid, true)
+    self.pid = nil
+  end
+end
+```
+
+**Budget and evidence** — peak ≈ 34/s × 0.9 s ≈ 31 additive sprites in one collection with one shared texture; per-frame cost is not yet measured, and an aura is usually on several units at once, so re-measure with a full team before shipping. Captures: the aura sits on the unit, it stays on the unit after a 260-unit teleport, and the scene is clear after `DestroyParticle`.
+
+The asset must be listed in the addon's `Precache(context)`.

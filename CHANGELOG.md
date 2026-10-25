@@ -11,6 +11,7 @@ English | [中文](CHANGELOG.zh.md)
 - **Focused skill retrieval**: `dota2_skill` outlines include `###` subsections, `section` works for both skill prose and Markdown data, and JSON data accepts a dot-path `data_path` such as `e_combos.top10`. Full-body and whole-file reads remain available, but VFX/model authoring no longer needs them.
 - **`dota2-vfx` ships its first end-to-end recipe**: "Recipe: AoE telegraph + impact" covers the parent/child layout, the ground-aligned ring sprite, control point 0 as the marker position, the 1.5 s wind-up, the modifier hook that creates and destroys the instance, and a sprite budget with its timed evidence.
 - **`dota2-vfx` gains a projectile recipe**: "Recipe: Projectile + trail + impact" explains why a short-lived high-rate head rides control point 0 while a longer-lived trail is left behind, why the impact is spawned at the landing point instead of as a delayed child, and the per-tick control-point update an ability needs.
+- **`dota2-vfx` gains an aura recipe**: "Recipe: Persistent buff/debuff aura" covers `PATTACH_ABSORIGIN_FOLLOW` as the alternative to owning a control point, a loop whose per-particle fade reads as breathing, the instant-versus-fade choice in `DestroyParticle`, and where team colour lives when one asset cannot be tinted per team.
 
 ### Fixed
 
