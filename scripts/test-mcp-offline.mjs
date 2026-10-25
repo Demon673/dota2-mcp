@@ -65,7 +65,7 @@ const tools = await call("tools/list", {});
 const names = tools.result.tools.map(t => t.name);
 assert(!names.includes("project_info"), "project_info removed");
 assert(names.includes("dota_open_vconsole"), "dota_open_vconsole registered");
-assert(names.length === 35, `35 tools total (got ${names.length})`);
+assert(names.length === 36, `36 tools total (got ${names.length})`);
 
 // 工具 2.0：首个迁移工具 console_channels 的五段式描述、annotations 与失败壳
 const channelsTool = tools.result.tools.find((t) => t.name === "console_channels");
