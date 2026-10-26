@@ -22,6 +22,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { EventEmitter } from "events";
 import { VConClient, PrntMessage } from "./vcon-bridge.js";
+import { PanoramaBridge, BridgeRequest, BridgeResult } from "./panorama-bridge.js";
 import { parsePort, pidPath } from "../daemon-utils.js";
 import { isDotaProcessRunning, isProcessRunning, spawnVconsole } from "./console-bridge.js";
 
@@ -38,7 +39,11 @@ const INIT_FRAME_TYPES = new Set(["AINF", "CHAN", "CVRB", "CFGV", "ADON"]);
 const PROBE_TEXT = "__mcp_ping__";
 
 /** MCP 输出收集的边界标记 `__mcp_<8hex>_begin|end`（index.ts 生成）：永不转发 GUI，也不进 MCP 日志 */
-export const MCP_MARKER_RE = /^__mcp_[0-9a-f]{8}_(begin|end)$/;
+export const MCP_MARKER_RE = /^__mcp_([0-9a-f]{8})_(begin|end)$/;
+/** Async MCP output prefixes (bridge acks, Lua/VFX/test lines, bridge readiness).
+ *  These can arrive after the collected end marker, so the marker window alone
+ *  cannot keep them out of the human's GUI. */
+export const MCP_GUI_SUPPRESS_RE = /^(?:\[D2MCP-|\[MCP-|D2MCP-|MCP_(?:ACK|ADV|BRIDGE|LUA|TEST|UI|VFX))/;
 
 export interface LivenessOpts {
   probeIntervalMs: number;
@@ -46,6 +51,8 @@ export interface LivenessOpts {
   pongTimeoutMs: number;
   /** 无 GUI 时就绪探测间隔（TCP 连一下即断） */
   readyProbeIntervalMs: number;
+  /** A begin marker without its end is dropped after this long. */
+  markerWindowMs: number;
 }
 
 /** 自动打开 vconsole 的注入点（测试可替换 spawn/进程检查） */
@@ -67,6 +74,17 @@ interface ClientConn {
   streaming: boolean;
 }
 
+/** Half-close first, keep draining until the peer closes. Destroying a socket
+ *  with unread data makes Windows send RST, which can trip the engine's
+ *  VConsole socket shutdown fatal (error 10038) on its recv+send threads. */
+function closeSocket(sock: import("net").Socket | null): void {
+  if (!sock) return;
+  try { sock.end(); } catch { /* already closed */ }
+  const timer = setTimeout(() => { try { sock.destroy(); } catch { /* ignore */ } }, 1200);
+  timer.unref?.();
+  sock.once("close", () => clearTimeout(timer));
+}
+
 export class VConRelay extends EventEmitter {
   private dotaClient: VConClient | null = null;
   private _lastDataAt = 0;
@@ -85,6 +103,7 @@ export class VConRelay extends EventEmitter {
       silenceMs: 15_000,
       pongTimeoutMs: 20_000,
       readyProbeIntervalMs: 1_000,
+      markerWindowMs: 15_000,
       ...liveness,
     };
     this._autoOpenEnabled = autoOpen.enabled ?? (process.env.DOTA2_VCON_AUTO_OPEN_VCONSOLE !== "0");
@@ -105,16 +124,23 @@ export class VConRelay extends EventEmitter {
   private _maps: string[] = [];      // addoninfo.txt 中的官方地图
   private _allMaps: string[] = [];   // maps/ 目录下所有 .vmap
   private _dotaPath: string | null = null;
+  private _panoramaBridge: PanoramaBridge | null = null;
+  private _bridgeSeq = 0;
   private _channels = new Map<number, string>(); // channelId (from CHAN.id / PRNT.channelCRC) -> name
   /** 当前 Dota 连接的初始化帧缓存（每次新连接重建），重放给晚接入的 GUI */
   private _initFrames: Buffer[] = [];
   private _guiSuppressPatterns: string[] = [];
-  /** MCP 命令包装标记：把命令包在 `ai_disabled; ...; ai_disabled` 中一次性发给 Dota，
-   * 标记之间的输出不转发到 GUI。使用官方 cvar `ai_disabled` 的响应行
-   * `ai_disabled = false` / `ai_disabled = true` 作为标记。 */
-  private _mcpMarker = "ai_disabled =";
-  private _mcpMarkerSuppress = false;
+  /** Open begin→end windows keyed by marker id. A set keeps concurrent sessions
+   *  from closing each other's window; an end only closes its own id. */
+  private _mcpWindows = new Map<string, NodeJS.Timeout>();
   private _mcpSuppressEnabled = true;
+  /** Time-based quiet window for output that arrives after a command's end marker. */
+  private _mcpHoldUntil = 0;
+  /** Initial PRNT burst after a Dota connect is the engine's console backlog;
+   *  dropping it keeps old MCP output out of a freshly attached GUI. */
+  private _drainingBacklog = false;
+  private _backlogStartAt = 0;
+  private _backlogLastPrntAt = 0;
 
   // 守护进程模式新增
   private clients = new Set<ClientConn>();
@@ -148,6 +174,7 @@ export class VConRelay extends EventEmitter {
   get guiSuppressPatterns(): string[] { return [...this._guiSuppressPatterns]; }
   get mcpSuppressEnabled(): boolean { return this._mcpSuppressEnabled; }
   get addonName(): string { return this._addonName; }
+  get dotaPath(): string | null { return this._dotaPath; }
   get maps(): string[] { return [...this._maps]; }
   get allMaps(): string[] { return [...this._allMaps]; }
   /** 端口被占用（守护进程模式下另一个实例在跑） */
@@ -163,10 +190,36 @@ export class VConRelay extends EventEmitter {
   /** 开关 MCP 命令输出的 GUI 屏蔽（默认开启） */
   setMcpSuppressEnabled(enabled: boolean): void {
     this._mcpSuppressEnabled = enabled;
-    // 标记之间切换时结束标记不再被识别，残留的 true 会让 GUI 永久收不到输出
-    this._mcpMarkerSuppress = false;
+    // 切换时丢弃所有未闭合窗口，避免旧标记状态影响新设置
+    this._closeAllMarkerWindows();
     console.error("[relay] MCP output GUI suppress:", enabled ? "enabled" : "disabled");
     this._broadcast({ type: "suppress", mcpSuppress: this._mcpSuppressEnabled, guiPatterns: [...this._guiSuppressPatterns] });
+  }
+
+  private _openMarkerWindow(id: string): void {
+    const prev = this._mcpWindows.get(id);
+    if (prev) clearTimeout(prev);
+    const timer = setTimeout(() => { this._mcpWindows.delete(id); }, this.liveness.markerWindowMs);
+    timer.unref?.();
+    this._mcpWindows.set(id, timer);
+  }
+
+  private _closeMarkerWindow(id: string): void {
+    const timer = this._mcpWindows.get(id);
+    if (!timer) return;
+    clearTimeout(timer);
+    this._mcpWindows.delete(id);
+  }
+
+  private _closeAllMarkerWindows(): void {
+    for (const timer of this._mcpWindows.values()) clearTimeout(timer);
+    this._mcpWindows.clear();
+  }
+
+  /** Keep GUI forwarding quiet for `ms`; console_output still receives every line. */
+  holdGuiSuppression(ms: number): void {
+    if (!this._mcpSuppressEnabled || !Number.isFinite(ms) || ms <= 0) return;
+    this._mcpHoldUntil = Math.max(this._mcpHoldUntil, Date.now() + ms);
   }
 
   async start(): Promise<void> {
@@ -205,12 +258,36 @@ export class VConRelay extends EventEmitter {
     this._livenessInterval = setInterval(() => this._livenessTick(), this.liveness.probeIntervalMs);
   }
 
-  sendCommand(cmd: string): void {
-    if (this._mcpSuppressEnabled) {
-      this.dotaClient?.sendCommand(`ai_disabled; ${cmd}; ai_disabled`);
-    } else {
-      this.dotaClient?.sendCommand(cmd);
+  sendCommand(cmd: string, holdMs = 0): void {
+    if (holdMs > 0) this.holdGuiSuppression(holdMs);
+    this.dotaClient?.sendCommand(cmd);
+  }
+
+  /** 本地 relay 的桥入口；瘦客户端走 RelayClient.bridgeExec。 */
+  bridgeExec(code: string, timeoutMs = 15000): Promise<BridgeResult> {
+    this._bridgeSeq += 1;
+    return this.bridgeRequest({
+      id: `local-${Date.now().toString(36)}-${this._bridgeSeq.toString(36)}`,
+      op: "exec",
+      code,
+      timeoutMs,
+    });
+  }
+
+  private bridgeRequest(req: BridgeRequest): Promise<BridgeResult> {
+    if (!this._panoramaBridge) {
+      this._panoramaBridge = new PanoramaBridge({
+        addonName: () => this._addonName,
+        dotaPath: () => this._dotaPath,
+        consoleReady: () => this._dotaConnected && this._guiConnected,
+        sendCommand: (cmd) => this.sendCommand(cmd),
+        onPrnt: (fn) => {
+          this.on("prnt", fn);
+          return () => { this.off("prnt", fn); };
+        },
+      });
     }
+    return this._panoramaBridge.handle(req);
   }
 
   /** 返回当前已注册的 VConsole2 通道名列表 */
@@ -218,18 +295,40 @@ export class VConRelay extends EventEmitter {
     return Array.from(new Set(this._channels.values())).sort();
   }
 
+  /** Close the Dota socket after its output has been quiet for ~300ms (1s cap),
+   *  then FIN and drain. A FIN while the engine is mid-send lets its recv and
+   *  send threads race into the VCon socket-shutdown fatal (10038). */
+  private _closeDotaQuietly(): void {
+    const client = this.dotaClient;
+    if (!client) return;
+    this.dotaClient = null;
+    const deadline = Date.now() + 1000;
+    const attempt = () => {
+      if (Date.now() - this._lastDataAt >= 300 || Date.now() >= deadline) {
+        client.close();
+        return;
+      }
+      const timer = setTimeout(attempt, 50);
+      timer.unref?.();
+    };
+    attempt();
+  }
+
   close(): void {
     this._closed = true;
+    this._closeAllMarkerWindows();
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this._livenessInterval) clearInterval(this._livenessInterval);
     if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
     if (this._readyProbeInterval) clearInterval(this._readyProbeInterval);
     if (this._probeSock) { this._probeSock.destroy(); this._probeSock = null; }
-    this.dotaClient?.close();
-    this.guiSocket?.destroy();
+    this._closeDotaQuietly();
+    const gui = this.guiSocket;
+    this.guiSocket = null;
+    closeSocket(gui);
     this.guiServer?.close();
     this.ctrlServer?.close();
-    for (const c of this.clients) c.sock.destroy();
+    for (const c of this.clients) closeSocket(c.sock);
   }
 
   // ---- 守护进程：空闲计时 ----
@@ -330,6 +429,32 @@ export class VConRelay extends EventEmitter {
       }
       this.sendCommand(cmd);
       conn.sock.write("OK\n");
+    } else if (text.startsWith("BRIDGE:")) {
+      let req: BridgeRequest;
+      try {
+        req = JSON.parse(text.slice(7));
+      } catch (e: any) {
+        conn.sock.write(JSON.stringify({ type: "bridge", ok: false, code: "invalid_arg", message: `bad bridge request: ${e.message}` }) + "\n");
+        return;
+      }
+      if (!req || typeof req.id !== "string" || (req.op !== "exec" && req.op !== "status" && req.op !== "reset")) {
+        conn.sock.write(JSON.stringify({ type: "bridge", id: req?.id, ok: false, code: "invalid_arg", message: "bridge request needs id and op exec|status|reset" }) + "\n");
+        return;
+      }
+      void this.bridgeRequest(req).then((r) => {
+        if (!conn.sock.destroyed) conn.sock.write(JSON.stringify({ type: "bridge", id: req.id, ...r }) + "\n");
+      }).catch((e: any) => {
+        if (!conn.sock.destroyed) {
+          conn.sock.write(JSON.stringify({ type: "bridge", id: req.id, ok: false, code: "bridge_unavailable", message: String(e?.message ?? e) }) + "\n");
+        }
+      });
+    } else if (text.startsWith("HOLDGUI:")) {
+      const ms = Number(text.slice(8));
+      this.holdGuiSuppression(ms);
+      conn.sock.write("OK\n");
+    } else if (text === "SHUTDOWN") {
+      conn.sock.write("OK\n");
+      this.emit("shutdown-requested");
     } else if (text.startsWith("SETFILTERS:")) {
       try {
         const patterns = JSON.parse(text.slice(11));
@@ -353,7 +478,7 @@ export class VConRelay extends EventEmitter {
   private _broadcast(obj: any): void {
     const line = JSON.stringify(obj) + "\n";
     for (const c of this.clients) {
-      if (c.streaming && !c.sock.destroyed) {
+      if (c.streaming && !c.sock.destroyed && !c.sock.writableEnded) {
         c.sock.write(line);
       }
     }
@@ -493,7 +618,7 @@ export class VConRelay extends EventEmitter {
       this._guiConnected = false;
       this.guiSocket = null;
       // 严格门控：vconsole 断开即断开 Dota 连接（29000 释放，按钮恢复可用），回到探测态
-      this.dotaClient?.close();
+      this._closeDotaQuietly();
       console.error("[relay] vconsole2 disconnected");
       this._broadcast(this._statusObj());
       this._resetIdleTimer();
@@ -510,11 +635,25 @@ export class VConRelay extends EventEmitter {
       port: DOTA_PORT,
       rawPrntEditor: (msg) => {
         const text = msg.text.trim();
+        // 连接后的第一波 PRNT 是引擎的控制台历史回放；丢弃它，否则刚接入的 GUI
+        // 会看到上一次会话（包括 MCP 命令）的全部旧输出。回放结束后恢复转发。
+        if (this._drainingBacklog) {
+          const now = Date.now();
+          if (now - this._backlogLastPrntAt > 120 || now - this._backlogStartAt > 2500) {
+            this._drainingBacklog = false;
+            this._closeAllMarkerWindows();
+          } else {
+            this._backlogLastPrntAt = now;
+            return false;
+          }
+        }
         if (text === PROBE_TEXT || MCP_MARKER_RE.test(text)) return false; // 探针回显与收集标记不转发 GUI
-        // MCP 标记之间的输出：静默丢弃，不转发 GUI
-        if (this._mcpMarkerSuppress) return false;
-        // MCP 标记行本身也不转发（ai_disabled = false / ai_disabled = true）
-        if (this._mcpSuppressEnabled && text.startsWith(this._mcpMarker)) return false;
+        // 任一未闭合的 begin 窗口内：静默丢弃，不转发 GUI
+        if (this._mcpWindows.size > 0) return false;
+        // 异步 MCP 输出可能落在 end 标记之后（桥 ack、Lua/VFX/测试行等）；按前缀兜底
+        if (this._mcpSuppressEnabled && MCP_GUI_SUPPRESS_RE.test(text)) return false;
+        // 工具主动声明的静默窗口，覆盖命令返回后才到达的异步输出
+        if (this._mcpSuppressEnabled && Date.now() < this._mcpHoldUntil) return false;
         // 用户手动设置的额外规则
         if (this._guiSuppressPatterns.length > 0) {
           const matched = this._guiSuppressPatterns.find(p => {
@@ -528,7 +667,10 @@ export class VConRelay extends EventEmitter {
 
     this.dotaClient.on("connected", () => {
       this._dotaConnected = true;
-      this._mcpMarkerSuppress = false;
+      this._closeAllMarkerWindows();
+      this._drainingBacklog = true;
+      this._backlogStartAt = Date.now();
+      this._backlogLastPrntAt = this._backlogStartAt;
       this._initFrames = [];
       this._lastDataAt = Date.now();
       this._probeOutstandingAt = null;
@@ -550,10 +692,13 @@ export class VConRelay extends EventEmitter {
       const text = msg.text.trim();
       // 活性探针回显：不进缓冲、不广播（rawPrntEditor 侧同时拦 GUI）
       if (text === PROBE_TEXT) return;
-      // MCP 标记行：切换屏蔽状态，标记本身不进入缓冲区，也不转发给 MCP/GUI
-      if (this._mcpSuppressEnabled && text.startsWith(this._mcpMarker)) {
-        this._mcpMarkerSuppress = !this._mcpMarkerSuppress;
-        return;
+      // 收集标记（echo __mcp_<hash>_begin/end）同时是 GUI 屏蔽窗口的边界：
+      // 每个 begin 开自己的窗口，只有同 id 的 end 才关闭它，所以并发会话互不干扰。
+      // 标记本身必须继续进入 MCP 流（收集器靠它定位窗口），rawPrntEditor 会挡在 GUI 之外。
+      const marker = MCP_MARKER_RE.exec(text);
+      if (marker && this._mcpSuppressEnabled) {
+        if (marker[2] === "begin") this._openMarkerWindow(marker[1]);
+        else this._closeMarkerWindow(marker[1]);
       }
 
       const channelName = this._channels.get(msg.channelCRC) || "";
@@ -586,7 +731,7 @@ export class VConRelay extends EventEmitter {
 
     this.dotaClient.on("close", () => {
       this._dotaConnected = false;
-      this._mcpMarkerSuppress = false;
+      this._closeAllMarkerWindows();
       this._probeOutstandingAt = null;
       this.dotaClient = null;
       this._broadcast(this._statusObj());
@@ -599,7 +744,7 @@ export class VConRelay extends EventEmitter {
 
     this.dotaClient.on("error", (e: Error) => {
       console.error("[relay] Dota error:", e.message);
-      this._mcpMarkerSuppress = false;
+      this._closeAllMarkerWindows();
       this.dotaClient = null;
       if (this._guiConnected) this._setReady(false);
       if (!this._closed && this._guiConnected) {

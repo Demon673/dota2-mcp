@@ -287,10 +287,16 @@ export class VConClient extends EventEmitter {
     this.socket.write(data);
   }
 
-  /** 断开连接 */
+  /** 断开连接：先发 FIN，继续读到对端关闭再销毁。带未读数据销毁会让 Windows
+   *  发 RST，可能触发引擎 VConsole socket shutdown 致命错误（10038）。 */
   close(): void {
-    this.socket?.destroy();
+    const socket = this.socket;
     this.socket = null;
+    if (!socket) return;
+    try { socket.end(); } catch { /* already closed */ }
+    const timer = setTimeout(() => { try { socket.destroy(); } catch { /* ignore */ } }, 1200);
+    timer.unref?.();
+    socket.once("close", () => clearTimeout(timer));
   }
 
   // ---- internal ----

@@ -13,9 +13,20 @@ export const ERROR_CODES = [
   "internal",
   "ffmpeg_missing",
   "no_window",
+  "focus_failed",
+  "window_minimized",
   "empty_capture",
   "no_new_frames",
   "test_harness_error",
+  "bridge_unavailable",
+  "bridge_compile_failed",
+  "bridge_ping_timeout",
+  "exec_not_started",
+  "exec_incomplete",
+  "js_error",
+  "lua_listener_failed",
+  "addon_missing",
+  "dota_path_missing",
 ] as const;
 
 export type ToolErrorCode = (typeof ERROR_CODES)[number];

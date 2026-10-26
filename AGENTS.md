@@ -33,7 +33,7 @@ node dist/index.js    # Start the MCP server (over stdio)
 
 Live scripts follow the portability rule under [Conventions](#conventions): the Dota path comes from `detectDotaPath()` auto-detection, the addon/map from the running daemon's handshake info (the addon/maps in hello-ok, overridable via `DOTA2_TEST_ADDON` / `DOTA2_TEST_MAP`), and test-crash-recovery passes full launch args via `DOTA2_TEST_ARGS` when re-launching Dota. Shared handshake helper: `scripts/lib-ctrl.mjs`.
 
-Offline one-liner: `npm run check && node scripts/test-relay.mjs && node scripts/test-daemon.mjs && node scripts/test-mcp-offline.mjs`
+Offline one-liner: `npm run check && node scripts/test-relay.mjs && node scripts/test-daemon.mjs && node scripts/test-panorama-bridge.mjs && node scripts/test-input.mjs && node scripts/test-mcp-offline.mjs`
 Live prerequisites: Dota 2 running + `node dist/relay-main.js` to start the daemon (an MCP session attaches to an existing daemon); `scripts/test-mcp-tools.mjs` additionally needs vconsole already connected — run test-mcp-live.mjs first to open the gate.
 
 ## Development–verification workflow
@@ -79,6 +79,7 @@ Optional advanced configuration:
 | `DOTA2_VCON_STATE_DIR` | `os.tmpdir()/dota2-mcp` | Daemon token/pid/lock/log and capture-watcher state; offline tests override it with an isolated temporary directory |
 | `DOTA2_CAPTURE_DISABLE_WATCHER` | `0` | `1` disables automatic capture-watcher startup (offline console tests); an explicit `dota_screenshot` call still starts it |
 | `DOTA2_SCREENSHOT_DIR` | `os.tmpdir()/dota2-mcp/screenshots` | Where `dota_screenshot` saves images; it keeps only its own 20 newest |
+| `DOTA2_INPUT_HELPER` | unset | Replaces the compiled OS-input helper (offline tests; `.js`/`.mjs` runs through the current Node) |
 
 ## Key findings
 
@@ -126,7 +127,7 @@ When the daemon process is killed (not an idle exit): the thin client backs off 
 AI agent (MCP client over stdio)
     ↓
 src/index.ts  — registers all MCP tools; thin client
-    ↓  (control port :29002, NDJSON protocol: HELLO/CMD/STREAM/SETFILTERS/SETMCPSUPPRESS)
+    ↓  (control port :29002, NDJSON protocol: HELLO/CMD/STREAM/SETFILTERS/SETMCPSUPPRESS/HOLDGUI/SHUTDOWN)
 src/relay-main.ts  — detached daemon
     ↓
 src/tools/vcon-relay.ts  — VConRelay transparent proxy
@@ -140,19 +141,7 @@ Dota 2 allows only one VConsole2 client on port `29000`. While vconsole2 is atta
 
 ### Isolation between MCP output and the vconsole2 GUI
 
-To avoid flooding the human developer's vconsole2 GUI with large JSON output when the AI calls `status_json`, `script_help2`, etc. at high frequency, the relay wraps MCP commands as:
-
-```
-ai_disabled; <cmd>; ai_disabled
-```
-
-Dota 2 echoes two marker lines, `ai_disabled = false` / `ai_disabled = true`. The relay recognizes these two markers:
-
-- The marker lines themselves never enter the MCP buffer, nor are they forwarded to the GUI;
-- All PRNT output between the two markers still enters the MCP buffer, but by default is not forwarded to the GUI;
-- You can disable this behavior via the `console_gui_filter` tool, or still see all output in the vconsole2 GUI.
-
-This is a **conventional output-isolation feature**, not the real semantics of a console cvar.
+Collected commands start with `echo __mcp_<hash>_begin;`: the relay tracks an open-window set keyed by marker id, and the GUI filter is active while the set is non-empty. A synchronous command echoes its matching end marker; the Lua path prints it after the deferred body. Concurrent sessions therefore cannot close each other's window, and a window whose end marker never arrives expires after 15 s. Marker lines never enter the MCP buffer; output inside a window enters the MCP buffer but not the GUI. Async MCP-prefixed lines are filtered, direct commands open timed holds, and on each Dota connect the relay drops the engine's replayed console backlog. See the [isolation note](.agents/notes/implemented/bug-fix/2026-10-26-console-output-isolation.md).
 
 ### Core modules
 
@@ -180,6 +169,7 @@ Client → server command type: `CMND` (null-terminated UTF-8).
 | `dota_advance_to_game` | `dota_run_lua` channel (GameRules / player controller) | Standard flow: any loaded pre-game phase → GAME_IN_PROGRESS with a hero per player (requires `sv_cheats=1`) |
 | `dota_restart` | `restart` | Reload the map; waits until the reload has begun |
 | `dota_screenshot` | none (persistent Windows.Graphics.Capture helper) | Game screenshot from outside the game; ungated; shared watcher caches the latest frame and marks cached results `stale` with `captured_at`; after the helper is ready, each call has a 5 s total deadline |
+| `dota_input` | none (Windows SendInput helper) | Real OS mouse/keyboard input into the game window: move/click/down/up/drag/wheel, key press/down/up, Unicode text. Client-area coordinates, optional foreground/cursor restoration; ungated; `window_info` reads the window without input |
 | `dota_open_vconsole` | spawn vconsole2.exe | Open the vconsole window (the explicit path when the AssetBrowser button is disabled by the engine) |
 
 **Console communication**
@@ -208,6 +198,7 @@ Client → server command type: `CMND` (null-terminated UTF-8).
 | `dota_dump_modifiers` | `dota_modifier_dump` / `cl_dump_modifier_list` | Active server modifiers by default; optional client registry and substring filter |
 | `dota_entity_inspect` | `ent_script_dump` / `cl_ent_script_dump` | Entity script scope |
 | `dota_run_lua` | `ent_fire 0 RunScriptCode` | Execute a Lua snippet (requires `sv_cheats=1`) |
+| `panorama_exec_js` | `CustomUI:DynamicHud_Create` + `RunScriptInPanelContext` | Execute JS in the transient bridge layout context (separate from addon JS globals; `MCP` helpers for panel discovery/search (`map`/`customUi`/`hudElements`/`children`/`top`/`select`/`$`), geometry (`rect`/`center`/`isVisible`/`panelAt`), game state (`cursor`/`entitiesAt`/`worldToScreen`/`screenToWorld`/`units`/`unitInfo`/`selection`/`selectUnit`/`selectAllUnits`/`camera`/`order`), and background events (`dispatch`/`focus`/`blur`/`selectPanel`/`setValue`/`setText`/`on`/`emit`); a rebuilt bridge destroys the previous dynamic HUD generation; source and compiled files removed after load) |
 
 **Resources**
 | Tool | Description |
@@ -277,6 +268,7 @@ Client → server command type: `CMND` (null-terminated UTF-8).
 - Dota 2 must be launched with the `-vconsole` flag (or have the vconsole2 listener enabled) for the relay to connect to `:29000`
 - **WSL environment**: tool directories are probed by existence (a win64 hit means a Windows install), argument paths are auto-converted to Windows format, and the VRF CLI needs the invariant globalization env. When a leftover daemon causes port conflicts, kill the node/relay processes — the next session's startup self-heals stale lock/pid state (`livePid`); don't delete `relay.token` while the daemon is alive
 - Many API dump tools need the map to be loaded; calling them too early may return empty results
+- **Dota's VConsole socket teardown can fatal-error (10038)** when the relay's Dota socket closes with unread data or mid-send: vconcomm's recv/send close paths race, and a second `shutdown` on a closed handle calls `Plat_FatalError`. Teardown waits for ~300 ms of output quiet, half-closes, drains, and exposes `SHUTDOWN` on the control port; force-killing the daemon stays unsafe. See the [note](.agents/notes/implemented/bug-fix/2026-10-26-vconsole-socket-shutdown-fatal.md)
 - **`dota_perf` needs an elevated terminal** (measured: PresentMon writes no CSV without it, and reports that it cannot target processes). The tool returns an explicit error naming the remedy; start the MCP server from an Administrator shell to get samples
 - **`dota_record` records the window, not the screen** (Windows.Graphics.Capture). An unfocused game stops presenting frames until `r_always_render_all_windows 1`; the tool sets and restores that cvar when a console is connected, otherwise it returns the remedy. A minimized window is a hard failure, and inline PNG encoding can fall behind above ~20 fps on very large windows
 

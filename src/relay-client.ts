@@ -11,6 +11,7 @@
 
 import * as net from "net";
 import { EventEmitter } from "events";
+import type { BridgeResult } from "./tools/panorama-bridge.js";
 
 export interface RelayClientConfig {
   port: number;
@@ -35,6 +36,8 @@ export class RelayClient extends EventEmitter {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectAttempts = 0;
   private destroyed = false;
+  private bridgeSeq = 0;
+  private bridgePending = new Map<string, { resolve: (r: BridgeResult) => void; timer: NodeJS.Timeout }>();
   /** hello-ok 中携带的 addon/maps（瘦客户端模式下 _maps 等私有字段不可用，走这里） */
   addonName = "";
   maps: string[] = [];
@@ -93,6 +96,7 @@ export class RelayClient extends EventEmitter {
         this.connected = false;
         this._dotaConnected = false;
         this._guiConnected = false;
+        this._failBridgePending("relay connection closed");
         // 若 connect 还没 settle（TCP 断开导致 hello-ok 没到），以失败结束 Promise，
         // 避免 createRelay 永久 await。
         if (!settled) fail(new Error("connection closed before handshake"));
@@ -146,7 +150,21 @@ export class RelayClient extends EventEmitter {
   destroy(): void {
     this.destroyed = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.sock?.destroy();
+    this._failBridgePending("relay client destroyed");
+    const sock = this.sock;
+    if (!sock) return;
+    this.sock = null;
+    try { sock.end(); } catch { /* already closed */ }
+    const timer = setTimeout(() => { try { sock.destroy(); } catch { /* ignore */ } }, 250);
+    timer.unref?.();
+  }
+
+  private _failBridgePending(message: string): void {
+    for (const [id, pending] of this.bridgePending) {
+      clearTimeout(pending.timer);
+      pending.resolve({ ok: false, code: "bridge_unavailable", message });
+      this.bridgePending.delete(id);
+    }
   }
 
   private _onData(data: Buffer): void {
@@ -196,13 +214,54 @@ export class RelayClient extends EventEmitter {
       case "chan":
         this.channels = msg.channels || [];
         break;
+      case "bridge": {
+        const pending = this.bridgePending.get(msg.id);
+        if (pending) {
+          clearTimeout(pending.timer);
+          this.bridgePending.delete(msg.id);
+          const { type: _type, id: _id, ...result } = msg;
+          pending.resolve(result as BridgeResult);
+        }
+        break;
+      }
     }
   }
 
   /** 发送命令。断线期间直接丢弃：重连后补发过期命令（如 restart）比丢掉更危险，
    *  且工具层的 requireConsole 已在断线时拦下调用。 */
-  sendCommand(cmd: string): void {
-    if (this.connected && this.sock) this.sock.write(`CMD:${cmd}\n`);
+  sendCommand(cmd: string, holdMs = 0): void {
+    if (!this.connected || !this.sock) return;
+    if (holdMs > 0) this.sock.write(`HOLDGUI:${Math.round(holdMs)}\n`);
+    this.sock.write(`CMD:${cmd}\n`);
+  }
+
+  holdGuiSuppression(ms: number): void {
+    if (!this.connected || !this.sock || !Number.isFinite(ms) || ms <= 0) return;
+    this.sock.write(`HOLDGUI:${Math.round(ms)}\n`);
+  }
+
+  /** Ask the daemon to stop gracefully (FIN + drain, avoids engine RST fatal). */
+  shutdownDaemon(): void {
+    if (this.connected && this.sock) this.sock.write("SHUTDOWN\n");
+  }
+
+  /** Ask the daemon-owned bridge to execute JavaScript. The daemon serializes
+   *  ensure/exec and returns a structured result; a lost connection is a
+   *  bridge_unavailable result, not a throw. */
+  bridgeExec(code: string, timeoutMs = 15000): Promise<BridgeResult> {
+    if (!this.connected || !this.sock) {
+      return Promise.resolve({ ok: false, code: "bridge_unavailable", message: "relay is not connected" });
+    }
+    this.bridgeSeq += 1;
+    const id = `thin-${Date.now().toString(36)}-${this.bridgeSeq.toString(36)}`;
+    return new Promise<BridgeResult>((resolve) => {
+      const timer = setTimeout(() => {
+        this.bridgePending.delete(id);
+        resolve({ ok: false, code: "timeout", message: "bridge request timed out" });
+      }, timeoutMs + 45000);
+      this.bridgePending.set(id, { resolve, timer });
+      this.sock!.write(`BRIDGE:${JSON.stringify({ id, op: "exec", code, timeoutMs })}\n`);
+    });
   }
 
   getChannels(): string[] {

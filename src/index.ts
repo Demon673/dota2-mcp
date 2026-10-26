@@ -26,10 +26,11 @@ import { ensureVrf, DEFAULT_VERSION } from "./tools/vrf-ensure.js";
 import { inspectAsset } from "./tools/asset-inspect.js";
 import { checkRefs } from "./tools/asset-check-refs.js";
 import { captureScreenshot, startScreenshotWatcher } from "./tools/screenshot.js";
+import { runInput } from "./tools/input.js";
 import { runPerf, PRESENTMON_VERSION } from "./tools/perf.js";
 import { recordVideo, type RecordOutcome } from "./tools/recorder.js";
 import { particlePrecacheNote } from "./tools/particle-precache.js";
-import { ok, okPretty, fail, renderText, windowResult, READ_ONLY_ANNOTATIONS, EXEC_ANNOTATIONS, OPEN_WORLD_ANNOTATIONS, SCREENSHOT_ANNOTATIONS, PERF_ANNOTATIONS, ACTION_ANNOTATIONS, TOGGLE_ANNOTATIONS, type ToolResult } from "./tools/tool-result.js";
+import { ok, okPretty, fail, renderText, windowResult, READ_ONLY_ANNOTATIONS, EXEC_ANNOTATIONS, OPEN_WORLD_ANNOTATIONS, SCREENSHOT_ANNOTATIONS, PERF_ANNOTATIONS, ACTION_ANNOTATIONS, TOGGLE_ANNOTATIONS, type ToolResult, type ToolErrorCode } from "./tools/tool-result.js";
 import * as daemon from "./daemon-utils.js";
 
 function getVersion(): string {
@@ -576,7 +577,7 @@ Then call dota_status again.`;
 
   // Tool: send console command via VCon
   server.tool("console_send",
-    "Use when you need to run one or more Dota 2 console commands and read their output in the same call — change convars, trigger cheats, exec cfgs, or drive the engine directly while testing, without racing a second read against other sessions. Sends the newline-separated commands together inside one marker-delimited console window and returns that window's output. Returns {ok:true,lines,count,next_seq,dropped}: lines is the command window as one newline-joined string formatted '[channel][Llevel] text', count is the number of lines, next_seq is the session cursor just past the window (pass it to console_output as since_seq to continue explicitly), and dropped is 0 because the window is collected live. Pass format:'text' to receive the joined lines as the sole content, without the envelope. The session cursor advances past the echoed window, so a following console_output does not repeat it, while output the command emits later (slow loads, compiles) keeps its sequence numbers and stays readable. Limits: requires an open vconsole attached to 127.0.0.1:29001; the window closes when the engine echoes the end marker, so output printed after that marker arrives through console_output rather than this call; blank lines are dropped and an empty command list fails with invalid_arg. Related tools: console_output (read everything after the window), console_find/console_help (discover commands), dota_status (connection state).",
+    "Use when you need to run one or more Dota 2 console commands and read their output in the same call — change convars, trigger cheats, exec cfgs, or drive the engine while testing. Sends the commands together and returns their output, so a following console_output continues after this call without racing another session. Returns {ok:true,lines,count,next_seq,dropped}: lines is the command output as '[channel][Llevel] text', next_seq continues explicitly via console_output since_seq, and dropped is 0; pass format:'text' for the lines alone. Limits: requires vconsole on 127.0.0.1:29001; output emitted after the call returns arrives through console_output; blank lines are dropped and an empty command list fails with invalid_arg. Related tools: console_output, console_find, console_help, dota_status.",
     {
       commands: z.string().describe("Command(s), newline-separated"),
       format: z.enum(["json", "text"]).optional().describe("Output form: json (default) returns the contract envelope; text returns only the joined lines."),
@@ -762,13 +763,13 @@ Then call dota_status again.`;
     const actions: string[] = [];
     if (preGame && f.cheats === true) actions.push("dota_advance_to_game");
     actions.push("dota_restart", ...capture);
-    if (f.cheats === true) actions.push("dota_run_lua", "vfx_preview", "dota_test_run");
+    if (f.cheats === true) actions.push("panorama_exec_js", "dota_run_lua", "vfx_preview", "dota_test_run");
     return actions;
   }
 
   // Tool: 任务入口 — 测试 / 验证 / 调试 Dota 2 自定义游戏（导航型，永不抛异常）
   server.tool("dota_status",
-    "Use when you need to know what is possible right now — as the first call when the user asks to test a Dota 2 addon/custom game, check why something does not work in-game, launch a map, or inspect live game state. Reports one capability matrix from live facts: whether the relay is shared through the daemon or running locally, whether vconsole is attached, whether Dota is connected, the game phase, whether sv_cheats is on, the detected addon and map, and the actions valid right now. Returns {ok:true,data:{daemon,vconsole,dota,phase,cheats,addon,map,available_actions},text} — the envelope also carries game_state and maps, and text is a short human-readable summary; it never throws and never returns isError. Limits: every call reads live facts (status_json, plus one sv_cheats query when the console is attached); cheats is null when it cannot be read, map is null and phase is 'unknown' when no map is loaded, and available_actions only lists tools whose prerequisites are met. Related tools: dota_launch_game, dota_advance_to_game, dota_restart, dota_run_lua, vfx_preview, dota_open_vconsole — every available_actions name is a callable tool.",
+    "Use when you need to know what is possible right now — first call when testing a Dota 2 addon/custom game, when something does not work in-game, or when inspecting live game state. Reports the console/Dota connection, vconsole state, game phase, sv_cheats, addon/map, and the actions valid right now. Returns {ok:true,data:{daemon,vconsole,dota,phase,cheats,addon,map,available_actions},text}; the envelope also carries game_state and maps, and text is a short summary; it never throws. Limits: every call reads live facts; cheats is null when unreadable, map is null and phase 'unknown' when no map is loaded, and available_actions lists only tools whose prerequisites are met. Related tools: dota_launch_game, dota_advance_to_game, dota_restart, dota_run_lua, vfx_preview, dota_open_vconsole.",
     {},
     READ_ONLY_ANNOTATIONS,
     async () => {
@@ -862,7 +863,7 @@ Once connected, call dota_status again.`;
       // 两侧都去目录、只去地图扩展名（名字里可以有点）、忽略大小写再比
       const mapKey = (s: string) => path.basename(s).replace(/\.(vmap|vpk)$/i, "").toLowerCase();
       if (!initial.loading && (!initial.loaded || mapKey(initial.map) !== mapKey(m))) {
-        relay.sendCommand(`dota_launch_custom_game ${a} ${m}`);
+        relay.sendCommand(`dota_launch_custom_game ${a} ${m}`, 8000);
       }
 
       const startTime = Date.now();
@@ -905,7 +906,7 @@ Once connected, call dota_status again.`;
   // STRATEGY/SHOWCASE → 计时清零；PRE_GAME 仍不走 → ForceGameStart。
   // ForceGameStart 绝不早于 PRE_GAME：英雄在进入 PRE_GAME 时才生成，提前调用得到没有英雄的「游戏中」。
   server.tool("dota_advance_to_game",
-    "Use when the game sits in a pre-game phase (CUSTOM_GAME_SETUP, HERO_SELECTION, STRATEGY_TIME, TEAM_SHOWCASE, PRE_GAME) after dota_launch_game or dota_restart and the user wants a playable game now. Standard, addon-independent flow driven by the observed game_state: waits out map loading; zeroes the strategy/showcase/pre-game timers (runtime only, for this match); ends custom game setup; picks a hero for each player that has none (random, or `hero`); force-starts only from PRE_GAME, after heroes have spawned. Returns {ok:true,text} with the steps taken and each player's hero, or {ok:false,code,message} with phase_wrong when no map is loaded, the game already ended, or the phase did not advance within the timeout, plus dota_down/vconsole_closed/cheats_off/lua_too_long/internal from the console or Lua layer. Limits: requires sv_cheats=1; default timeout 120 s (minimum 15 s, map loading counts); timers are zeroed for this match only. Related tools: dota_launch_game, dota_restart, dota_status, dota_run_lua.",
+    "Use when the game sits in a pre-game phase (CUSTOM_GAME_SETUP, HERO_SELECTION, STRATEGY_TIME, TEAM_SHOWCASE, PRE_GAME) after dota_launch_game or dota_restart and the user wants a playable game now. Addon-independent flow driven by the observed game_state: waits out map loading; zeroes the strategy/showcase/pre-game timers (runtime only, for this match); ends custom game setup; picks a hero for each player that has none (random, or `hero`); force-starts only from PRE_GAME, after heroes have spawned. Returns {ok:true,text} with the steps taken and each player's hero, or {ok:false,code,message} with phase_wrong when no map is loaded, the game already ended, or the phase did not advance within the timeout, plus dota_down, vconsole_closed, cheats_off, lua_too_long, or internal. Limits: requires sv_cheats=1; default timeout 120 s (minimum 15 s, map loading counts); timers are zeroed for this match only. Related tools: dota_launch_game, dota_restart, dota_status, dota_run_lua.",
     {
       hero: z.string().regex(/^npc_dota_hero_[a-z0-9_]+$/).optional().describe("Hero for every player, e.g. 'npc_dota_hero_axe' (overrides an existing pick). Default: a random hero for each player that has none."),
       timeout: z.number().optional().describe("Max seconds to wait. Default 120 (map loading counts)."),
@@ -995,14 +996,14 @@ Once connected, call dota_status again.`;
     async () => {
       const blocked = consoleGate();
       if (blocked) return blocked;
-      relay.sendCommand("disconnect");
+      relay.sendCommand("disconnect", 1000);
       return ok({ text: "Disconnected." });
     }
   );
 
   // Tool: 游戏截图（不受 vconsole 门控：截图就是用来排查控制台没反应、画面卡在哪的）
   server.tool("dota_screenshot",
-    "Use when you need to see what the Dota 2 game is actually showing — a launch or phase that seems stuck, console output that says nothing, or a UI/visual check. Captures the game window from outside the game through Windows.Graphics.Capture (no console command, no vconsole, no focus steal). Returns the image plus {ok:true,data:{path,stale,captured_at,width,height},text}, or {ok:false,code,message} with timeout when the capture deadline expires and internal for other capture failures (no window, helper unavailable, unsupported platform). Limits: Windows only; after the shared helper is ready each call has a 5 s total deadline; only the game viewport is captured; when no newer frame exists the cached frame is returned with stale:true; keeps only its 20 newest files. Related tools: dota_status, console_output, dota_open_vconsole.",
+    "Use when you need to see what the Dota 2 game is actually showing — a stuck launch/phase, silent console output, or a UI/visual check. Captures the game window without vconsole, console commands, or focus stealing. Returns the image plus {ok:true,data:{path,stale,captured_at,width,height},text}, or {ok:false,code,message} with timeout when the capture deadline expires and internal for other failures (no window, unsupported platform). Limits: Windows only; each call has a 5 s deadline once capturing starts; captures only the game viewport; when no newer frame exists the cached frame is returned with stale:true; keeps its 20 newest files. Related tools: dota_status, console_output, dota_open_vconsole.",
     {
       max_width: z.number().int().min(64).max(7680).optional().describe("Scale the image down to at most this width in pixels. Default 1280."),
       format: z.enum(["jpeg", "png"]).optional().describe("Image format. Default jpeg (quality 80)."),
@@ -1025,7 +1026,7 @@ Once connected, call dota_status again.`;
 
   // Tool: 帧耗时实测（PresentMon 采样；不依赖 vconsole，采集期间不能做其它事）
   server.tool("dota_perf",
-    `Use when you need measured frame cost instead of guessed FPS — e.g. to prove what a VFX or Lua change costs by sampling before and after. Runs PresentMon against the game process for the requested number of seconds and summarizes frame times; when PresentMon is missing it downloads the pinned v${PRESENTMON_VERSION} x64 release, verifies its sha256, and caches it under os.tmpdir()/dota2-mcp/presentmon/. Returns {ok:true,data:{process,duration_s,samples,p50_ms,p95_ms,p99_ms,csv_path,in_present?,baseline?},text}, or {ok:false,code,message}; pass a previous csv_path or its metrics as baseline to add current-minus-baseline deltas (positive = slower). Limits: Windows only; a capture blocks for the requested duration (default 15 s, max 600 s) and needs an elevated terminal for the ETW session — an empty or missing CSV fails with that explanation instead of returning empty percentiles. Related tools: dota_screenshot for visuals, vfx_preview and dota_run_lua for the change under test, dota_status for readiness.`,
+    `Use when you need measured frame cost instead of guessed FPS — e.g. to prove what a VFX or Lua change costs by sampling before and after. Samples frame times for the requested duration and returns p50/p95/p99; first use may download its sampling tool automatically. Returns {ok:true,data:{process,duration_s,samples,p50_ms,p95_ms,p99_ms,csv_path,in_present?,baseline?},text}, or {ok:false,code,message}; pass a previous csv_path or its metrics as baseline to add current-minus-baseline deltas (positive = slower). Limits: Windows only; a capture blocks for the requested duration (default 15 s, max 600 s) and needs an elevated terminal; a missing or empty sample returns that elevation explanation. Related tools: dota_screenshot for visuals, vfx_preview and dota_run_lua for the change under test, dota_status for readiness.`,
     {
       seconds: z.number().int().min(1).max(600).optional().describe("Sampling duration in seconds. Default 15."),
       process_name: z.string().optional().describe("Process executable name to sample. Default dota2.exe."),
@@ -1076,7 +1077,7 @@ Once connected, call dota_status again.`;
 
   // Tool: 游戏视频录制（同样不受 vconsole 门控；复用截图的 WGC 助手抓游戏窗口本身）
   server.tool("dota_record",
-    "Use when a single frame is not enough — for example to verify a VFX's motion, timing, or disappearance, or to capture a bug that only appears over time. Records the Dota 2 game window itself through Windows.Graphics.Capture (not a screen rectangle), so an occluded or unfocused game is recorded correctly; it never steals focus or foregrounds the window. Frames are captured as a temporary PNG sequence and encoded with FFmpeg; no console command is required and the tool is not gated on vconsole. Returns {ok:true,data:{path,duration_s,fps,width,height,bytes},text} with the saved file and its metadata, or {ok:false,code,message} with code ffmpeg_missing (no FFmpeg binary), no_window (Dota 2 is not running, has no window, or is minimized), no_new_frames (Windows delivered no new frames because the game stopped presenting; the message names the r_always_render_all_windows 1 remedy), empty_capture (no frames arrived or FFmpeg produced no video), timeout, internal, or invalid_arg when output is outside the recordings directory. When the console is open and the first attempt reports no_new_frames, the tool sets r_always_render_all_windows to 1 for one retry and restores its previous value. Limits: duration is clamped to 1–30 s, fps defaults to 12 and is capped at 30, Windows only; the recordings directory keeps no retention limit; output must resolve inside the recordings directory, and writing deletes an existing target file (overwrite); setting r_always_render_all_windows is a temporary game-state change, restored right after the retry. Related tools: dota_screenshot (single frame), dota_status (is Dota 2 running), vfx_preview (spawn the effect to record).",
+    "Use when a single frame is not enough — verify a VFX's motion, timing, or disappearance, or capture a bug that only appears over time. Records the Dota 2 game window to MP4, including when it is occluded or unfocused, without stealing focus; no vconsole is required. Returns {ok:true,data:{path,duration_s,fps,width,height,bytes},text} or {ok:false,code,message} with ffmpeg_missing (no encoder), no_window (Dota not running, no window, or minimized), no_new_frames (the game stopped presenting; the message names the remedy), empty_capture, timeout, internal, or invalid_arg when output is outside the recordings directory. With a console open, a no_new_frames failure is retried once with `r_always_render_all_windows`, which is then restored. Limits: duration is 1–30 s, fps defaults to 12 and caps at 30, Windows only; recordings have no retention limit; output must resolve inside the recordings directory and deletes an existing target before writing. Related tools: dota_screenshot (single frame), dota_status (is Dota 2 running), vfx_preview (spawn the effect to record).",
     {
       duration: z.number().describe("Recording length in seconds, clamped to 1–30."),
       fps: z.number().int().min(1).max(30).optional().describe("Capture frame rate, clamped to 1–30. Default 12."),
@@ -1088,7 +1089,7 @@ Once connected, call dota_status again.`;
 
   // Tool: 打开 vconsole 窗口（AssetBrowser 按钮被引擎禁用时的显式路径）
   server.tool("dota_open_vconsole",
-    "Use when console tools report that vconsole is not open, or when the user needs the VConsole2 window; launches vconsole2.exe directly because the AssetBrowser button is disabled by the engine while this MCP holds port 29000. Waits up to 30 s for the window to attach to the relay. Returns {ok:true,text} when the window is already attached or attaches in time, or {ok:false,code,message} with invalid_arg when no Dota install or executable is found, internal when the process cannot start, vconsole_closed when a stale instance is running but not attached, and timeout when it launches but never attaches. Limits: vconsole2 is single-instance, so a second launch only focuses the existing window; the connection target must be 127.0.0.1:29001. Related tools: dota_status, console_output, dota_launch_game.",
+    "Use when console tools report that vconsole is not open, or when the user needs the VConsole2 window. Opens VConsole2 and waits up to 30 s for it to become available to console tools. Returns {ok:true,text} when already attached or attaches in time, or {ok:false,code,message} with invalid_arg when no Dota install/executable is found, internal when it cannot start, vconsole_closed when a stale instance is running but not attached, and timeout when it never attaches. Limits: VConsole2 is single-instance, so a second launch only focuses the existing window; connect to 127.0.0.1:29001. Related tools: dota_status, console_output, dota_launch_game.",
     {},
     OPEN_WORLD_ANNOTATIONS,
     async () => {
@@ -1127,7 +1128,7 @@ Once connected, call dota_status again.`;
       const blocked = consoleGate();
       if (blocked) return blocked;
       const before = parseGameState(await queryStatusJson(5000)).game_state;
-      relay.sendCommand("restart");
+      relay.sendCommand("restart", 5000);
       // restart 不是立即生效：在它生效前读到的仍是旧相位，紧随其后的 dota_advance_to_game 会误判「已在游戏中」
       const deadline = Date.now() + 20000;
       while (Date.now() < deadline) {
@@ -1267,16 +1268,15 @@ Once connected, call dota_status again.`;
     }
   }
 
-  /** 在服务端 Lua 里执行代码并收集输出。ent_fire RunScriptCode 下一帧才执行，晚于 relay 包在命令外的
-   * `ai_disabled` 屏蔽窗口，所以 Lua 自己打印 `ai_disabled = …` 开关行（relay 按这种行切换 GUI 屏蔽）
-   * 和结束标记。xpcall 保证运行时报错也会打印收尾开关与结束标记（否则 GUI 屏蔽卡死在开启态）；
-   * 语法错误时整段都不执行，靠 settleMs 兜底。双引号换成单引号，避免与 RunScriptCode 参数的引号冲突。
-   * 引擎静默丢弃超过 LUA_STATEMENT_MAX_BYTES 的单条控制台语句（活体实测），超长直接报错而不是返回空结果。 */
+  /** 在服务端 Lua 里执行代码并收集输出。命令的 echo begin 标记打开 GUI 屏蔽窗口，
+   *  Lua 在代码执行完后打印结束标记关闭它：RunScriptCode 晚一帧执行，屏蔽窗口一直保持到那时。
+   *  xpcall 保证运行时报错也会打印结束标记（否则 GUI 屏蔽卡在开启态，15s 兜底复位）；
+   *  语法错误时整段都不执行，靠 settleMs 兜底。双引号换成单引号，避免与 RunScriptCode 参数的引号冲突。
+   *  引擎静默丢弃超过 LUA_STATEMENT_MAX_BYTES 的单条控制台语句（活体实测），超长直接报错而不是返回空结果。 */
   async function collectLuaOutput(luaBody: string, opts: { waitMs?: number; settleMs?: number } = {}): Promise<string[]> {
     const code = luaBody.replace(/"/g, "'");
-    const toggle = relay.mcpSuppressEnabled ? "print('ai_disabled =') " : "";
     const statement = (end: string) =>
-      `ent_fire 0 RunScriptCode "${toggle}xpcall(function() ${code} end, function(e) print(debug.traceback(e)) end) print('${end}') ${toggle}"`;
+      `ent_fire 0 RunScriptCode "xpcall(function() ${code} end, function(e) print(debug.traceback(e)) end) print('${end}')"`;
     const bytes = Buffer.byteLength(statement(newMcpMarkers().end), "utf8");
     if (bytes > LUA_STATEMENT_MAX_BYTES) {
       throw new LuaChannelError("lua_too_long", `Lua too long: ${bytes} bytes after wrapping, but the Dota console drops any single statement over ${LUA_STATEMENT_MAX_BYTES} bytes. Shorten the code (about ${LUA_STATEMENT_MAX_BYTES - (bytes - Buffer.byteLength(code, "utf8"))} bytes are available), split it into several calls, or put it in an addon script and call that.`);
@@ -1434,7 +1434,7 @@ Once connected, call dota_status again.`;
 
   // Tool: Lua API（服务端 + 客户端）
   server.tool("dota_api_lua",
-    "Use when writing server or client Lua and you need a real signature — e.g. 'what arguments does CreateUnitByName take' or 'what methods does CDOTA_BaseNPC have'. Runs `script_help2` (server, default) or `cl_script_help2` (client) and extracts the requested block. Returns {ok:true,text} with the matching entries, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached. Limits: the engine ignores the name argument and dumps everything (filtering is local); APIs registered only after map load are absent — use dota_api_help for a class/scope. Related tools: dota_api_help (scope inspection), console_output (raw dump), dota2_skill (runtime development model).",
+    "Use when writing server or client Lua and you need a real signature — e.g. CreateUnitByName arguments or CDOTA_BaseNPC methods. Queries the live Lua API dump (script_help2 for server, cl_script_help2 for client). Returns {ok:true,text} with the matching entries, or {ok:false,code,message} with dota_down/vconsole_closed when no console is attached. Limits: the query filters a full local dump; APIs registered only after map load are absent; use dota_api_help for a class/scope. Related tools: dota_api_help, console_output, dota2_skill.",
     { func: z.string().optional().describe("Function/class name. Empty=full dump."), side: z.enum(["server","client"]).optional().describe("server or client. Default server.") },
     READ_ONLY_ANNOTATIONS,
     async ({ func, side }) => {
@@ -1454,7 +1454,7 @@ Once connected, call dota_status again.`;
 
   // Tool: Panorama JS API
   server.tool("dota_api_panorama_js",
-    "Use when writing custom HUD/UI JavaScript and you need a Panorama JS enum, class, or built-in signature (GameUI, CustomUIElement, $). Runs `cl_panorama_script_help_2` and extracts the named block. Returns {ok:true,text} with the matching entry, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached. Limits: the full list is large and the engine always dumps it (filtering is local); client-side only, and some APIs appear only after the UI loads. Related tools: dota_api_css (styling), dota_api_events (panel events), console_output (raw dump).",
+    "Use when writing custom HUD/UI JavaScript and you need a Panorama JS enum, class, or built-in signature (GameUI, CustomUIElement, $). Queries cl_panorama_script_help_2. Returns {ok:true,text} with the named block, or {ok:false,code,message} with dota_down/vconsole_closed when no console is attached. Limits: the query filters a large local dump; client-side only; some APIs appear only after the UI loads. Related tools: dota_api_css, dota_api_events, console_output.",
     { name: z.string().optional().describe("Enum/class name. Empty=full list.") },
     READ_ONLY_ANNOTATIONS,
     async ({ name }) => {
@@ -1470,7 +1470,7 @@ Once connected, call dota_status again.`;
 
   // Tool: Panorama CSS 属性
   server.tool("dota_api_css",
-    "Use when styling the custom game's UI and you need a Panorama CSS property's description or examples (e.g. wash-color, blur). Runs `dump_panorama_css_properties` and extracts the named block. Returns {ok:true,text} with the matching property, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached. Limits: the engine ignores the property argument and dumps all 128 properties (filtering is local); client-side only. Related tools: dota_api_panorama_js (UI JavaScript), dota_api_events (panel events), console_output (raw dump).",
+    "Use when styling the custom game's UI and you need a Panorama CSS property's description or examples (e.g. wash-color, blur). Queries dump_panorama_css_properties. Returns {ok:true,text} with the named block, or {ok:false,code,message} with dota_down/vconsole_closed when no console is attached. Limits: the query filters the full property dump locally; client-side only. Related tools: dota_api_panorama_js, dota_api_events, console_output.",
     { prop: z.string().optional().describe("CSS property name, e.g. 'wash-color'. Empty=all 128.") },
     READ_ONLY_ANNOTATIONS,
     async ({ prop }) => {
@@ -1486,7 +1486,7 @@ Once connected, call dota_status again.`;
 
   // Tool: Panorama Panel 事件
   server.tool("dota_api_events",
-    "Use when wiring Panorama UI interactions and you need a panel event's handler signature (e.g. SetPanelSelected, onactivate). Runs `dump_panorama_events` and extracts the named block. Returns {ok:true,text} with the matching events, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached. Limits: the engine dumps every event regardless of the argument (filtering is local); client-side only. Related tools: dota_api_panorama_js (UI API), dota_api_css (styling), console_output (raw dump).",
+    "Use when wiring Panorama UI interactions and you need a panel event's handler signature (e.g. SetPanelSelected, onactivate). Queries dump_panorama_events. Returns {ok:true,text} with the named block, or {ok:false,code,message} with dota_down/vconsole_closed when no console is attached. Limits: the query filters the full event dump locally; client-side only. Related tools: dota_api_panorama_js, dota_api_css, console_output.",
     { event: z.string().optional().describe("Event name, e.g. 'SetPanelSelected'. Empty=all events.") },
     READ_ONLY_ANNOTATIONS,
     async ({ event }) => {
@@ -1528,7 +1528,7 @@ Once connected, call dota_status again.`;
 
   // Tool: 查看命令用途
   server.tool("console_help",
-    "Use when you already have a console command name and need its usage, description, or current value before sending it. Runs the engine's `help <command>`. Returns {ok:true,text} with the matching help lines (falls back to the raw dump when nothing matches), or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached. Limits: the engine prints a batch of unrelated enumeration first and help is not a full manual — one command per call. Related tools: console_find (discover names), console_send (execute), dota_status (connection state).",
+    "Use when you already have a console command name and need its usage, description, or current value before sending it. Runs help <command>. Returns {ok:true,text} with the matching lines (or the raw dump when nothing matches), or {ok:false,code,message} with dota_down/vconsole_closed when no console is attached. Limits: output may include unrelated enumeration; one command per call. Related tools: console_find, console_send, dota_status.",
     { command: z.string().describe("Command name") },
     READ_ONLY_ANNOTATIONS,
     async ({ command }) => {
@@ -1555,7 +1555,7 @@ Once connected, call dota_status again.`;
     "^\\s*\"[^\"]+\":", // JSON 键值行
   ];
   server.tool("console_gui_filter",
-    "Use when MCP-generated console output is flooding the human's vconsole2 window, or when they want to see it there again while you keep reading the same output yourself. Toggles relay-side GUI forwarding: auto hides all output from MCP-sent commands, enabled+patterns installs manual regex filters, and calling with no flags just reports the current state. Returns {ok:true,data} with the effective manualEnabled, manualPatterns, and mcpSuppressEnabled values. Limits: only what reaches the vconsole2 GUI changes — the MCP console stream is never filtered; state lives in the relay process and is not persisted across daemon restarts. Related tools: console_output (MCP-side reading), dota_status (relay state).",
+    "Use when MCP-generated console output is flooding the human's vconsole2 window, or when they want to see it there again while you keep reading the same output. Controls whether that output appears in the GUI: auto hides MCP-sent command output, enabled+patterns installs manual filters, and no flags reports the current state. Returns {ok:true,data} with manualEnabled, manualPatterns, and mcpSuppressEnabled. Limits: only the vconsole2 GUI changes; your console_output stream is unchanged; state is not persisted across restarts. Related tools: console_output, dota_status.",
     {
       enabled: z.boolean().optional().describe("Manual override: true = always suppress lines matching given/custom patterns, false = clear manual patterns."),
       auto: z.boolean().optional().describe("MCP marker suppress: true = hide all output from MCP-sent commands (default). false = show MCP output in GUI."),
@@ -1600,7 +1600,7 @@ Once connected, call dota_status again.`;
 
   // Tool: 在运行中的游戏里执行 Lua 代码
   server.tool("dota_run_lua",
-    "Use when you need to run server-side Lua in the live game while testing — verify a function works, inspect a value, spawn a unit, or reproduce a bug without editing files and reloading. 'expression' evaluates and prints a value (DeepPrintTable for tables, plain values directly); 'code' runs statements. Returns {ok:true,lines,count,next_seq,dropped}: lines is the captured Lua output as one newline-joined string, count is its number of lines, and next_seq/dropped describe the shared console window without moving this session's console_output cursor (pass next_seq to console_output as since_seq to continue explicitly). Pass format:'text' to receive the joined lines as the sole content, without the envelope. Failures return {ok:false,code,message} with lua_too_long (the message reports the bytes still available), cheats_off (sv_cheats is off), dota_down, or vconsole_closed. Limits: one console statement of at most 510 bytes after wrapping — code over about 300 bytes is usually rejected, so keep snippets short or put the logic in an addon script; requires sv_cheats=1 and an open vconsole attached to 127.0.0.1:29001 (see dota_open_vconsole), because Lua-based tools run through ent_fire, a cheat command. Related tools: dota_advance_to_game (standard phase flow), vfx_preview (spawn particles), console_output (read the full console), console_send (send console commands).",
+    "Use when you need to run server-side Lua in the live game while testing — verify a function, inspect a value, spawn a unit, or reproduce a bug without editing files. 'expression' evaluates and prints a value; 'code' runs statements. Returns {ok:true,lines,count,next_seq,dropped}: lines is the Lua output, and next_seq/dropped describe the shared console window without moving this session's console_output cursor; pass format:'text' for the lines alone. Failures return {ok:false,code,message} with lua_too_long (the message reports the remaining bytes), cheats_off, dota_down, or vconsole_closed. Limits: snippets are capped at about 300 bytes; put larger logic in an addon script; requires sv_cheats=1 and vconsole on 127.0.0.1:29001. Related tools: dota_advance_to_game, vfx_preview, console_output, console_send.",
     {
       code: z.string().optional().describe("Arbitrary Lua statements to run. Use single quotes inside to avoid shell escaping issues."),
       expression: z.string().optional().describe("Lua expression to evaluate and print, e.g. 'GameRules:State_Get()'. Tables use DeepPrintTable; numbers, strings, booleans and nil print directly."),
@@ -1673,6 +1673,74 @@ Once connected, call dota_status again.`;
     }
   );
 
+  // Tool: 在客户端 Panorama 上下文执行任意 JavaScript
+  server.tool("panorama_exec_js",
+    "Use when you need to inspect or drive live Panorama panels without editing addon files — read/change text, visibility, classes, styles, or run a short UI probe. Runs in an isolated Panorama layout: engine globals (Game, GameEvents, $) and panel methods work; addon globals are out of scope. MCP.top() is the HUD root (DotaHud); MCP.select('#id')/MCP.$('#id') search from it (a second panel scopes); native $ stays inside the bridge layout; sibling top-level windows are separate contexts. Start with MCP.map() for the directory; MCP.customUi('#id') for addon UI, MCP.hudElements('#id') for engine HUD, MCP.children(sel) for one level. Event helpers: MCP.focus/blur/selectPanel/setValue/setText, MCP.dispatch(name, sel, ...args), and MCP.on/emit. Geometry and game state: MCP.rect/center/isVisible/panelAt, MCP.cursor/entitiesAt/worldToScreen/screenToWorld, MCP.units/unitInfo/selection/selectUnit/selectAllUnits, MCP.camera, and MCP.order; MCP.help() lists signatures. Button activation and hover need real input or an addon test hook. Returns {ok:true,data:{result,logs,output,generation,rebuilt}} or {ok:false,code,message} with bridge_unavailable, bridge_compile_failed, exec_*, js_error, cheats_off, dota_down or vconsole_closed. Limits: requires a loaded custom game, vconsole on 127.0.0.1:29001, and sv_cheats=1; use `return <value>`; the bridge leaves no files behind after load; created panels disappear only after the client renders a frame; keep snippets short (console statement limit); a result over ~12 KB returns {error:'result too large',truncated:true,head}; MCP.help() lists all helpers. Related tools: dota_run_lua (server Lua), console_output (raw console), dota_status (connection and phase).",
+    {
+      code: z.string().describe("JavaScript statements to run in the bridge's Panorama context. Use `return <value>` to report a value; MCP helpers are available."),
+      timeout_ms: z.number().int().min(500).max(60000).optional().describe("Maximum wait for the client's done ack (default 15000 ms)."),
+    },
+    EXEC_ANNOTATIONS,
+    async ({ code, timeout_ms }) => {
+      const blocked = consoleGate();
+      if (blocked) return blocked;
+      try {
+        const r = await relay.bridgeExec(code, timeout_ms ?? 15000);
+        if (!r.ok) {
+          const codeName = (r.code && (r.code as ToolErrorCode)) || "bridge_unavailable";
+          const detail = r.output
+            ? `\n\n${String(r.output).slice(-6000)}`
+            : (r.logs && r.logs.length > 0 ? `\n\n${r.logs.slice(-40).join("\n")}` : "");
+          return fail(codeName, (r.message ?? "Panorama bridge failed.") + detail);
+        }
+        const data = {
+          result: r.result ?? null,
+          logs: r.logs ?? [],
+          output: r.output ?? "",
+          request_id: r.requestId ?? "",
+          generation: r.generation ?? "",
+          element_id: r.elementId ?? "",
+          rebuilt: !!r.rebuilt,
+          duration_ms: r.durationMs ?? 0,
+          ...(r.cleanupWarning ? { cleanup_warning: r.cleanupWarning } : {}),
+        };
+        const summary = `Panorama JavaScript executed${r.rebuilt ? " (bridge rebuilt)" : ""}.`;
+        return ok({ data, text: summary });
+      } catch (e) { return failFromError(e); }
+    }
+  );
+
+  // Tool: 真实 OS 鼠标/键盘输入（Panorama 事件层无法产生激活、悬停与打字）
+  server.tool("dota_input",
+    "Use when a test needs real OS mouse or keyboard input that Panorama event helpers cannot produce — activating or hovering a panel, typing into a TextEntry, pressing a game hotkey, or checking an input binding. Sends input to the Dota 2 window after bringing it to the foreground; click/drag/wheel coordinates are client-area pixels, and the cursor is restored by default. Returns {ok:true,data:{action,client,focused,restored_focus,restored_cursor,cursor_before,cursor_after},text} or {ok:false,code,message} with no_window, window_minimized, focus_failed, invalid_arg, timeout or internal. Limits: Windows only; requires a running, non-minimized Dota 2 window; input is real OS input, so it can affect another window if focus is not taken; a combined key uses `ctrl+shift+w`; text supports Unicode; down/up leave focus and cursor in place for a following call. Related tools: panorama_exec_js (element rect/center and background events), dota_screenshot, dota_run_lua.",
+    {
+      action: z.enum(["window_info", "move", "click", "down", "up", "drag", "wheel", "key_press", "key_down", "key_up", "text"]).describe("Input action. window_info reads the game window without sending input."),
+      x: z.number().int().min(0).max(100000).optional().describe("Client-area x (pixels) for move/click/drag/wheel."),
+      y: z.number().int().min(0).max(100000).optional().describe("Client-area y (pixels) for move/click/drag/wheel."),
+      x2: z.number().int().min(0).max(100000).optional().describe("Drag end client x."),
+      y2: z.number().int().min(0).max(100000).optional().describe("Drag end client y."),
+      button: z.enum(["left", "right", "middle"]).optional().describe("Mouse button (default left)."),
+      count: z.number().int().min(1).max(3).optional().describe("Click count (default 1)."),
+      key: z.string().optional().describe("Key or combo: W, SPACE, F1, ctrl+shift+w."),
+      text: z.string().optional().describe("Text to type (Unicode)."),
+      delta: z.number().int().min(-12000).max(12000).optional().describe("Wheel delta (120 per notch; negative scrolls down)."),
+      steps: z.number().int().min(1).max(100).optional().describe("Drag interpolation steps (default 12)."),
+      step_ms: z.number().int().min(0).max(1000).optional().describe("Delay between drag steps in ms (default 16)."),
+      hold_ms: z.number().int().min(0).max(5000).optional().describe("Key hold duration in ms (default 30)."),
+      settle_ms: z.number().int().min(0).max(5000).optional().describe("Wait before restoring focus/cursor (default 140 ms)."),
+      focus: z.boolean().optional().describe("Bring the game to the foreground first (default true)."),
+      restore_focus: z.boolean().optional().describe("Restore the previous foreground window after the action (default false; in Dota -tools mode a focus change hides the game window)."),
+      restore_cursor: z.boolean().optional().describe("Restore the previous cursor position after the action (default true; false for move/down/up)."),
+      allow_outside: z.boolean().optional().describe("Allow coordinates outside the game client area."),
+    },
+    ACTION_ANNOTATIONS,
+    async (args) => {
+      const r = await runInput(args);
+      if (!r.ok) return fail((r.code as ToolErrorCode) || "internal", r.message || "input failed");
+      return ok({ data: r.data ?? {}, text: r.text });
+    }
+  );
+
   // ===== 游戏内断言：测试文件由引擎 require 加载，逐条独立执行（单条失败/挂起不拖垮其余）=====
 
   /** 把 addon 相对的测试文件路径解析成工程内绝对路径与 require 模块名。
@@ -1731,7 +1799,7 @@ Once connected, call dota_status again.`;
   type TestRow = { name: string; status: "pass" | "fail" | "timeout"; detail: string };
 
   server.tool("dota_test_run",
-    "Use when you need repeatable in-game assertions against the real engine API — regression-checking Lua behavior after a change without eyeballing screenshots, or collecting every failure in one run. Loads an addon test file in-engine with require and runs each declared test in its own console statement, so one failing or hanging test never stops the rest. Returns {ok:true,data:{file,passed,failed,timed_out,results:[{name,status,detail}],next_seq,dropped},text}: status is 'pass'|'fail'|'timeout', detail carries the Lua error or the timeout explanation, and next_seq/dropped describe the shared console window without moving this session's console_output cursor. Pass format:'text' to receive the summary text as the sole content, without the envelope. Failures return {ok:false,code,message} with test_harness_error when the file cannot be loaded or does not return an array of {name=..., fn=function() ... end} entries, timeout when the file never lists within the settle window or the overall budget expires before it can, cheats_off (sv_cheats is off), dota_down, vconsole_closed, or invalid_arg for a path outside the tests convention. Limits: the test file lives at scripts/vscripts/tests/<name>.lua and is loaded by the engine, so its size is not bounded by the 510-byte console statement cap (only the small loader statements are); per_test_timeout_ms defaults to 5000 and timeout_ms to 60000, but the engine's Lua VM cannot preempt a tight infinite loop, so a hung test is reported as timeout while the engine may stay busy with it. Related tools: dota_run_lua (one-off probes), file_write/file_edit (author the test file), console_output (raw output), dota2_skill with name 'dota2-runtime-dev'.",
+    "Use when you need repeatable in-game assertions against the real engine API — regression-check Lua behavior after a change, or collect every failure in one run. Runs each {name, fn} test from a test file in the real game, so one failing or hanging test does not stop the rest. Returns {ok:true,data:{file,passed,failed,timed_out,results:[{name,status,detail}],next_seq,dropped},text}: status is 'pass'|'fail'|'timeout', detail carries the Lua error or timeout explanation, and next_seq/dropped describe the shared console window without moving this session's console_output cursor; pass format:'text' for the summary alone. Failures return {ok:false,code,message} with test_harness_error (the file cannot load or does not return {name, fn} entries), timeout (the file does not start in time or the overall budget expires), cheats_off, dota_down, vconsole_closed, or invalid_arg for a path outside the tests convention. Limits: the test file lives at scripts/vscripts/tests/<name>.lua and may be large; the normal short-snippet limit does not apply to it; per_test_timeout_ms defaults to 5000, timeout_ms to 60000; a tight infinite loop is reported as timeout while the game may stay busy. Related tools: dota_run_lua (one-off probes), file_write/file_edit (author the test file), console_output (raw output), dota2_skill with name 'dota2-runtime-dev'.",
     {
       file: z.string().describe("Addon-relative test file path under scripts/vscripts/tests/, e.g. 'scripts/vscripts/tests/smoke.lua'. The file returns an array of {name=..., fn=function() ... end}."),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
@@ -1893,7 +1961,7 @@ Once connected, call dota_status again.`;
 
   // Tool: 编译 Source 2 资源
   server.tool("dota_compile_asset",
-    "Use when you have edited a Source 2 asset (map, model, particle, material) and the game needs the compiled resource, or when a compiled asset should be decompiled for inspection. Runs resourcecompiler through the Dota toolchain, or Source2Viewer-CLI when decompile is set. Returns {ok:true,data:{path,output},text} with the resolved target path and up to 2000 characters of tool output, or {ok:false,code,message} with invalid_arg when the Dota install or addon cannot be resolved and internal when the compiler fails (message carries stderr). Limits: needs a detected Dota 2 install and the Workshop Tools binaries; recursive compilation of large trees can take minutes; captured output is truncated to 2000 characters. Related tools: asset_inspect, asset_check_refs, dota_status (map load errors).",
+    "Use when you have edited a Source 2 asset (map, model, particle, material) and the game needs the compiled resource, or when a compiled asset should be decompiled for inspection. Compiles the asset, or decompiles it when decompile is set. Returns {ok:true,data:{path,output},text} with the resolved target path and up to 2000 characters of output, or {ok:false,code,message} with invalid_arg when the Dota install or addon cannot be resolved and internal when compilation fails (message carries stderr). Limits: needs a detected Dota 2 install and Workshop Tools; large trees can take minutes; output is truncated to 2000 characters. Related tools: asset_inspect, asset_check_refs, dota_status.",
     {
       target: z.string().describe("File, folder, or VPK path to compile"),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
@@ -1942,7 +2010,7 @@ Once connected, call dota_status again.`;
 
   // Tool: 确保 VRF CLI（Source2Viewer-CLI）可用（离线安全：仅缺失时联网下载）
   server.tool("vrf_ensure",
-    `Use when asset_inspect or asset_check_refs reports that the VRF CLI (Source2Viewer-CLI) is missing, or before relying on them on a fresh machine. Detects the cached CLI or downloads the pinned release (default v${DEFAULT_VERSION}, self-contained, no .NET runtime needed), verifies its sha256, and caches it under os.tmpdir()/dota2-mcp/vrf/. Returns {ok:true,text} with the executable path and version, or {ok:false,code,message} with code internal when the release lookup, download, or digest verification fails. Limits: touches the network only when the CLI is missing; a pinned version overrides the default; failed downloads are not retried. Related tools: asset_inspect, asset_check_refs, dota_compile_asset.`,
+    "Use when asset_inspect or asset_check_refs reports that the asset CLI is missing, or before relying on them on a fresh machine. Detects the cached CLI, downloads the pinned release if missing, verifies it, and caches it. Returns {ok:true,text} with the executable path and version, or {ok:false,code,message} with internal when lookup, download, or verification fails. Limits: network access only when the CLI is missing; a pinned version overrides the default; failed downloads are not retried. Related tools: asset_inspect, asset_check_refs, dota_compile_asset.",
     {
       version: z.string().optional().describe(`Pin a VRF release version. Default ${DEFAULT_VERSION} (VRF_VERSION env overrides).`),
     },
@@ -1958,7 +2026,7 @@ Once connected, call dota_status again.`;
 
   // Tool: 反编译 + 结构化摘要单个资产（VRF CLI，离线）
   server.tool("asset_inspect",
-    "Use when you need to know what a single Source 2 asset contains (particles, meshes, materials, textures) after editing or compiling it. Decompiles with the VRF CLI and returns a stable per-type summary: vpcf (particle system/emitter/operator counts, child and material refs, max particles), vmdl (mesh count, material refs, LOD group, skeleton ref), vmat (shader, texture refs, param count), vtex (PNG dimensions); unknown types pass through the decompiled text. Returns {ok:true,data} with the parsed summary, or {ok:false,code,message} when the VRF CLI or the asset cannot be read. Limits: single asset and single-level references; raw decompiled text is omitted unless include_raw=true (then truncated to 4000 chars) — use asset_check_refs to walk a reference chain. Related tools: vrf_ensure (CLI availability), asset_check_refs (recursive refs), dota_compile_asset (compile first).",
+    "Use when you need to know what a single Source 2 asset contains (particles, meshes, materials, textures) after editing or compiling it. Returns a stable per-type summary: vpcf (system/emitter/operator counts, child and material refs, max particles), vmdl (mesh count, material refs, LOD group, skeleton ref), vmat (shader, texture refs, param count), vtex (dimensions); unknown types return the decompiled text. Returns {ok:true,data} with the summary, or {ok:false,code,message} when the asset cannot be read. Limits: single asset and single-level references; raw decompiled text is omitted unless include_raw=true (truncated to 4000 chars); use asset_check_refs for a reference chain. Related tools: vrf_ensure, asset_check_refs, dota_compile_asset.",
     {
       target: z.string().describe("Asset to inspect (absolute, or content/ / game/ prefixed, or addon-content relative)"),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
@@ -1980,7 +2048,7 @@ Once connected, call dota_status again.`;
 
   // Tool: 单资产递归引用完整性检查（VRF CLI，离线）
   server.tool("asset_check_refs",
-    "Use when you need to know whether one asset's reference chain resolves — especially after adding a model/material/particle and before running the map. Decompiles each asset with the VRF CLI and walks its refs up to max_depth, resolving addon source/output, engine VPKs, and shared addons. Returns {ok:true,data} with checked counts and ok/uncompiled/engine_refs/broken buckets, or {ok:false,code,message} when the root asset cannot be decompiled. Limits: depth defaults to 3 (max 10) with a visited-set cycle guard; engine refs are reported but not walked further; offline only (no game needed). Related tools: asset_inspect (single asset), dota_compile_asset (compile missing outputs), vrf_ensure (CLI availability).",
+    "Use when you need to know whether one asset's reference chain resolves — especially after adding a model/material/particle and before running the map. Walks each asset's references up to max_depth and reports ok/uncompiled/engine_refs/broken buckets. Returns {ok:true,data} with checked counts and buckets, or {ok:false,code,message} when the root asset cannot be read. Limits: depth defaults to 3 (max 10) with cycle prevention; engine refs are reported but not walked further; offline only. Related tools: asset_inspect, dota_compile_asset, vrf_ensure.",
     {
       target: z.string().describe("Asset to check (absolute, or content/ / game/ prefixed, or addon-content relative)"),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
@@ -2005,7 +2073,7 @@ Once connected, call dota_status again.`;
   const PATTACH_NAMES = ["PATTACH_ABSORIGIN", "PATTACH_ABSORIGIN_FOLLOW", "PATTACH_CUSTOMORIGIN", "PATTACH_CUSTOMORIGIN_FOLLOW", "PATTACH_POINT", "PATTACH_POINT_FOLLOW", "PATTACH_EYES_FOLLOW", "PATTACH_OVERHEAD_FOLLOW", "PATTACH_WORLDORIGIN", "PATTACH_ROOTBONE_FOLLOW", "PATTACH_RENDERORIGIN_FOLLOW", "PATTACH_MAIN_VIEW", "PATTACH_WATERWAKE", "PATTACH_CENTER_FOLLOW", "PATTACH_CUSTOM_GAME_STATE_1", "PATTACH_HEALTHBAR"];
 
   server.tool("vfx_preview",
-    "Use when you want to see a particle effect in the running game without wiring it into an ability or unit — spawn it, look at it with dota_screenshot, then destroy it. Spawns a runtime particle instance via ParticleManager:CreateParticle through the dota_run_lua channel (it is NOT an asset file — create/edit/delete .vpcf sources with file_write/file_edit/file_delete) and returns the instance id. Returns {ok:true,lines,count,next_seq,dropped}: lines is the captured '[MCP-VFX]' output plus a precache verdict where one applies, count is its number of lines, and next_seq/dropped describe the shared console window without moving this session's console_output cursor; pass format:'text' to receive the joined lines as the sole content, without the envelope; failures return {ok:false,code,message} with precache_missing when the path is an addon asset that no PrecacheResource in scripts/vscripts names (the client then draws nothing even though CreateParticle returns a valid id), cheats_off, dota_down, or vconsole_closed. Limits: the client only draws particles precached at map load, so add the PrecacheResource entry and reload the map (a runtime PrecacheResource call leaves the client without the asset); position only affects systems that bind control point 0; requires a running game, sv_cheats=1, and an open vconsole attached to 127.0.0.1:29001. Related tools: vfx_preview_stop (destroy the instance), dota_screenshot (confirm the effect), console_output (read Particles/ResourceSystem errors), dota2_skill with name 'dota2-vfx' (recipes and silent-drop traps).",
+    "Use when you want to see a particle effect in the running game without wiring it into an ability or unit — spawn it, screenshot it, then destroy it. Spawns a runtime particle instance and returns its id; asset files stay in file_write/file_edit/file_delete. Returns {ok:true,lines,count,next_seq,dropped}: lines is the '[MCP-VFX]' output plus a precache verdict, and next_seq/dropped describe the shared console window without moving this session's console_output cursor; pass format:'text' for the lines alone. Failures return {ok:false,code,message} with precache_missing (the addon particle is not precached, so it draws nothing), cheats_off, dota_down, or vconsole_closed. Limits: the client draws only particles precached at map load; add the PrecacheResource entry and reload the map; position affects only systems bound to control point 0; requires a running game, sv_cheats=1, and vconsole on 127.0.0.1:29001. Related tools: vfx_preview_stop, dota_screenshot, console_output, dota2_skill 'dota2-vfx'.",
     {
       particle_path: z.string().describe("Particle path relative to content root, e.g. 'particles/basic_explosion/basic_explosion.vpcf'"),
       attach: z.number().int().min(0).max(15).optional().describe("ParticleAttachment_t value. Default 8 (PATTACH_WORLDORIGIN)."),
@@ -2038,7 +2106,7 @@ Once connected, call dota_status again.`;
   );
 
   server.tool("vfx_preview_stop",
-    "Use when a particle spawned by vfx_preview should stop — after taking the screenshot or when it is cluttering the test. Destroys one runtime particle instance by id (it does not touch asset files and does not unload the precache). Returns {ok:true,lines,count,next_seq,dropped}: lines contains '[MCP-VFX] destroyed pid=N' and count is its number of lines, because DestroyParticle returns nothing and the call never reports a nil return value; next_seq/dropped describe the shared console window without moving this session's console_output cursor; pass format:'text' to receive the joined lines as the sole content, without the envelope. Failures return {ok:false,code,message} with cheats_off, dota_down, or vconsole_closed. Limits: needs a running game, sv_cheats=1, and an open vconsole attached to 127.0.0.1:29001; the id must come from this game session's vfx_preview call. Related tools: vfx_preview (spawn the instance), console_output (read full console output), dota_screenshot (confirm the effect disappeared).",
+    "Use when a particle spawned by vfx_preview should stop — after the screenshot or when it clutters the test. Destroys one runtime particle instance by id; asset files and precache stay untouched. Returns {ok:true,lines,count,next_seq,dropped}: lines contains '[MCP-VFX] destroyed pid=N'; next_seq/dropped describe the shared console window without moving this session's console_output cursor; pass format:'text' for the lines alone. Failures return {ok:false,code,message} with cheats_off, dota_down, or vconsole_closed. Limits: needs a running game, sv_cheats=1, and vconsole on 127.0.0.1:29001; the id must come from this game session's vfx_preview. Related tools: vfx_preview, console_output, dota_screenshot.",
     {
       particle_id: z.number().int().min(0).describe("Particle id returned by vfx_preview"),
       format: z.enum(["json", "text"]).optional().describe("Output form: json (default) returns the contract envelope; text returns only the joined lines."),
@@ -2203,6 +2271,28 @@ Once connected, call dota_status again.`;
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
+
+  // A closed stdin means the MCP client is gone. Stop the thin client so the
+  // daemon sees zero clients and its idle timer can run; without this the
+  // socket stays ESTABLISHED after the parent exits.
+  let shuttingDown = false;
+  function shutdown(reason: string): void {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.error(`[mcp] ${reason}; closing relay`);
+    try {
+      if (relay instanceof RelayClient) relay.destroy();
+      else relay.close();
+    } catch (e) {
+      console.error(`[mcp] relay close failed: ${(e as Error).message}`);
+    }
+    setImmediate(() => process.exit(0));
+  }
+  process.stdin.on("end", () => shutdown("stdin ended"));
+  process.stdin.on("close", () => shutdown("stdin closed"));
+  process.once("SIGTERM", () => shutdown("SIGTERM"));
+  process.once("SIGINT", () => shutdown("SIGINT"));
+
   server.sendLoggingMessage({ level: "info", data: "dota2-mcp ready" });
 }
 

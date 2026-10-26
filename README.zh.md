@@ -141,6 +141,7 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 |------|------|
 | `dota_status` | 获取连接、vconsole、addon、地图、游戏状态与下一步建议。建议先调用。 |
 | `dota_screenshot` | 在后台截取 Dota 2 游戏窗口画面（不需要控制台；仅 Windows）。旧缓存帧会带 `stale` 和 `captured_at`，因此游戏卡死后仍可能取得此前画面。helper 就绪后，每次调用共享 5 秒总超时；冷编译单独计算。 |
+| `dota_input` | 向游戏窗口发送真实鼠标/键盘输入（点击、悬停、拖拽、滚轮、按键、Unicode 文本）；仅 Windows，坐标为客户区像素。 |
 | `dota_open_vconsole` | 打开 vconsole2 窗口（控制台类工具需要它已打开）。 |
 | `dota_launch_game` | 启动自定义游戏地图（等待进入对局；卡住时返回相位与推进方法）。 |
 | `dota_disconnect` | 断开当前游戏。 |

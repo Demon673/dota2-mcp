@@ -51,23 +51,20 @@ interface HelperReply {
   message?: string;
 }
 
-/** 编译（或复用缓存的）截图辅助程序，返回 exe 路径。异步执行：冷编译不阻塞 MCP 主进程。编译失败抛错（含 csc 输出）。 */
-async function ensureHelper(): Promise<string> {
-  const hash = createHash("sha256").update(HELPER_SOURCE).digest("hex").slice(0, 12);
+/** Compile (or reuse) a C# helper source by content hash. Shared by the
+ *  capture/record helper and the OS-input helper; refs are extra -r paths. */
+export async function ensureCsharpHelper(source: string, exeName: string, refs: string[] = []): Promise<string> {
+  const hash = createHash("sha256").update(source).digest("hex").slice(0, 12);
   const dir = path.join(tmpdir(), "dota2-mcp", "capture", hash);
-  const exe = path.join(dir, "dota-capture.exe");
+  const exe = path.join(dir, exeName);
   if (existsSync(exe)) return exe;
   mkdirSync(dir, { recursive: true });
   // 每个编译者用自己的源文件与产物名：并发会话不会读到别人写了一半的 .cs
   const tag = `${process.pid}.${randomBytes(3).toString("hex")}`;
-  const src = path.join(dir, `dota-capture.${tag}.cs`);
-  const tmpExe = path.join(dir, `dota-capture.${tag}.exe`);
-  writeFileSync(src, HELPER_SOURCE);
+  const src = path.join(dir, `${exeName}.${tag}.cs`);
+  const tmpExe = path.join(dir, `${exeName}.${tag}.exe`);
+  writeFileSync(src, source);
   const root = process.env.SystemRoot || "C:\\Windows";
-  const gac = (name: string) => path.join(root, "Microsoft.NET", "assembly", "GAC_MSIL", name, "v4.0_4.0.0.0__b03f5f7f11d50a3a", name + ".dll");
-  const winmd = (name: string) => path.join(root, "System32", "WinMetadata", name + ".winmd");
-  // 只引用每台 Windows 10/11 都有的 GAC facade 与拆分 winmd；SDK 才有的合并版 Windows.winmd 不可用
-  const refs = [gac("System.Runtime"), gac("System.Threading.Tasks"), winmd("Windows.Foundation"), winmd("Windows.Graphics"), winmd("Windows.Storage")];
   const r = await runCommand(path.join(root, "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe"),
     ["-nologo", "-optimize", "-platform:x64", `-out:${tmpExe}`, ...refs.map((x) => `-r:${x}`), src], 60000);
   rmSync(src, { force: true });
@@ -78,6 +75,16 @@ async function ensureHelper(): Promise<string> {
   }
   try { renameSync(tmpExe, exe); } catch { rmSync(tmpExe, { force: true }); if (!existsSync(exe)) throw new Error("could not cache the compiled helper"); }
   return exe;
+}
+
+/** 编译（或复用缓存的）截图辅助程序，返回 exe 路径。异步执行：冷编译不阻塞 MCP 主进程。编译失败抛错（含 csc 输出）。 */
+async function ensureHelper(): Promise<string> {
+  const root = process.env.SystemRoot || "C:\\Windows";
+  const gac = (name: string) => path.join(root, "Microsoft.NET", "assembly", "GAC_MSIL", name, "v4.0_4.0.0.0__b03f5f7f11d50a3a", name + ".dll");
+  const winmd = (name: string) => path.join(root, "System32", "WinMetadata", name + ".winmd");
+  // 只引用每台 Windows 10/11 都有的 GAC facade 与拆分 winmd；SDK 才有的合并版 Windows.winmd 不可用
+  const refs = [gac("System.Runtime"), gac("System.Threading.Tasks"), winmd("Windows.Foundation"), winmd("Windows.Graphics"), winmd("Windows.Storage")];
+  return ensureCsharpHelper(HELPER_SOURCE, "dota-capture.exe", refs);
 }
 
 /** 独占全屏下恢复最小化窗口会切换显示模式（整屏黑闪），不恢复。

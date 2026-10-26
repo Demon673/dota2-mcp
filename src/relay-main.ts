@@ -29,6 +29,18 @@ async function main(): Promise<void> {
   relay.setExpectedToken(token);
   relay.enableIdleExit();
   await relay.start();
+  let stopping = false;
+  const stop = () => {
+    if (stopping) return;
+    stopping = true;
+    console.error("[relay-daemon] shutting down");
+    try { relay.close(); } catch (e) { console.error("[relay-daemon] close failed:", e); }
+    // Let the Dota socket wait for a quiet gap, FIN and drain before exit.
+    setTimeout(() => process.exit(0), 2500);
+  };
+  relay.on("shutdown-requested", stop);
+  process.once("SIGTERM", stop);
+  process.once("SIGINT", stop);
   console.error("[relay-daemon] ready");
 }
 

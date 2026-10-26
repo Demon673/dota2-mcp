@@ -65,7 +65,13 @@ const tools = await call("tools/list", {});
 const names = tools.result.tools.map(t => t.name);
 assert(!names.includes("project_info"), "project_info removed");
 assert(names.includes("dota_open_vconsole"), "dota_open_vconsole registered");
-assert(names.length === 36, `36 tools total (got ${names.length})`);
+assert(names.includes("panorama_exec_js"), "panorama_exec_js registered");
+assert(names.includes("dota_input"), "dota_input registered");
+assert(names.length === 38, `38 tools total (got ${names.length})`);
+const panoramaTool = tools.result.tools.find(t => t.name === "panorama_exec_js");
+assert(panoramaTool?.annotations?.readOnlyHint === false && panoramaTool.annotations.destructiveHint === true
+  && panoramaTool.annotations.idempotentHint === false && panoramaTool.annotations.openWorldHint === false,
+  "panorama_exec_js is destructive and non-idempotent");
 
 // 工具 2.0 全局契约：每个工具都要带四类 annotations，描述遵循五段式
 const HINTS = ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"];

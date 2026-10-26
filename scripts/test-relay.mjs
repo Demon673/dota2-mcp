@@ -2,7 +2,8 @@
 // 严格门控模型场景: 1) 无 GUI 只探测不连接 + auto-open 就绪沿 2) GUI 接入才连+初始化帧
 // 3) 活性探针 pong 存活/无 pong 判死(GUI 在才重连) 4) GUI 断开即断 Dota 回探测态
 // 5) Dota 消失 ready:false；回来→新就绪沿再 auto-open 6) 进程在/禁用不 auto-open
-// 7) RelayClient 断线期间的命令丢弃不补发
+// 7) RelayClient 断线期间的命令丢弃不补发 8) 异步 MCP 输出过滤 + 定时 GUI 抑制 + SHUTDOWN
+// 9) 多会话标记窗口交错 + 未闭合窗口超时
 import net from "node:net";
 import { freePortBlock } from "./lib-test-ports.mjs";
 
@@ -114,7 +115,7 @@ await startServer();
 let spawnCalls = 0;
 let procExists = false;
 const relay = new VConRelay(
-  { probeIntervalMs: 200, silenceMs: 300, pongTimeoutMs: 600, readyProbeIntervalMs: 300 },
+  { probeIntervalMs: 200, silenceMs: 300, pongTimeoutMs: 600, readyProbeIntervalMs: 300, markerWindowMs: 400 },
   { spawnFn: () => { spawnCalls++; return true; }, processRunningFn: () => procExists }
 );
 relay.setDotaPath("fake");
@@ -145,6 +146,100 @@ while (guiBuf.length >= 12) {
   guiBuf = guiBuf.subarray(len);
 }
 assert(JSON.stringify(got) === JSON.stringify(INIT), `GUI received init frames: ${got.join(",")}`);
+
+// ── 场景 2b：异步 MCP 输出不得泄漏到 GUI，但 MCP 缓冲仍要收到 ──
+const mcpSeen = [];
+relay.on("prnt", (m) => mcpSeen.push(String(m.text)));
+const pushGui = (text) => { for (const s of stats.held) s.write(prntFrame(text)); };
+const asyncMcpLines = [
+  "[D2MCP-test:ACK] id started 1",
+  "[MCP-LUA] IsServer: true",
+  "[MCP-ADV] player 0 team=2",
+  "[MCP-VFX] pid=123",
+  "[MCP-TEST] pass|1|ok",
+  "MCP_BRIDGE_READY test",
+  "MCP_ACK_FAIL test",
+];
+for (const line of asyncMcpLines) pushGui(line);
+await sleep(300);
+for (const line of asyncMcpLines) {
+  assert(!guiBuf.includes(line), `async MCP line filtered from GUI: ${line}`);
+  assert(mcpSeen.includes(line), `async MCP line still reaches the MCP buffer: ${line}`);
+}
+const humanLine = "ordinary addon output " + Date.now();
+pushGui(humanLine);
+await sleep(200);
+assert(guiBuf.includes(humanLine), "ordinary console output still reaches the GUI");
+relay.setMcpSuppressEnabled(false);
+const visibleMcp = "[MCP-LUA] visible after opt-out " + Date.now();
+pushGui(visibleMcp);
+await sleep(200);
+assert(guiBuf.includes(visibleMcp), "auto:false lets MCP-prefixed output reach the GUI again");
+relay.setMcpSuppressEnabled(true);
+
+// echo 收集标记同时是 GUI 屏蔽边界：同步命令输出夹在 begin/end 之间
+const beginLine = "__mcp_abcdef01_begin";
+const endLine = "__mcp_abcdef01_end";
+const insideMarker = "inside-marker-output " + Date.now();
+pushGui(beginLine);
+pushGui(insideMarker);
+pushGui(endLine);
+await sleep(200);
+assert(!guiBuf.includes(insideMarker), "output between echo markers is filtered from the GUI");
+assert(mcpSeen.includes(insideMarker), "output between echo markers still reaches the MCP buffer");
+const afterMarker = "after-marker-output " + Date.now();
+pushGui(afterMarker);
+await sleep(150);
+assert(guiBuf.includes(afterMarker), "output after the end marker reaches the GUI again");
+
+// 多会话：两个窗口交错，B 的 end 不能关掉 A 的窗口
+pushGui("__mcp_aaaa0001_begin");
+const outB = "session-b-output " + Date.now();
+pushGui("__mcp_bbbb0002_begin");
+pushGui(outB);
+pushGui("__mcp_bbbb0002_end");
+const outA = "session-a-deferred " + Date.now();
+pushGui(outA);
+await sleep(150);
+assert(!guiBuf.includes(outB), "session B output hidden inside its window");
+assert(!guiBuf.includes(outA), "session A window survives B's end marker");
+pushGui("__mcp_aaaa0001_end");
+const afterBoth = "after-two-windows " + Date.now();
+pushGui(afterBoth);
+await sleep(150);
+assert(guiBuf.includes(afterBoth), "GUI resumes after both windows close");
+
+// 只有 begin 没有 end：窗口在 markerWindowMs 后自动过期
+pushGui("__mcp_cccc0003_begin");
+const stuck = "stuck-window-line " + Date.now();
+pushGui(stuck);
+await sleep(150);
+assert(!guiBuf.includes(stuck), "unclosed window hides its output");
+await sleep(500);
+const afterExpiry = "after-window-expiry " + Date.now();
+pushGui(afterExpiry);
+await sleep(150);
+assert(guiBuf.includes(afterExpiry), "unclosed window expires and GUI resumes");
+
+// 定时 GUI 抑制：窗口内所有 PRNT 都不进 GUI（MCP 缓冲照收），到期自动恢复
+const holdLine = "held output " + Date.now();
+relay.holdGuiSuppression(500);
+pushGui(holdLine);
+await sleep(150);
+assert(!guiBuf.includes(holdLine), "held window suppresses GUI output");
+assert(mcpSeen.includes(holdLine), "held output still reaches the MCP buffer");
+await sleep(500);
+const afterHold = "after hold " + Date.now();
+pushGui(afterHold);
+await sleep(150);
+assert(guiBuf.includes(afterHold), "GUI output resumes after the hold expires");
+
+// 优雅停机：控制口 SHUTDOWN → shutdown-requested（由 daemon 负责 FIN + 排空）
+const shutdownSeen = new Promise((resolve) => relay.once("shutdown-requested", resolve));
+ctrl.write("SHUTDOWN\n");
+const gotShutdown = await Promise.race([shutdownSeen.then(() => true), sleep(2000).then(() => false)]);
+assert(gotShutdown, "control SHUTDOWN emits shutdown-requested");
+
 
 // 晚接入的瘦客户端必须直接从 hello-ok 得到已注册通道，不能等下一次 CHAN
 const { RelayClient } = await import("../dist/relay-client.js");

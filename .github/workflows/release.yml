@@ -60,6 +60,9 @@ jobs:
           node scripts/test-migrate-read.mjs
           node scripts/test-migrate-write.mjs
           node scripts/test-run-lua-tests.mjs
+          node scripts/test-panorama-bridge.mjs
+          node scripts/test-input.mjs
+          node scripts/test-mcp-stdin-exit.mjs
 
       - name: Package
         env:
