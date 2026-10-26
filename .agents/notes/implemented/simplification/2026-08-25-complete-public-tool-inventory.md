@@ -1,4 +1,4 @@
-# Agent Note: Complete the README tool inventory to all 33 tools
+# Agent Note: Complete the README tool inventory to every registered tool
 
 English | [中文](2026-08-25-complete-public-tool-inventory.zh.md)
 
@@ -10,7 +10,7 @@ README.md "Available tools" listed 21 of 33 tools — missing vrf_ensure, asset_
 
 ## Decision
 
-README.md's Available tools table now lists all 33 tools (both language tables). AGENTS.md keeps its agent-facing table with console commands per tool — the two tables serve different audiences per the tier taxonomy, and this note is the recorded sync obligation.
+README.md's Available tools table now lists every tool registered in `src/index.ts` (38 at the time of writing), in both language tables. AGENTS.md keeps its agent-facing table with console commands per tool — the two tables serve different audiences per the tier taxonomy, and this note is the recorded sync obligation.
 
 ## Alternatives considered
 

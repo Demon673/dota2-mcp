@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-scripts/lib-mcp.mjs 提供 spawnMcpServer({timeoutMs, env})，返回 { call, notify, kill }，外加共享的 assert/sleep，spawn 真实的 dist/index.js。十个 stdio spawn 位置全部导入它，它们手写的 spawn/map/call/assert/sleep 副本被删除（每个脚本的 timeout、env、断言和流程得以保留）。test-mcp-tools.mjs 被重写：EXPECTED_TOOLS 枚举和 MCP SDK 客户端导入已删除；它的 11 个实机冒烟调用运行在共享辅助模块上。test-relay.mjs/test-daemon.mjs 里定制的假 Dota 服务器不动。
+scripts/lib-mcp.mjs 提供 spawnMcpServer({timeoutMs, env})，返回 { call, notify, kill }，外加共享的 assert/sleep，spawn 真实的 dist/index.js。每个 stdio spawn 位置都导入它，它们手写的 spawn/map/call/assert/sleep 副本被删除（每个脚本的 timeout、env、断言和流程得以保留）。test-mcp-tools.mjs 被重写：EXPECTED_TOOLS 枚举和 MCP SDK 客户端导入已删除；它的实机冒烟调用运行在共享辅助模块上。test-relay.mjs/test-daemon.mjs 里定制的假 Dota 服务器不动。
 
 ## Alternatives considered
 
@@ -19,4 +19,4 @@ scripts/lib-mcp.mjs 提供 spawnMcpServer({timeoutMs, env})，返回 { call, not
 
 ## Consequences
 
-一套接线实现服务十个脚本；11 个工具的实机冒烟覆盖在合并后得以保留；不再有任何脚本导入 MCP SDK 客户端。该辅助模块只替换每个脚本的接线——边界真实性（真实的 dist/index.js、定制的假服务器）不变。
+一套接线实现服务每个 stdio 脚本；实机冒烟覆盖在合并后得以保留；不再有任何脚本导入 MCP SDK 客户端。该辅助模块只替换每个脚本的接线——边界真实性（真实的 dist/index.js、定制的假服务器）不变。

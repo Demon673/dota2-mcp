@@ -1,8 +1,8 @@
 # Agent Note: CustomGame 开发工具优先级
 
-Status: proposed
-
 [English](2026-10-14-development-tool-priorities.md) | 中文
+
+Status: proposed
 
 ## Problem
 
@@ -17,11 +17,11 @@ Status: proposed
 | P0 / 1 | TSTL 运行时报错映射 | 不必手工翻查 bundle，就能定位生成 Lua 报错背后的 TypeScript 源码 | 沿用已有的 [dota_map_error 提案](2026-08-05-dota-map-error-tool.md)：产物路径与报错行 → 源文件、行与上下文。显式报告映射缺失、产物过期或未经验证、格式不支持，以及文件名有歧义 |
 | P1 / 2 | 资源路径查找与读取，含 VPK 条目 | 找到实际的模型、贴图、声音等资源；区分松散文件缺失与资源缺失 | 先解析 addon 与官方松散文件；用 VRF 做资源包搜索与选定条目的读取／提取。把结果接到现有资产工具上；报告未执行的资源包检查 |
 | P1 / 3 | 地图实体读取与查询 | 不必手工翻查一份转出来的大地图，就能找到出生点、触发器、实体名、位置与属性 | 用 dmxconvert 转换一份副本，按 classname/targetname 过滤。只读；不回写地图 |
-| P2 / 4 | 运行时 Panorama panel 检查 | 用运行时证据诊断 panel 不显示、被裁掉或样式不对的问题 | 先验证可用命令与可读输出，再检查选定的 addon 子树。复用客户端截图能力 |
+| P2 / 4 | 运行时 Panorama panel 检查 | 用运行时证据诊断 panel 不显示、被裁掉或样式不对的问题 | 已实现为 `panorama_exec_js`：临时 HUD 桥，提供面板、几何、游戏状态与事件 helper；调试器检视路径仍未完成 |
 | P2 / 5 | 粒子预览的 owner 与多个 control point | 不必反复写初始化 Lua，就能预览光束与实体挂点 | 扩展现有 vfx_preview 参数；对照实际效果验证 owner 与 CP 行为 |
 | P3 / 6 | 资源构建新鲜度检查 | 判断某个源资源是否需要重新构建 | 验证 resourcecompiler 的 -dependency_check_only 输出与退出行为，再考虑在现有 compile 工具上加一个选项 |
 
-第一批优先实施报错映射与资源查找，随后是地图查询。Panorama 的可行性要尽早调查：若现有控制台路径能稳定给出 panel 或 render tree 输出，就把 panel 检查提升到 P1，排在地图查询之前。调整优先级需要实测证据，而不是二进制里找到的字符串。
+Panorama panel 检查已实现为 `panorama_exec_js`；剩余队列从报错映射与资源查找开始，随后是地图查询。
 
 各项范围仍由已有的[报错映射提案](2026-08-05-dota-map-error-tool.md)、[资产摘要 note](../../implemented/feature/2026-08-20-asset-inspect.md)、[引用检查 note](../../implemented/feature/2026-08-20-asset-check-refs.md)和[粒子预览 note](../../implemented/feature/2026-08-20-vfx-preview.md)定义。这个排序不取代这些记录，也不承诺提案中的扩展已经存在。
 

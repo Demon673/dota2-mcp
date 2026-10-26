@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/process/2026-10-14-root-domain-glossary.md
-2026-10-14-root-domain-glossary.md: 61dd105c6ad66a0395d697cae1a1b18af5a29a19
-2026-10-14-root-domain-glossary.zh.md: 551326f9f82802038843ff87af526e734906fae7
+2026-10-14-root-domain-glossary.md: dddd2e249d758832f3ed8d778c9b3514d34750ef
+2026-10-14-root-domain-glossary.zh.md: b0e2ef7841f0efcea552e056026f2bbf165c3c67

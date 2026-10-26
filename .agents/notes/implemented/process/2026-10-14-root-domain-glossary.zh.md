@@ -1,8 +1,8 @@
 # Agent Note: 根领域术语表
 
-Status: implemented
-
 [English](2026-10-14-root-domain-glossary.md) | 中文
+
+Status: implemented
 
 ## Problem
 

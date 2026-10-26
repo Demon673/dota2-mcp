@@ -55,7 +55,7 @@ Bought: from launch or restart, a playable match with a hero takes two tool call
 ## Testing
 
 - `scripts/test-collect-output.mjs`: the fake Dota answers `ai_disabled` with its value and runs `RunScriptCode` prints 50 ms late. It asserts that `dota_run_lua` still returns the output, that neither the output nor any marker reaches the fake vconsole, and that a later game print does reach it. With the toggle lines removed from the build, the test fails. It also leaves `status_json` silent to assert the 20 s restart deadline without waiting 40 × 5 s.
-- `scripts/test-mcp-offline.mjs` counts 33 tools.
+- `scripts/test-mcp-offline.mjs` counts every registered tool.
 - Live (Dota 2 with `-tools`, one addon whose own setup code errors): `dota_disconnect` then `dota_advance_to_game` returns the "no map loaded" error; `dota_launch_game` → `dota_advance_to_game` with `hero` reaches GAME_IN_PROGRESS with that hero; `dota_restart` → `dota_advance_to_game` takes 18–20 s and spawns a random hero. A Lua `error()` returns its traceback and the next call works normally. A 511-byte wrapped statement is rejected with the length error.
 - Live on a second addon, whose heroes are created after its own login UI: from the main menu `dota_launch_game` loaded the map in about 50 s and reported CUSTOM_GAME_SETUP as stuck; `dota_advance_to_game` reached GAME_IN_PROGRESS in 4 s with `hero=nil` and the hero note, and `dota_screenshot` showed the addon's login screen. During a 75 s cold load `status_json` went unanswered for 8 s. `dota_restart` worked from both CUSTOM_GAME_SETUP and GAME_IN_PROGRESS. With `sv_cheats 0`, `dota_run_lua` returned the `sv_cheats` error in 0.5 s.
 

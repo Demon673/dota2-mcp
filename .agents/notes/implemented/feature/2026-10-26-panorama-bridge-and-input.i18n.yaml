@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/feature/2026-10-26-panorama-bridge-and-input.md
+2026-10-26-panorama-bridge-and-input.md: 0548c0008b8a8f37a550bba43bc9adc3d81facd4
+2026-10-26-panorama-bridge-and-input.zh.md: d97f82c35c4810f13a5bc5dc37b41ebdb4a09b4c

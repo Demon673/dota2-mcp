@@ -1,8 +1,7 @@
 # Agent Note: Delete the dead legacy 29002 protocol surface and output-buffer mirrors
 
-English | [中文](2026-08-25-dead-29002-protocol-surface.zh.md)
-
 Status: implemented
+Archived: 2026-10-26
 
 ## Problem
 

@@ -59,15 +59,7 @@
 
 ### 头部块
 
-每个文件前三行恰好是：
-
-```markdown
-# Agent Note: <title>
-
-Status: <status>
-```
-
-后面空一行。`Status:` 值是三种之一，必须与文件所在 lifecycle 目录一致：
+活跃 Agent Note 的头部块依次是标题行、空行、语言切换行、空行、Status 行。归档的单语言 note 删除切换行，因此前四行是标题、空行、`Status: implemented`、`Archived: YYYY-MM-DD`。Status 行后空一行。`Status:` 值是三种之一，必须与文件所在 lifecycle 目录一致：
 
 - `Status: proposed`
 - `Status: implemented`

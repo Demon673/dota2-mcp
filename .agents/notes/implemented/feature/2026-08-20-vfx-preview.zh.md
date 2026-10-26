@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-两个门控工具复用 dota_run_lua 通道（ent_fire 0 RunScriptCode）。`vfx_preview` 执行 `ParticleManager:CreateParticle(path, PATTACH_<n>, nil)`，可选世界坐标经 `SetParticleControl(pid, 0, Vector(x,y,z))`，打印 `[MCP-VFX] pid=…`；`vfx_preview_stop` 执行 `ParticleManager:DestroyParticle(pid, false)`。两者继承 requireConsole（地图 #7 修正：与 dota_run_lua 同一执行通道，非新增限制）。spawn 结果必须以 console 加载错误为准（经 console_output 读 Particles/ResourceSystem 通道）——id 本身不能证明文件加载成功（研究 #5）。attach 0–15 映射 ParticleAttachment_t 名称。
+两个门控工具复用 dota_run_lua 通道（ent_fire 0 RunScriptCode）。`vfx_preview` 执行 `ParticleManager:CreateParticle(path, PATTACH_<n>, nil)`，可选世界坐标经 `SetParticleControl(pid, 0, Vector(x,y,z))`，打印 `[MCP-VFX] pid=…`；`vfx_preview_stop` 执行 `ParticleManager:DestroyParticle(pid, false)`。两者继承 requireConsole（地图 #7 修正：与 dota_run_lua 同一执行通道，非新增限制）。spawn 结果必须以 console 加载错误为准（经 console_output 读 Particles/ResourceSystem 通道）——id 本身不能证明文件加载成功（研究 #5）。attach 0–15 映射 ParticleAttachment_t 名称。它还会把粒子路径按 addon 资产解析；若 addon 没有声明，就报告 `precache: MISSING` 并给出要补的行——未声明的 addon 粒子不会渲染，但创建调用仍会返回一个有效 pid。
 
 ## Alternatives considered
 

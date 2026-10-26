@@ -1,8 +1,7 @@
 # Agent Note: Windows-portable VRF test fixtures
 
-English | [中文](2026-09-20-windows-vrf-fixtures.zh.md)
-
 Status: implemented
+Archived: 2026-10-26
 
 ## Problem
 

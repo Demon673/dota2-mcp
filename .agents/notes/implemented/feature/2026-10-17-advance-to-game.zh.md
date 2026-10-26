@@ -55,7 +55,7 @@ Status: implemented
 ## Testing
 
 - `scripts/test-collect-output.mjs`：假 Dota 对 `ai_disabled` 回显其值，并把 `RunScriptCode` 里的 print 推迟 50 ms 执行。它断言 `dota_run_lua` 仍能返回输出、输出和任何标记都不会到达假 vconsole、之后游戏自身的打印仍能到达。从构建产物里去掉开关行后，测试失败。它也让 `status_json` 保持无应答，验证 restart 在 20 秒 deadline 返回，而不是等待 40 × 5 秒。
-- `scripts/test-mcp-offline.mjs` 计数 33 个工具。
+- `scripts/test-mcp-offline.mjs` 计数所有已注册工具。
 - 活体（Dota 2 带 `-tools`，一个自身 setup 代码会报错的 addon）：`dota_disconnect` 后调用 `dota_advance_to_game` 返回「没有加载地图」错误；`dota_launch_game` → 带 `hero` 的 `dota_advance_to_game` 进入 GAME_IN_PROGRESS，英雄正是指定的那个；`dota_restart` → `dota_advance_to_game` 用时 18–20 秒，生成随机英雄。Lua `error()` 返回其 traceback，下一次调用正常。包装后 511 字节的语句被长度错误拒绝。
 - 在第二个 addon 上活体运行（它在自己的登录界面之后才创建英雄）：从主菜单调用 `dota_launch_game`，约 50 秒加载完地图，并报告卡在 CUSTOM_GAME_SETUP；`dota_advance_to_game` 4 秒进入 GAME_IN_PROGRESS，返回 `hero=nil` 和英雄提示，`dota_screenshot` 显示的正是 addon 的登录界面。一次 75 秒的冷加载中，`status_json` 有 8 秒没有应答。`dota_restart` 在 CUSTOM_GAME_SETUP 和 GAME_IN_PROGRESS 下都正常。`sv_cheats 0` 时，`dota_run_lua` 0.5 秒返回 `sv_cheats` 错误。
 

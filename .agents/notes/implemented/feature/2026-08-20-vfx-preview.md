@@ -10,7 +10,7 @@ After writing a .vpcf source and compiling it, agents had no way to see the effe
 
 ## Decision
 
-Two gated tools reuse the dota_run_lua channel (ent_fire 0 RunScriptCode). `vfx_preview` runs `ParticleManager:CreateParticle(path, PATTACH_<n>, nil)` with optional world position via `SetParticleControl(pid, 0, Vector(x,y,z))`, prints `[MCP-VFX] pid=…`; `vfx_preview_stop` runs `ParticleManager:DestroyParticle(pid, false)`. Both inherit requireConsole (map #7 amendment: same execution channel as dota_run_lua, not a new restriction). The spawn result must be confirmed against console load errors (Particles/ResourceSystem channels via console_output) — the id alone does not prove the file loaded (research #5). Attach indices 0–15 map to the ParticleAttachment_t names.
+Two gated tools reuse the dota_run_lua channel (ent_fire 0 RunScriptCode). `vfx_preview` runs `ParticleManager:CreateParticle(path, PATTACH_<n>, nil)` with optional world position via `SetParticleControl(pid, 0, Vector(x,y,z))`, prints `[MCP-VFX] pid=…`; `vfx_preview_stop` runs `ParticleManager:DestroyParticle(pid, false)`. Both inherit requireConsole (map #7 amendment: same execution channel as dota_run_lua, not a new restriction). The spawn result must be confirmed against console load errors (Particles/ResourceSystem channels via console_output) — the id alone does not prove the file loaded (research #5). Attach indices 0–15 map to the ParticleAttachment_t names. It also resolves the particle path as an addon asset and reports `precache: MISSING` with the line to add when the addon does not declare it; an undeclared addon particle draws nothing while the create call still returns a valid pid.
 
 ## Alternatives considered
 

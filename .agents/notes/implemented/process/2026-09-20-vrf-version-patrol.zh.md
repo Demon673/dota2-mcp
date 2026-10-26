@@ -28,4 +28,4 @@ AGENTS.md 记录了该命令，`scripts/doc-budgets.manifest.json` 里的上限�
 
 ## Testing
 
-`npm run check-vrf-version` 在 20.0 报告已同步（exit 0）。`--version 19.2` 报告落后（exit 1）。`--version 14.1 --write` 被拒（exit 2），因为 14.1 缺 20.0 已有的 `cli-windows-arm64.zip`。`--version 19.2 --write` 接 `--version 20.0 --write` 往返一次，diff 无残渣。
+改动当时，`npm run check-vrf-version` 在 20.0 报告已同步（exit 0）。`--version 19.2` 报告落后（exit 1）。`--version 14.1 --write` 被拒（exit 2），因为 14.1 缺 20.0 已有的 `cli-windows-arm64.zip`。`--version 19.2 --write` 接 `--version 20.0 --write` 往返一次，diff 无残渣。

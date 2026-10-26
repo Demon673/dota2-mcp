@@ -1,4 +1,4 @@
-# Agent Note: 把 README 的工具清单补全到全部 33 个工具
+# Agent Note: 把 README 的工具清单补全到所有已注册工具
 
 [English](2026-08-25-complete-public-tool-inventory.md) | 中文
 
@@ -10,7 +10,7 @@ README.md 的“Available tools”列出了 33 个工具里的 21 个——缺 v
 
 ## Decision
 
-README.md 的 Available tools 表格现在列出了全部 33 个工具（两种语言的表格都补全了）。AGENTS.md 保留其面向 agent、每个工具带控制台命令的表格——按层级分类法，两份表格服务不同的受众，而本 note 就是记录下来的同步义务。
+README.md 的 Available tools 表格现在列出 `src/index.ts` 注册的全部工具（当前 38 个），两种语言的表格都补全了。AGENTS.md 保留其面向 agent、每个工具带控制台命令的表格——按层级分类法，两份表格服务不同的受众，而本 note 就是记录下来的同步义务。
 
 ## Alternatives considered
 

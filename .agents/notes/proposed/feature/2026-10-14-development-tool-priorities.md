@@ -1,8 +1,8 @@
 # Agent Note: CustomGame development tool priorities
 
-Status: proposed
-
 English | [中文](2026-10-14-development-tool-priorities.zh.md)
+
+Status: proposed
 
 ## Problem
 
@@ -17,11 +17,11 @@ Prioritize tools that connect engine output, resources, or runtime observations 
 | P0 / 1 | TSTL runtime error mapping | Locate the TypeScript source behind a generated Lua error without manual bundle inspection | Follow the existing [dota_map_error proposal](2026-08-05-dota-map-error-tool.md): artifact path and error line → source file, line, and context. Report missing mappings, stale or unverified artifacts, unsupported formats, and ambiguous filenames explicitly |
 | P1 / 2 | Resource path lookup and reading, including VPK entries | Find actual models, textures, sounds, and other resources; distinguish a missing loose file from a missing resource | Resolve addon and official loose files first; use VRF for archive search and selected-entry reading/extraction. Connect results to existing asset tools; report archive checks that were not performed |
 | P1 / 3 | Map entity reading and queries | Find spawn points, triggers, entity names, positions, and properties without manually inspecting a large converted map | Convert a copy with dmxconvert and filter by classname/targetname. Read only; no map write-back |
-| P2 / 4 | Runtime Panorama panel inspection | Diagnose panels that are absent, clipped, or styled incorrectly using runtime evidence | First verify available commands and readable output; then inspect a selected addon subtree. Reuse client screenshot capabilities |
+| P2 / 4 | Runtime Panorama panel inspection | Diagnose panels that are absent, clipped, or styled incorrectly using runtime evidence | Shipped as `panorama_exec_js`: a transient HUD bridge with panel, geometry, game-state and event helpers; the debugger inspection path remains open |
 | P2 / 5 | Particle preview owner and multiple control points | Preview beams and entity attachments without repeatedly writing setup Lua | Extend existing vfx_preview parameters; verify owner and CP behavior against actual effects |
 | P3 / 6 | Resource build freshness check | Identify whether a source resource needs rebuilding | Verify resourcecompiler's -dependency_check_only output and exit behavior, then consider an option on the existing compile tool |
 
-The first implementation group is error mapping plus resource lookup. Map queries follow. Investigate Panorama feasibility early; if the existing console path provides stable panel or render-tree output, promote panel inspection to P1 ahead of map queries. That promotion requires live evidence, not strings found in a binary.
+Panorama panel inspection shipped as `panorama_exec_js`; the remaining queue starts with error mapping plus resource lookup, followed by map queries.
 
 Scope ownership remains with the existing [error mapping proposal](2026-08-05-dota-map-error-tool.md), [asset inspection note](../../implemented/feature/2026-08-20-asset-inspect.md), [reference checking note](../../implemented/feature/2026-08-20-asset-check-refs.md), and [particle preview note](../../implemented/feature/2026-08-20-vfx-preview.md). This ordering does not supersede those records or promise that the proposed extensions already exist.
 

@@ -28,4 +28,4 @@ Bumping the pin is one command and one line. Nothing runs automatically: the pin
 
 ## Testing
 
-`npm run check-vrf-version` reports in sync at 20.0 (exit 0). `--version 19.2` reports behind (exit 1). `--version 14.1 --write` is refused (exit 2) because 14.1 lacks `cli-windows-arm64.zip`, which 20.0 ships. `--version 19.2 --write` followed by `--version 20.0 --write` round-trips the pin with no residue in the diff.
+At the time of the change, `npm run check-vrf-version` reported in sync at 20.0 (exit 0). `--version 19.2` reports behind (exit 1). `--version 14.1 --write` is refused (exit 2) because 14.1 lacks `cli-windows-arm64.zip`, which 20.0 shipped. `--version 19.2 --write` followed by `--version 20.0 --write` round-trips the pin with no residue in the diff.

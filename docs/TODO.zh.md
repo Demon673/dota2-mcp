@@ -31,7 +31,7 @@
 
 ## Panorama 调试器与 UI 操作
 
-遵循[通过调试器控制 Panorama UI](../.agents/notes/proposed/feature/2026-10-26-panorama-ui-control.md)。
+遵循[Panorama 调试器检视与多根访问](../.agents/notes/proposed/feature/2026-10-26-panorama-ui-control.md)。
 
 - [x] **Panorama 桥生命周期核心（2026-10-26）：** `panorama_exec_js` 已在 addon content 临时动态 HUD 桥上实现：两份源文件复制进 addon content，按需编译，用 `CustomUI:DynamicHud_Create` 加载，经 `RunScriptInPanelContext` 执行，ping 成功后删除；守护进程持有 token/状态和 ping/started/done ack 协议，桥可幂等复用。桥还提供几何、世界/光标、选择、镜头和单位命令 helper，以及后台事件 helper（`MCP.on`/`emit`/`dispatch`）。活体验证：`1+1=2`；长分块代码 `42`；`MCP.context()` 父链/全局探针；从 `DotaHud` 的全局选择器（`MCP.top/select/$`）；探针 panel 创建/删除；`MCP.text/visible/cls/style/snap` 往返；语义 helper 冒烟；地图重载后 `rebuilt:true`；通过记录的 element id 清理旧 generation HUD；content junction 仓库未变。
 - [ ] **加固 Panorama 桥剩余生命周期：** 清扫失败供给、实测完整 Dota 进程重启/缓存清空，并补齐完整活体矩阵。从主菜单发起供给会返回 `bridge_compile_failed`（地图加载前 addon content 未挂载）；游戏内供给正常。

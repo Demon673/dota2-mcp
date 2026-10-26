@@ -1,8 +1,7 @@
 # Agent Note: Pairing gate line-ending blindness
 
-English | [中文](2026-09-21-pairing-gate-line-endings.zh.md)
-
 Status: implemented
+Archived: 2026-10-26
 
 ## Problem
 

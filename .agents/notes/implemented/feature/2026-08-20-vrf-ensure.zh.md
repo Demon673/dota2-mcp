@@ -10,7 +10,7 @@ asset_inspect 与 asset_check_refs（wayfinder 地图 #4）需要 ValveResourceF
 
 ## Decision
 
-`src/tools/vrf-ensure.ts` 的 `ensureVrf()` 实现半集成契约。版本 pin `20.0`（env `VRF_VERSION` 覆盖）；缓存目录 `os.tmpdir()/dota2-mcp/vrf/`（env `VRF_CACHE_DIR` 覆盖）；在 GitHub Releases API 查 release（`GET /repos/ValveResourceFormat/ValveResourceFormat/releases/tags/{version}`），按 release 的 `assets[]` **动态匹配**本机平台资产 `cli-{os}-{arch}.zip`——绝不硬编码映射，因为发布的资产集会随版本变化。下载按资产的 sha256 `digest` 校验；不匹配则拒绝下载、不缓存任何东西。解压用 `adm-zip`（纯 JS；本仓保持无外部二进制规则——release 归档是 `zip -9j` 扁平布局、可执行文件在根，解压出的 `Source2Viewer-CLI` 在非 win32 上 chmod +x）。`vrf_ensure` MCP 工具暴露它，asset_inspect/asset_check_refs 惰性调用。
+`src/tools/vrf-ensure.ts` 的 `ensureVrf()` 实现半集成契约。版本 pin `20.1`（env `VRF_VERSION` 覆盖）；缓存目录 `os.tmpdir()/dota2-mcp/vrf/`（env `VRF_CACHE_DIR` 覆盖）；在 GitHub Releases API 查 release（`GET /repos/ValveResourceFormat/ValveResourceFormat/releases/tags/{version}`），按 release 的 `assets[]` **动态匹配**本机平台资产 `cli-{os}-{arch}.zip`——绝不硬编码映射，因为发布的资产集会随版本变化。下载按资产的 sha256 `digest` 校验；不匹配则拒绝下载、不缓存任何东西。解压用 `adm-zip`（纯 JS；本仓保持无外部二进制规则——release 归档是 `zip -9j` 扁平布局、可执行文件在根，解压出的 `Source2Viewer-CLI` 在非 win32 上 chmod +x）。`vrf_ensure` MCP 工具暴露它，asset_inspect/asset_check_refs 惰性调用。
 
 ## Alternatives considered
 

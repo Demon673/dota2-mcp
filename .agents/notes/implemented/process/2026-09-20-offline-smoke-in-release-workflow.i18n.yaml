@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/process/2026-09-20-offline-smoke-in-release-workflow.md
-2026-09-20-offline-smoke-in-release-workflow.md: 97b6b8f7454842824684d3286e1f5e7d089c1a76
-2026-09-20-offline-smoke-in-release-workflow.zh.md: 43abe007eeafe0812562e7ce05879140a5ee6307
+2026-09-20-offline-smoke-in-release-workflow.md: 5828475ad43fc7c2271283d10b90348a5dced1c8
+2026-09-20-offline-smoke-in-release-workflow.zh.md: 81194d9ca2b68bd8f048dbe25e68d08246ca7ec3

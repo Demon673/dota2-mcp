@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/proposed/feature/2026-10-14-development-tool-priorities.md
-2026-10-14-development-tool-priorities.md: 06859d02ee11b12176c5722a66d7cbb04b22342c
-2026-10-14-development-tool-priorities.zh.md: bdf98205a4dd2ffe9ef3026a535006868a0b15cf
+2026-10-14-development-tool-priorities.md: 86b88fc188bffecb7f7a1709f009f9ae92aaef36
+2026-10-14-development-tool-priorities.zh.md: bd0ed0edc4817ca2ad746f6d59f1788b0df02faa

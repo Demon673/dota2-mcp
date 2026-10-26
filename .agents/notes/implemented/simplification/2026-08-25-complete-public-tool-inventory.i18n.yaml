@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/simplification/2026-08-25-complete-public-tool-inventory.md
-2026-08-25-complete-public-tool-inventory.md: 36d9148e71e912cf94c0a861b5b766dc8412a470
-2026-08-25-complete-public-tool-inventory.zh.md: 6327a5ab0846bd20d1e1930df58801dd50e94b1a
+2026-08-25-complete-public-tool-inventory.md: 2ae5e5d2bd0fbea9c22b5452f311076ac72a23d4
+2026-08-25-complete-public-tool-inventory.zh.md: 313ff3d28c823f8e7ef32faffa450c26f16332e9

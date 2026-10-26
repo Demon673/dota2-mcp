@@ -55,15 +55,7 @@ Every active Agent Note follows one in-file format (a review convention — the 
 
 ### The header block
 
-The first three lines of every Agent Note are exactly:
-
-```markdown
-# Agent Note: <title>
-
-Status: <status>
-```
-
-followed by a blank line. The `Status:` value is one of three forms, and must agree with the lifecycle folder the file sits in:
+The header block of an active Agent Note is the title line, a blank line, the language switcher, a blank line, then the status line. An archived single-language note drops the switcher, so its first four lines are the title, a blank line, `Status: implemented`, and `Archived: YYYY-MM-DD`. The status line is followed by a blank line. The `Status:` value is one of three forms, and must agree with the lifecycle folder the file sits in:
 
 - `Status: proposed`
 - `Status: implemented`

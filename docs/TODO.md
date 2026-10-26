@@ -31,7 +31,7 @@ Follow [Production-grade VFX recipes and visual acceptance](../.agents/notes/pro
 
 ## Panorama debugger and UI operation
 
-Follow [Panorama UI control through the debugger](../.agents/notes/proposed/feature/2026-10-26-panorama-ui-control.md).
+Follow [Panorama debugger inspection and multi-root access](../.agents/notes/proposed/feature/2026-10-26-panorama-ui-control.md).
 
 - [x] **Panorama bridge lifecycle core (2026-10-26):** `panorama_exec_js` is implemented on a transient addon-content dynamic HUD bridge: two source files are copied into the addon content, compiled on demand, loaded with `CustomUI:DynamicHud_Create`, executed through `RunScriptInPanelContext`, and deleted after a ping; the daemon owns the token/state and the ping/started/done ack protocol, and the bridge is reused idempotently. The bridge also exposes geometry, world/cursor, selection, camera and order helpers, plus background event helpers (`MCP.on`/`emit`/`dispatch`). Verified live: `1+1=2`; long chunked code `42`; `MCP.context()` parent chain/global probe; global selectors from `DotaHud` (`MCP.top/select/$`); probe-panel creation/deletion; `MCP.text/visible/cls/style/snap` round-trip; semantic helper smoke; map reload `rebuilt:true`; old-generation HUD cleanup through the recorded element id; content-junction repository unchanged.
 - [ ] **Harden the remaining Panorama bridge lifecycle:** sweep a failed provisioning, measure a full Dota process restart/cache eviction, and cover the full live matrix. A provisioning attempt from the main menu returns `bridge_compile_failed` (the addon content is not mounted until a map loads); in-game provisioning works.

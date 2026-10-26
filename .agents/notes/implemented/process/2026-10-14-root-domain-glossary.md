@@ -1,8 +1,8 @@
 # Agent Note: Root domain glossary
 
-Status: implemented
-
 English | [中文](2026-10-14-root-domain-glossary.zh.md)
+
+Status: implemented
 
 ## Problem
 

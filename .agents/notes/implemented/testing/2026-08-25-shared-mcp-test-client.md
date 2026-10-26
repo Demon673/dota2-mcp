@@ -10,7 +10,7 @@ Ten scripts hand-rolled the same MCP-over-stdio client — spawn node dist/index
 
 ## Decision
 
-scripts/lib-mcp.mjs ships spawnMcpServer({timeoutMs, env}) returning { call, notify, kill } plus shared assert/sleep, spawning the real dist/index.js. All ten stdio-spawn sites import it and their hand-rolled spawn/map/call/assert/sleep copies are deleted (per-script timeouts, env, assertions, and flow preserved). test-mcp-tools.mjs is rewritten: the EXPECTED_TOOLS enumeration and the MCP SDK client import are gone; its 11 live smoke calls run on the shared helper. The bespoke fake Dota servers in test-relay.mjs/test-daemon.mjs are untouched.
+scripts/lib-mcp.mjs ships spawnMcpServer({timeoutMs, env}) returning { call, notify, kill } plus shared assert/sleep, spawning the real dist/index.js. Every stdio-spawn site imports it and their hand-rolled spawn/map/call/assert/sleep copies are deleted (per-script timeouts, env, assertions, and flow preserved). test-mcp-tools.mjs is rewritten: the EXPECTED_TOOLS enumeration and the MCP SDK client import are gone; its live smoke calls run on the shared helper. The bespoke fake Dota servers in test-relay.mjs/test-daemon.mjs are untouched.
 
 ## Alternatives considered
 
@@ -19,4 +19,4 @@ scripts/lib-mcp.mjs ships spawnMcpServer({timeoutMs, env}) returning { call, not
 
 ## Consequences
 
-One plumbing implementation serves ten scripts; the 11-tool live smoke coverage survives the fold; no script imports the MCP SDK client anymore. The helper replaces only per-script plumbing — boundary realism (real dist/index.js, bespoke fake servers) is unchanged.
+One plumbing implementation serves every stdio script; the live smoke coverage survives the fold; no script imports the MCP SDK client anymore. The helper replaces only per-script plumbing — boundary realism (real dist/index.js, bespoke fake servers) is unchanged.
