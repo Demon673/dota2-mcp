@@ -8,7 +8,9 @@ import * as path from "path";
 
 const platform = process.platform;
 const defaultName = platform === "win32" ? "dota2-mcp.exe" : "dota2-mcp";
-const outputName = process.env.SEA_OUTPUT_NAME || defaultName;
+let outputName = process.env.SEA_OUTPUT_NAME || defaultName;
+// sea-package.mjs appends .exe on Windows; mirror it so SEA_OUTPUT_NAME=...-win finds the file.
+if (platform === "win32" && !outputName.toLowerCase().endsWith(".exe")) outputName += ".exe";
 const exe = path.join("dist", outputName);
 
 if (!fs.existsSync(exe)) {

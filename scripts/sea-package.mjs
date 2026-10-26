@@ -5,7 +5,9 @@ import { spawnSync } from "child_process";
 const platform = process.platform;
 const isWin = platform === "win32";
 const defaultName = isWin ? "dota2-mcp.exe" : "dota2-mcp";
-const outputName = process.env.SEA_OUTPUT_NAME || defaultName;
+let outputName = process.env.SEA_OUTPUT_NAME || defaultName;
+// Windows will not CreateProcess an extensionless PE (the release matrix passes dota2-mcp-win).
+if (isWin && !outputName.toLowerCase().endsWith(".exe")) outputName += ".exe";
 const outputPath = path.join("dist", outputName);
 const nodeBinary = process.execPath;
 

@@ -4,7 +4,7 @@
 // 持续缓存最后一帧；卡死时返回带 captured_at/stale 标记的缓存，而不是等待永远不到达的新帧。
 // 决策与备选方案见 .agents/notes/implemented/feature/2026-10-18-dota-screenshot.md。
 import { randomBytes, createHash } from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, renameSync, openSync, closeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -135,7 +135,14 @@ function watchDir(): string {
 }
 
 function processAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; }
+  try { process.kill(pid, 0); } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; }
+  if (process.platform === "win32") return true;
+  // POSIX: a killed unref()'ed child can stay a zombie until its parent exits; it is not running.
+  try { return readFileSync(`/proc/${pid}/stat`, "utf8").split(" ")[2] !== "Z"; } catch { /* macOS has no procfs */ }
+  try {
+    const stat = execFileSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).trim();
+    return stat.length > 0 && !stat.startsWith("Z");
+  } catch { return false; }
 }
 
 interface WatcherInfo { raw: string; pid: number; source: string; version: number }
@@ -205,9 +212,12 @@ async function stopWatcher(dir: string, deadline: number): Promise<boolean> {
   if (validPid(info.pid) && ownerAlive(dir, info)) {
     try { process.kill(info.pid); killed = true; } catch { /* 已退出 */ }
   }
-  while (killed && Date.now() < deadline) {
+  // A request timeout spends the whole budget, so give the kill its own short grace:
+  // otherwise the process is still dying when the deadline check runs and cleanup is reported failed.
+  const killDeadline = Math.max(deadline, Date.now() + 250);
+  while (killed && Date.now() < killDeadline) {
     if (heldMode ? !lockHeld(lock) : !processAlive(info.pid)) break;
-    await new Promise(r => setTimeout(r, Math.min(25, Math.max(0, deadline - Date.now()))));
+    await new Promise(r => setTimeout(r, Math.min(25, Math.max(0, killDeadline - Date.now()))));
   }
   const stopped = heldMode ? !lockHeld(lock) : !validPid(info.pid) || !processAlive(info.pid);
   return stopped && removeWatcherLock(dir, info.raw);

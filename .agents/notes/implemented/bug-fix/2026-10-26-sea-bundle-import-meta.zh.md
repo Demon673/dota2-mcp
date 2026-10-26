@@ -8,7 +8,7 @@ Status: implemented
 
 发布工作流从 `dist/bundle.cjs`（esbuild `--format=cjs`）打包 Node SEA 单文件可执行程序。`src/index.ts` 在模块作用域调用 `createRequire(import.meta.url)` 给 `getVersion()` 用。CommonJS 包没有 `import.meta`，所以打包后的表达式是 `undefined`，`createRequire(undefined)` 在服务端启动前就抛出 `ERR_INVALID_ARG_VALUE`。对刚打出的产物做一次 stdin 关闭的运行即可复现（`exit=1`）。工作流只检查发布资产是否存在，因此三个平台的二进制都会一启动就死。
 
-恢复普通的 `require` 后又暴露了下一处失败：`createRelay()` 解析 `./relay-main.js` 并用 `process.execPath` spawn 守护进程。在 SEA 里该路径就是 exe，spawn 会重新拉起 MCP 服务而不是守护进程，`waitForRelay` 于是等满 30 秒超时。`skillsDir()` 形状相同：它解析 `../package.json`，而独立下载的目录里没有这个文件。
+恢复普通的 `require` 后又暴露了下一处失败：`createRelay()` 解析 `./relay-main.js` 并用 `process.execPath` spawn 守护进程。在 SEA 里该路径就是 exe，spawn 会重新拉起 MCP 服务而不是守护进程，`waitForRelay` 于是等满 30 秒超时。`skillsDir()` 形状相同：它解析 `../package.json`，而独立下载的目录里没有这个文件。发布矩阵的 `SEA_OUTPUT_NAME=dota2-mcp-win` 还会产出没有扩展名的 Windows 文件，即使二进制本身有效，`CreateProcess` 也无法启动它。
 
 ## 决定
 
@@ -17,10 +17,11 @@ Status: implemented
 - `isSeaRuntime()` 通过同一个 `require` 调用 `node:sea` 的 `isSea()`，在 Node < 20.12 上返回 false。SEA 下 `createRelay()` 跳过守护进程解析与 spawn，直接落到本地 relay；已有守护进程可达时，exe 仍以瘦客户端接入。
 - `skillsDir()` 在无法解析 `package.json` 时回退到 `path.dirname(process.execPath)/skills`。独立 exe 没有 skills 目录时返回现有的明确错误 “No built-in skills found”。
 - `scripts/smoke-sea-package.mjs` 以忽略 stdin（立即 EOF）的方式启动打包产物，超时 30 秒，失败即非零退出。发布工作流在 `Package` 之后、`Upload release asset` 之前运行它。
+- `sea-package.mjs` 与冒烟脚本在 Windows 上为缺少扩展名的 `SEA_OUTPUT_NAME` 追加 `.exe`，因此矩阵里的 `dota2-mcp-win` 变成可执行的 `dota2-mcp-win.exe`，上传 glob 仍然匹配。
 
 ## 验证
 
-原始产物因 `createRequire` 以 1 退出。修复后：构建目录下的 exe 在有守护进程时以瘦客户端启动并退出 0；使用独立状态目录与空闲端口（无守护进程）时回退到本地 relay 并退出 0；独立复制的 exe 对 `dota2_skill` 返回明确的缺 skills 错误，而构建目录下的 exe 返回 skill 目录。发布工作流的整套离线冒烟通过；`test-daemon.mjs` 在最终形态前捕获了中间的 `require` 回归。
+原始产物因 `createRequire` 以 1 退出。修复后：构建目录下的 exe 在有守护进程时以瘦客户端启动并退出 0；使用独立状态目录与空闲端口（无守护进程）时回退到本地 relay 并退出 0；独立复制的 exe 对 `dota2_skill` 返回明确的缺 skills 错误，而构建目录下的 exe 返回 skill 目录。`SEA_OUTPUT_NAME=dota2-mcp-win` 产出 `dist/dota2-mcp-win.exe`，冒烟脚本能找到并运行它。发布工作流的整套离线冒烟通过；`test-daemon.mjs` 在最终形态前捕获了中间的 `require` 回归。
 
 ## 备选方案
 

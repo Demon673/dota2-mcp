@@ -4,6 +4,7 @@
 // 独占全屏、辅助程序启动失败、非 Windows 三条路径在进程内直接调 captureScreenshot（要传 dotaPath / 换掉辅助程序）。
 // 还覆盖启动+请求的总 5s deadline，以及到期后无法完成补最小化的明确错误；冷编译不在此预算内。
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
@@ -105,7 +106,16 @@ const text = (r) => r.content.filter((c) => c.type === "text").map((c) => c.text
 const envelope = (r) => JSON.parse(r.content.find((c) => c.type === "text").text);
 const image = (r) => r.content.find((c) => c.type === "image");
 const lockPid = (raw) => Number(raw.trim().split(/\r?\n/)[1]);
-const pidAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+const pidAlive = (pid) => {
+  try { process.kill(pid, 0); } catch { return false; }
+  if (process.platform === "win32") return true;
+  // A killed unref()'ed child can stay a zombie until its parent exits; it is not running.
+  try { return readFileSync(`/proc/${pid}/stat`, "utf8").split(" ")[2] !== "Z"; } catch { /* macOS has no procfs */ }
+  try {
+    const stat = execFileSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).trim();
+    return stat.length > 0 && !stat.startsWith("Z");
+  } catch { return false; }
+};
 
 // 成功：image 内容 + 契约信封；max_width/format/restore 透传给辅助程序；不需要 vconsole
 const ok = await shoot("ok", { max_width: 640, format: "png" });

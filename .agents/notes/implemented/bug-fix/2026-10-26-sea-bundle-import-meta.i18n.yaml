@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/bug-fix/2026-10-26-sea-bundle-import-meta.md
-2026-10-26-sea-bundle-import-meta.md: 1152f2e2566d955c93f407a1bdb6805c37d0a6b0
-2026-10-26-sea-bundle-import-meta.zh.md: 24e9ae0cd126638ad37635a4186c8aef27806793
+2026-10-26-sea-bundle-import-meta.md: ffe984a1dc8315ea0437d97230a6ff36e6d80f5c
+2026-10-26-sea-bundle-import-meta.zh.md: 6a91fe1faf5e9402f58d098f0665339393b2df5c
