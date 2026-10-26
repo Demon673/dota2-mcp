@@ -321,7 +321,8 @@ Editing the English side of a paired document requires updating the Chinese coun
 
 | Location | skill | Description |
 |------|-------|------|
-| Global `~/.agents/skills/` (the maintainer's user-level directory) | `doc-standards`, `prose-standard`, `trim-cot-leakage`, `translate-docs`, `archive-agent-notes`, `code-review`, `release` | Maintenance skills; a bare reference in the repo to "the global X skill" points at this directory |
+| Project `.agents/skills/` (via `.claude/skills`) | `release` | Tag range, changelog pair, tag ownership, notes, publish order |
+| Global `~/.agents/skills/` (the maintainer's user-level directory) | `doc-standards`, `prose-standard`, `trim-cot-leakage`, `translate-docs`, `archive-agent-notes`, `code-review` | Maintenance skills; a bare "global X skill" reference points here |
 
 ## TODO — Roadmap
 
