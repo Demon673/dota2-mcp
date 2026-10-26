@@ -66,6 +66,7 @@
 - **关闭 relay 的 Dota socket 可能让 Dota 致命报错（10038）**：有未读数据或发送未完成时，引擎的 socket 关闭路径会触发 `Plat_FatalError`。现在的拆除流程会先等待约 300 毫秒输出安静、半关闭并排空，控制端口提供 `SHUTDOWN` 以便干净地停止守护进程。
 - **Linux/macOS Steam 检测**：默认 Steam 根目录从用户主目录解析（`~` 此前从未被展开）。
 - **打包**：`prepack` 打包前先编译。
+- **独立可执行程序启动即失败**：SEA 包在模块加载时因 `createRequire(import.meta.url)` 抛错；修掉之后，exe 在没有现成守护进程时仍起不来。现在包使用双模式 `require`，通过 `node:sea` 识别 SEA，exe 内跳过守护进程 spawn、回退到本地 relay，并在可执行文件旁解析 skills。发布工作流在上传前会先运行打包产物。
 
 ### 变更
 

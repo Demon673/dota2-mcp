@@ -66,6 +66,7 @@ Every tool now returns one contract shape: `{"ok":true, ...}` with a `lines`, `t
 - **Closing the relay's Dota socket could fatal-error Dota (10038)**: with unread data pending or a send in flight, the engine's socket close path hit `Plat_FatalError`. Teardown now waits for about 300 ms of output quiet, half-closes and drains, and the control port exposes `SHUTDOWN` for a clean daemon stop.
 - **Linux/macOS Steam detection**: default Steam roots are resolved from the home directory (`~` was never expanded).
 - **Packaging**: `prepack` compiles before packing.
+- **Standalone executable failed at startup**: the SEA bundle threw `createRequire(import.meta.url)` at module load, and the exe could not start without an existing daemon. The bundle now uses a dual-mode `require`, detects SEA through `node:sea`, skips daemon spawning in the exe, falls back to the local relay, and resolves skills next to the executable. The release workflow now starts the packaged binary before uploading it.
 
 ### Changed
 

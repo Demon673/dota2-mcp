@@ -17,7 +17,18 @@ import * as path from "path";
 import * as crypto from "crypto";
 import { createRequire } from "module";
 
-const require = createRequire(import.meta.url);
+// ESM dist: import.meta.url. CJS SEA bundle: __filename (the executable), where
+// import.meta.url is absent; resolve() failures below degrade instead of crashing.
+const require = createRequire(import.meta.url ?? __filename);
+
+/** Node SEA has no sibling relay-main.js and process.execPath is the exe itself. */
+function isSeaRuntime(): boolean {
+  try {
+    return (require("node:sea") as { isSea?: () => boolean }).isSea?.() === true;
+  } catch {
+    return false; // Node < 20.12 has no node:sea
+  }
+}
 import { VConRelay, MCP_MARKER_RE } from "./tools/vcon-relay.js";
 import { scrubbedEnv } from "./tools/process-env.js";
 import { RelayClient } from "./relay-client.js";
@@ -35,7 +46,9 @@ import * as daemon from "./daemon-utils.js";
 
 function getVersion(): string {
   try {
-    return require("../package.json").version;
+    // readFileSync + URL: also safe in the CJS SEA bundle, where import.meta.url
+    // is absent and the fallback constant (kept in sync by sync-version) applies.
+    return JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
   } catch {
     return "2.0.0";
   }
@@ -116,8 +129,15 @@ async function main(): Promise<void> {
     // 自愈陈旧锁：上次 daemon 崩溃留下的 relay.pid/relay.lock 由 livePid 清理，
     // 否则 acquireLock 永远 EEXIST，会话永久降级到本地 relay（此前需手动清状态文件）
     daemon.livePid();
-    const relayMainPath = require.resolve("./relay-main.js");
-    if (daemon.acquireLock()) {
+    // The SEA bundle has no sibling relay-main.js and process.execPath is the exe,
+    // so spawning a daemon is impossible there; fall through to the local relay.
+    let relayMainPath: string | null = null;
+    if (!isSeaRuntime()) {
+      try {
+        relayMainPath = require.resolve("./relay-main.js");
+      } catch { /* packaged or relocated dist */ }
+    }
+    if (relayMainPath && daemon.acquireLock()) {
       try {
         const pid = daemon.spawnRelayDaemon(relayMainPath);
         console.error(`[relay] spawned daemon pid=${pid}`);
@@ -138,7 +158,7 @@ async function main(): Promise<void> {
       } finally {
         daemon.releaseLock();
       }
-    } else {
+    } else if (relayMainPath) {
       // 别人正在 spawn，等它就绪
       console.error("[relay] another instance is spawning daemon, waiting...");
       if (await daemon.waitForRelay(30000)) {
@@ -607,7 +627,12 @@ Then call dota_status again.`;
 
   // 内置 skill 目录：skills/<name>/SKILL.md，frontmatter 带 name/description
   function skillsDir(): string {
-    return path.join(path.dirname(require.resolve("../package.json")), "skills");
+    try {
+      return path.join(path.dirname(require.resolve("../package.json")), "skills");
+    } catch {
+      // SEA bundle: no package.json in the snapshot; look next to the executable.
+      return path.join(path.dirname(process.execPath), "skills");
+    }
   }
   function loadSkills(): { name: string; description: string; body: string }[] {
     const dir = skillsDir();

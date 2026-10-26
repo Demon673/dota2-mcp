@@ -69,6 +69,13 @@ jobs:
           SEA_OUTPUT_NAME: dota2-mcp-${{ matrix.platform }}
         run: npm run package
 
+      # A packaged binary that throws at module load still uploads fine; run it before
+      # the release asset is attached. stdin EOF makes the server attach and exit.
+      - name: Smoke-test packaged executable
+        env:
+          SEA_OUTPUT_NAME: dota2-mcp-${{ matrix.platform }}
+        run: node scripts/smoke-sea-package.mjs
+
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
