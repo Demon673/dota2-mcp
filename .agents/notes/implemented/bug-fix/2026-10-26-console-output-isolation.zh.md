@@ -26,8 +26,8 @@ relay 的 `ai_disabled; <cmd>; ai_disabled` 包装原本假设 Dota 会在命令
 
 ## 后果
 
-实机抓包证明了结果：人类自己的 `echo` 行会被转发，而 status、console、Lua、bridge、API 和实体 dump 的探针以及回放的积压都不进 GUI。多会话交错已有离线覆盖：两个会话的窗口嵌套，结束标记只关闭自己的窗口。每次接入 Dota 时人类的控制台从空历史开始；引擎自己的控制台缓冲仍会记录一切，`console_gui_filter auto:false` 仍会为了调试暴露 MCP 行。连接后立刻发出的命令可能要等引擎回放完缓冲（一次实机 status 调用了 6.5 秒），但不会丢失。只要有窗口打开，这段区间里引擎的非 MCP 输出也会一起被隐藏；除长 Lua 调用外窗口都很短。
+实机抓包证明了结果：人类自己的 `echo` 行会被转发，而 status、console、Lua、bridge、API 和实体 dump 的探针以及回放的积压都不进 GUI。多会话交错有离线和实机双重覆盖：两个会话的窗口嵌套，结束标记只关闭自己的窗口；一次实机双会话运行（延迟 Lua + 同步收集命令）后，替身 GUI 抓包里只剩人类 echo 行。每次接入 Dota 时人类的控制台从空历史开始；引擎自己的控制台缓冲仍会记录一切，`console_gui_filter auto:false` 仍会为了调试暴露 MCP 行。连接后立刻发出的命令可能要等引擎回放完缓冲（一次实机 status 调用了 6.5 秒），但不会丢失。只要有窗口打开，这段区间里引擎的非 MCP 输出也会一起被隐藏；除长 Lua 调用外窗口都很短。
 
 ## 测试
 
-`scripts/test-relay.mjs` 覆盖 echo 标记窗口、多会话交错（结束标记只关闭自己的窗口）、未闭合窗口过期、异步前缀过滤、定时静默窗口和 `SHUTDOWN`。实机替身 GUI 抓包是端到端检查：用真引擎加接在 29001 的替身 GUI，status、API dump、实体 dump、Lua、`console_send`、launch、restart、Panorama 桥、VFX 预览和测试运行器的输出都没有进入 GUI，而电池前后裸命令（vconsole2 路径）的人类 echo 都在场，且替身 GUI 拆除后 Dota 存活。
+`scripts/test-relay.mjs` 覆盖 echo 标记窗口、多会话交错（结束标记只关闭自己的窗口）、未闭合窗口过期、异步前缀过滤、定时静默窗口和 `SHUTDOWN`。实机替身 GUI 抓包是端到端检查：用真引擎加接在 29001 的替身 GUI，status、API dump、实体 dump、Lua、`console_send`、launch、restart、Panorama 桥、VFX 预览和测试运行器的输出都没有进入 GUI，而电池前后裸命令（vconsole2 路径）的人类 echo 都在场，且替身 GUI 拆除后 Dota 存活。第二次实机运行由一个会话发延迟 Lua、另一个会话发同步收集命令，GUI 只收到两行人类 echo。

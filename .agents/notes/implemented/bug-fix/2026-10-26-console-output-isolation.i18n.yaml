@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/bug-fix/2026-10-26-console-output-isolation.md
-2026-10-26-console-output-isolation.md: a0f6206cefeb4be1cf0450a5c736b5670dfb67f9
-2026-10-26-console-output-isolation.zh.md: 212ba64901287bf9b47c62a525bf222417ad6783
+2026-10-26-console-output-isolation.md: 3cf7e59f2ec07c8c104518fce3ca281d504531cc
+2026-10-26-console-output-isolation.zh.md: 29b05ed4862589500ef7730520a5bb8fd487e530
