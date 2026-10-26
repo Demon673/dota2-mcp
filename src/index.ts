@@ -1026,7 +1026,7 @@ Once connected, call dota_status again.`;
 
   // Tool: 帧耗时实测（PresentMon 采样；不依赖 vconsole，采集期间不能做其它事）
   server.tool("dota_perf",
-    `Use when you need measured frame cost instead of guessed FPS — e.g. to prove what a VFX or Lua change costs by sampling before and after. Samples frame times for the requested duration and returns p50/p95/p99; first use may download its sampling tool automatically. Returns {ok:true,data:{process,duration_s,samples,p50_ms,p95_ms,p99_ms,csv_path,in_present?,baseline?},text}, or {ok:false,code,message}; pass a previous csv_path or its metrics as baseline to add current-minus-baseline deltas (positive = slower). Limits: Windows only; a capture blocks for the requested duration (default 15 s, max 600 s) and needs an elevated terminal; a missing or empty sample returns that elevation explanation. Related tools: dota_screenshot for visuals, vfx_preview and dota_run_lua for the change under test, dota_status for readiness.`,
+    `Use when you need measured frame cost instead of guessed FPS — e.g. to prove what a VFX or Lua change costs by sampling before and after. Samples frame times for the requested duration and returns p50/p95/p99; first use may download its sampling tool automatically. Returns {ok:true,data:{process,duration_s,samples,p50_ms,p95_ms,p99_ms,csv_path,in_present?,baseline?},text}, or {ok:false,code,message}; pass a previous csv_path or its metrics as baseline to add current-minus-baseline deltas (positive = slower). Limits: Windows only; a capture blocks for the requested duration (default 15 s, max 600 s) and needs an elevated terminal; an empty sample with a console open is retried once with r_always_render_all_windows (restored afterwards) because an unfocused game can stop presenting frames. Related tools: dota_screenshot for visuals, vfx_preview and dota_run_lua for the change under test, dota_status for readiness.`,
     {
       seconds: z.number().int().min(1).max(600).optional().describe("Sampling duration in seconds. Default 15."),
       process_name: z.string().optional().describe("Process executable name to sample. Default dota2.exe."),
@@ -1037,8 +1037,7 @@ Once connected, call dota_status again.`;
     },
     PERF_ANNOTATIONS,
     async ({ seconds, process_name, baseline }) => {
-      const r = await runPerf({ seconds, processName: process_name, baseline });
-      return r.ok ? ok({ data: r.data, text: r.text }) : fail(r.code, r.message);
+      return perfWithBackgroundRemedy({ seconds, processName: process_name, baseline });
     }
   );
 
@@ -1072,6 +1071,36 @@ Once connected, call dota_status again.`;
         : recordEnvelope(retry);
     } finally {
       try { await collectOutput("r_always_render_all_windows 0", { waitMs: 2500 }); } catch { /* 恢复失败不覆盖录制结果 */ }
+    }
+  }
+
+  /** dota_perf 的失焦补救：失焦游戏停止呈现时 PresentMon 收不到样本（提权警告另走明确失败）。
+   *  控制台可用时临时把 r_always_render_all_windows 设为 1 再采一次，结束后恢复原值；
+   *  控制台不可用时保持采样本身的明确失败（帧耗时工具不门控）。 */
+  async function perfWithBackgroundRemedy(opts: Parameters<typeof runPerf>[0]): Promise<ToolResult> {
+    const envelope = (r: Awaited<ReturnType<typeof runPerf>>): ToolResult =>
+      r.ok ? ok({ data: r.data, text: r.text }) : fail(r.code, r.message);
+    const first = await runPerf(opts);
+    if (first.ok || first.needsRemedy !== "no_frames") return envelope(first);
+    if (!relay.dotaConnected || !relay.guiConnected) return envelope(first);
+
+    let previous: string | null = null;
+    try {
+      const lines = await collectOutput("r_always_render_all_windows", { waitMs: 2500 });
+      const m = lines.join("\n").match(/r_always_render_all_windows\s*=\s*(true|false|1|0)\b/i);
+      if (m) previous = /^(true|1)$/i.test(m[1]) ? "1" : "0";
+    } catch { /* 查询失败就不改游戏状态 */ }
+    if (previous !== "0") return envelope(first);
+
+    try {
+      const set = await collectOutput("r_always_render_all_windows 1", { waitMs: 2500 });
+      if (set.some((l) => /unknown command/i.test(l))) return envelope(first);
+      const retry = await runPerf(opts);
+      return retry.ok
+        ? ok({ data: retry.data, text: `${retry.text} The game was not presenting frames while unfocused, so r_always_render_all_windows was set to 1 for this capture and restored to 0.` })
+        : envelope(retry);
+    } finally {
+      try { await collectOutput("r_always_render_all_windows 0", { waitMs: 2500 }); } catch { /* 恢复失败不覆盖采样结果 */ }
     }
   }
 

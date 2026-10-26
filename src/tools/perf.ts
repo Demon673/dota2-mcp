@@ -45,7 +45,9 @@ export interface PerfBaselineDelta {
 
 export type PerfOutcome =
   | { ok: true; data: PerfData; text: string }
-  | { ok: false; code: "invalid_arg" | "internal"; message: string };
+  /** needsRemedy: the capture started but produced no rows; the tool layer may retry with
+   *  r_always_render_all_windows when the game stopped presenting while unfocused. */
+  | { ok: false; code: "invalid_arg" | "internal"; message: string; needsRemedy?: "no_frames" };
 
 export interface PresentMonInfo {
   ok: boolean;
@@ -256,10 +258,13 @@ export async function runPerf(opts: PerfOptions = {}): Promise<PerfOutcome> {
   const parsed = readPerfCsv(csvPath);
   if (!parsed || parsed.between.length === 0) {
     const detail = (r.stderr || r.error?.message || "").trim().slice(0, 800);
+    // PresentMon says this explicitly when the ETW capture could not target the process.
+    const notElevated = /requires elevated privilege/i.test(detail);
     return {
       ok: false,
       code: "internal",
-      message: `PresentMon captured no samples for ${processName} in ${seconds}s. An empty or missing CSV means the ETW capture never started: PresentMon needs an elevated terminal (run the MCP server from an Administrator shell). Confirm Dota 2 is running under that process name.${detail ? ` PresentMon output: ${detail}` : ""}`,
+      message: `PresentMon captured no samples for ${processName} in ${seconds}s. If PresentMon reports missing privilege, run the MCP server from an Administrator shell (an elevated terminal is required); otherwise the game likely stopped presenting frames while unfocused — run 'r_always_render_all_windows 1', sample again, then restore it to 0 — or no process matches that name.${detail ? ` PresentMon output: ${detail}` : ""}`,
+      needsRemedy: notElevated ? undefined : "no_frames",
     };
   }
 

@@ -14,7 +14,7 @@
 - **`dota2-vfx` 增加光环配方**：“Recipe: Persistent buff/debuff aura” 覆盖用 `PATTACH_ABSORIGIN_FOLLOW` 代替自己管理控制点、逐粒子淡入淡出让循环看起来像呼吸、`DestroyParticle` 即时截断与自然淡出的取舍，以及单个资产无法按队伍染色时颜色该放在哪里。配方同时带上 `LinkLuaModifier` 接线，并用真实 modifier 验证了创建、时长到期和移除三种情况下画面都会清干净。
 - **`vfx_preview` 会说明粒子到底能不能被画出来**：它先把路径解析为 addon 资产，再扫 addon 的 `scripts/vscripts` 找是否有 `PrecacheResource` 声明了这个路径。没声明的资产会返回 `precache: MISSING` 以及需要补的那一行，而不是给出一份看起来成功、实际什么都不画的预览结果；引擎自带资产则说明它从游戏自己的包里加载。
 - **`dota_record`**：录制游戏窗口（Windows.Graphics.Capture，窗口被遮挡或失焦也能录）为 MP4，返回路径、时长、帧率与实际编码尺寸。默认 12 fps，上限 30。当 Windows 对失焦窗口停止出帧时，工具会在控制台可用时自动设 `r_always_render_all_windows 1`、重试一次并还原；没有控制台时直接给出补救方法。窗口最小化会明确失败。
-- **`dota_perf`**：用固定版本的 PresentMon（首次使用时下载并做 sha256 校验）采集帧时间，返回 p50/p95/p99、样本数与采集时长；`baseline` 可对比两次采集。PresentMon 需要管理员终端——没有提权时工具会说明这一点，而不是返回空采样。
+- **`dota_perf`**：用固定版本的 PresentMon（首次使用时下载并做 sha256 校验）采集帧时间，返回 p50/p95/p99、样本数与采集时长；`baseline` 可对比两次采集。PresentMon 需要管理员终端——没有提权时工具会说明这一点，而不是返回空采样。失焦游戏可能停止呈现新帧；控制台可用时空采样会自动用 `r_always_render_all_windows` 重试一次（随后恢复原值）。
 - **`dota_test_run`**：在真实游戏里执行 `scripts/vscripts/tests/<name>.lua` 的断言测试。每条测试走独立控制台语句，单条失败不中断其余；挂起的测试按单条与整体两级预算限时。返回结构化的 `{name,status,detail}` 与 pass/fail/timeout 计数。
 
 ### 变更

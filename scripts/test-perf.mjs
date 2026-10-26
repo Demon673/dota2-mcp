@@ -130,6 +130,19 @@ try {
   const emptyRun = await runPerf({ seconds: 5 });
   assert(!emptyRun.ok && emptyRun.code === "internal" && emptyRun.message.includes("elevated terminal"),
     "empty CSV reports the elevated-terminal requirement: " + JSON.stringify(emptyRun));
+  assert(emptyRun.needsRemedy === "no_frames",
+    "empty CSV without a privilege warning carries the no-frames remedy for the tool layer: " + JSON.stringify(emptyRun));
+
+  // 6b. 提权警告（PresentMon 明确说无法定位进程）——不能触发失焦重试
+  const warn = path.join(work, "warn-presentmon.mjs");
+  writeFileSync(warn, [
+    'process.stderr.write("warning: PresentMon requires elevated privilege in order to target processes\\n");',
+    'process.exit(0);',
+  ].join("\n"));
+  process.env.DOTA2_PRESENTMON = warn;
+  const warnRun = await runPerf({ seconds: 5 });
+  assert(!warnRun.ok && warnRun.needsRemedy === undefined && warnRun.message.includes("elevated privilege"),
+    "a privilege warning keeps the explicit failure and skips the unfocused retry: " + JSON.stringify(warnRun));
 
   // 7. CSV 完全缺失（PresentMon 提前失败）
   const noCsv = path.join(work, "no-csv-presentmon.mjs");

@@ -24,7 +24,7 @@ Status: implemented
 新增三个工具，同样遵守契约：
 
 - `dota_record` 通过 Windows.Graphics.Capture 捕获**窗口**而不是桌面区域：屏幕裁切会把游戏前面的东西录进去，这是活体验收实测到的。它复用既有截图助手采集、用 ffmpeg 编码；当失焦的游戏停止出帧时，它会向已连接的控制台请求 `r_always_render_all_windows 1`、重试一次并还原原值。
-- `dota_perf` 封装固定版本、经 sha256 校验的 PresentMon，输出 p50/p95/p99 并支持基线对比。PresentMon 需要管理员终端；工具会直接说明，而不是返回空采样。
+- `dota_perf` 封装固定版本、经 sha256 校验的 PresentMon，输出 p50/p95/p99 并支持基线对比。PresentMon 需要管理员终端；工具会直接说明，而不是返回空采样。失焦游戏可能停止呈现新帧，所以控制台可用时空采样会自动用 `r_always_render_all_windows` 重试一次（随后恢复原值）。
 - `dota_test_run` 在引擎内加载 `scripts/vscripts/tests/<name>.lua`，每条测试走独立控制台语句，因此单条失败不中断其余，挂起由单条与整体两级预算兜住。
 
 ## Alternatives considered
@@ -44,4 +44,4 @@ Status: implemented
 
 接受的代价：游标随 MCP 会话存在，会话重启即重置，而且会话只能看到自己接入之后产生的输出（daemon 不重放历史）。多行 `console_send` 现在合成一条语句，因此会断开连接的命令（`disconnect`）要等收集超时并返回部分窗口、不推进游标——描述里写明了这一点。`dota_record` 在大窗口上跑高帧率时，因为助手内联编码 PNG 可能跟不上实时。
 
-换来的：重复读取不再重复，漏读以 `dropped` 如实报告，失败可按 code 分支，每个工具都标明风险，以及三项此前做不到的检查——运动证据、帧开销实测、游戏内断言——现在都存在。活体验收在一局运行中的游戏上覆盖了能力矩阵、游标/回显读取、Lua 通道、带 precache 判定的预览、后台窗口录制（抽帧确认是游戏窗口而不是前台应用）、PresentMon 的提权错误，以及一个真实测试文件返回的 pass/fail/继续执行。
+换来的：重复读取不再重复，漏读以 `dropped` 如实报告，失败可按 code 分支，每个工具都标明风险，以及三项此前做不到的检查——运动证据、帧开销实测、游戏内断言——现在都存在。活体验收在一局运行中的游戏上覆盖了能力矩阵、游标/回显读取、Lua 通道、带 precache 判定的预览、后台窗口录制（抽帧确认是游戏窗口而不是前台应用）、一次帧耗时采集（失焦游戏经自动 `r_always_render_all_windows` 重试后拿到 p50/p95/p99）与 PresentMon 的提权错误，以及一个真实测试文件返回的 pass/fail/继续执行。
