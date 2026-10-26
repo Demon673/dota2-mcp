@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -63,6 +65,7 @@ jobs:
           node scripts/test-panorama-bridge.mjs
           node scripts/test-input.mjs
           node scripts/test-mcp-stdin-exit.mjs
+          node scripts/verify-changelog-tags.mjs
 
       - name: Package
         env:

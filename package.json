@@ -41,7 +41,8 @@
     "install-lefthook": "node scripts/install-lefthook.mjs",
     "verify-doc-budgets": "node scripts/verify-doc-budgets.mjs",
     "check-vrf-version": "node scripts/check-vrf-version.mjs",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "verify-changelog-tags": "node scripts/verify-changelog-tags.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

@@ -19,6 +19,7 @@ npm run check         # Type check + version-consistency check
 npm run sync-version  # Sync version numbers across the repo from package.json (--check validates without modifying)
 npm run verify-pairs  # Bilingual pairing gate (--write re-records pairs)
 npm run verify-doc-budgets  # Doc word-budget gate (manifest ceilings)
+npm run verify-changelog-tags  # Changelog ↔ version tag/date gate
 npm run check-vrf-version   # Report whether the pinned VRF release is still the latest (--write moves the pin)
 npm run install-lefthook    # Register pre-commit jobs
 npm run dev           # tsc --watch incremental compilation
@@ -269,7 +270,7 @@ Client → server command type: `CMND` (null-terminated UTF-8).
 - **WSL environment**: tool directories are probed by existence (a win64 hit means a Windows install), argument paths are auto-converted to Windows format, and the VRF CLI needs the invariant globalization env. When a leftover daemon causes port conflicts, kill the node/relay processes — the next session's startup self-heals stale lock/pid state (`livePid`); don't delete `relay.token` while the daemon is alive
 - Many API dump tools need the map to be loaded; calling them too early may return empty results
 - **Dota's VConsole socket teardown can fatal-error (10038)** when the relay's Dota socket closes with unread data or mid-send: vconcomm's recv/send close paths race, and a second `shutdown` on a closed handle calls `Plat_FatalError`. Teardown waits for ~300 ms of output quiet, half-closes, drains, and exposes `SHUTDOWN` on the control port; force-killing the daemon stays unsafe. See the [note](.agents/notes/implemented/bug-fix/2026-10-26-vconsole-socket-shutdown-fatal.md)
-- **`dota_perf` needs an elevated terminal** (measured: PresentMon writes no CSV without it, and reports that it cannot target processes). The tool returns an explicit error naming the remedy; start the MCP server from an Administrator shell to get samples. An unfocused game's empty sample is retried once with `r_always_render_all_windows` (restored) when a console is connected
+- **`dota_perf` needs an elevated terminal** (PresentMon writes no CSV and cannot target processes without one); it returns an explicit error. An unfocused game's empty sample is retried once with `r_always_render_all_windows` (restored) when a console is connected.
 - **`dota_record` records the window, not the screen** (Windows.Graphics.Capture). An unfocused game stops presenting frames until `r_always_render_all_windows 1`; the tool sets and restores that cvar when a console is connected, otherwise it returns the remedy. A minimized window is a hard failure, and inline PNG encoding can fall behind above ~20 fps on very large windows
 
 ## References
@@ -320,7 +321,7 @@ Editing the English side of a paired document requires updating the Chinese coun
 
 | Location | skill | Description |
 |------|-------|------|
-| Global `~/.agents/skills/` (the maintainer's user-level directory) | `doc-standards`, `prose-standard`, `trim-cot-leakage`, `translate-docs`, `archive-agent-notes`, `code-review` | General maintenance skills; a bare reference in the repo to "the global X skill" points at this directory |
+| Global `~/.agents/skills/` (the maintainer's user-level directory) | `doc-standards`, `prose-standard`, `trim-cot-leakage`, `translate-docs`, `archive-agent-notes`, `code-review`, `release` | Maintenance skills; a bare reference in the repo to "the global X skill" points at this directory |
 
 ## TODO — Roadmap
 

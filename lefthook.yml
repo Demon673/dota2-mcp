@@ -19,5 +19,9 @@ pre-commit:
     - name: archived agent notes (frozen)
       run: node scripts/verify-archived-agent-notes.mjs
 
+    - name: changelog tags
+      glob: 'CHANGELOG.md'
+      run: node scripts/verify-changelog-tags.mjs
+
     - name: whitespace (staged)
       run: git diff --cached --check
