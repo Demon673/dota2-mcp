@@ -123,11 +123,11 @@ Every tool now returns one shape: `{"ok":true, ...}` with a `lines`, `text` or `
 ### Fixed
 
 - **A late-opened vconsole was empty**: the server now replays the startup data, so the window works as soon as it opens.
-- **A dead connection was never detected**: a silent liveness probe now declares and reconnects after 20 s.
+- **A dead connection was never detected**: a silent echo probe is sent after 15 s of silence, and the connection is declared dead after 20 s without a response.
 - **The server idled out while Dota was running**: it stays alive while the game runs.
 - **GUI state changes were invisible to MCP in daemon mode**: state changes now broadcast immediately.
 - **Duplicate reconnect timers**: reconnects use one timer.
-- **A healthy engine could be killed during Dota startup**: zombie detection now uses the liveness probe only.
+- **A healthy engine could be killed during Dota startup**: zombie detection now uses the liveness probe only (about 35 s, with no false kills).
 - **Map loading was misreported as stuck**: loading skips the stuck check, and a real timeout still reports ResourceSystem errors.
 
 ## 1.3.2 (2026-07-20)
