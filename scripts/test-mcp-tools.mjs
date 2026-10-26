@@ -55,6 +55,9 @@ await smoke("console_help", { command: "dota_launch_custom_game" });
 // GUI filter toggle
 await smoke("console_gui_filter", { auto: false });
 await smoke("console_gui_filter", { auto: true });
+// 恢复写是 daemon 侧的共享状态；进程立即退出会把 SETMCPSUPPRESS:1 丢在 socket 里，
+// 之后所有会话的 GUI 屏蔽都会停在关闭态。
+await sleep(500);
 
 kill();
 

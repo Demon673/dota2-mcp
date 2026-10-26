@@ -30,4 +30,4 @@ relay 的 `ai_disabled; <cmd>; ai_disabled` 包装原本假设 Dota 会在命令
 
 ## 测试
 
-`scripts/test-relay.mjs` 覆盖 echo 标记窗口、多会话交错（结束标记只关闭自己的窗口）、未闭合窗口过期、异步前缀过滤、定时静默窗口和 `SHUTDOWN`。实机替身 GUI 抓包是端到端检查：`dota_api_lua`、`dota_dump_entities`、`console_send`、`dota_run_lua` 和 `panorama_exec_js` 的探针全部缺席，而人类 echo 在场。
+`scripts/test-relay.mjs` 覆盖 echo 标记窗口、多会话交错（结束标记只关闭自己的窗口）、未闭合窗口过期、异步前缀过滤、定时静默窗口和 `SHUTDOWN`。实机替身 GUI 抓包是端到端检查：用真引擎加接在 29001 的替身 GUI，status、API dump、实体 dump、Lua、`console_send`、launch、restart、Panorama 桥、VFX 预览和测试运行器的输出都没有进入 GUI，而电池前后裸命令（vconsole2 路径）的人类 echo 都在场，且替身 GUI 拆除后 Dota 存活。

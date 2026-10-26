@@ -30,4 +30,4 @@ A live capture proves the result: the human's own `echo` line is forwarded, whil
 
 ## Testing
 
-`scripts/test-relay.mjs` covers the echo-marker window, the multi-session interleave (an end marker only closes its own window), the unclosed-window expiry, async prefix filtering, timed holds and `SHUTDOWN`. The live fake-GUI capture is the end-to-end check: `dota_api_lua`, `dota_dump_entities`, `console_send`, `dota_run_lua` and `panorama_exec_js` probes were absent while the human echo was present.
+`scripts/test-relay.mjs` covers the echo-marker window, the multi-session interleave (an end marker only closes its own window), the unclosed-window expiry, async prefix filtering, timed holds and `SHUTDOWN`. The live fake-GUI capture is the end-to-end check: with the real engine and a stand-in GUI on 29001, output from status, API dumps, entity dumps, Lua, `console_send`, launch, restart, the Panorama bridge, VFX preview and the test runner never reached the GUI, while bare-CMND human echo lines before and after the battery did, and Dota survived the stand-in GUI teardown.

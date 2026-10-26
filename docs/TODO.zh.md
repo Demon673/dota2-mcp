@@ -34,9 +34,10 @@
 遵循[通过调试器控制 Panorama UI](../.agents/notes/proposed/feature/2026-10-26-panorama-ui-control.md)。
 
 - [x] **Panorama 桥生命周期核心（2026-10-26）：** `panorama_exec_js` 已在 addon content 临时动态 HUD 桥上实现：两份源文件复制进 addon content，按需编译，用 `CustomUI:DynamicHud_Create` 加载，经 `RunScriptInPanelContext` 执行，ping 成功后删除；守护进程持有 token/状态和 ping/started/done ack 协议，桥可幂等复用。桥还提供几何、世界/光标、选择、镜头和单位命令 helper，以及后台事件 helper（`MCP.on`/`emit`/`dispatch`）。活体验证：`1+1=2`；长分块代码 `42`；`MCP.context()` 父链/全局探针；从 `DotaHud` 的全局选择器（`MCP.top/select/$`）；探针 panel 创建/删除；`MCP.text/visible/cls/style/snap` 往返；语义 helper 冒烟；地图重载后 `rebuilt:true`；通过记录的 element id 清理旧 generation HUD；content junction 仓库未变。
-- [ ] **加固 Panorama 桥剩余生命周期：** 清扫失败供给、实测完整 Dota 进程重启/缓存清空，并补齐完整活体矩阵。
+- [ ] **加固 Panorama 桥剩余生命周期：** 清扫失败供给、实测完整 Dota 进程重启/缓存清空，并补齐完整活体矩阵。从主菜单发起供给会返回 `bridge_compile_failed`（地图加载前 addon content 未挂载）；游戏内供给正常。
 - [x] **MCP 输出与 vconsole2 GUI 的隔离（2026-10-26）：** 真正的边界是输出收集的 echo 标记对（`__mcp_<hash>_begin/end`）：relay 按标记 id 维护开放窗口集合（匹配的 end 只关闭自己的窗口，并发会话互不干扰；未闭合窗口 15 秒后过期），Lua 路径在延迟执行完才打印结束标记，异步 MCP 前缀继续过滤，直接命令使用定时静默窗口，连接时丢弃引擎回放的控制台积压。实机替身 GUI 抓包显示人类自己的 echo 在场，而 status/console/Lua/bridge/API/实体探针都没有出现。见[隔离笔记](../.agents/notes/implemented/bug-fix/2026-10-26-console-output-isolation.md)。
-- [ ] **补齐隔离的实机覆盖：** VFX 预览、游戏内测试运行器，以及 launch/restart 的静默窗口。多会话交错和未闭合窗口过期已由 `scripts/test-relay.mjs` 离线覆盖，实机双会话运行仍待补。
+- [x] **隔离的实机覆盖（2026-10-26）：** 替身 GUI 接在 29001 抓原始流，同时用 MCP 工具打真引擎——status、`dota_api_lua`、`dota_dump_entities`、`dota_run_lua`、`console_send`、`dota_disconnect` → `dota_launch_game`、`panorama_exec_js`、`vfx_preview`/stop、`dota_test_run` 和 `dota_restart`。裸命令（vconsole2 路径）的人类 echo 在电池前后都可见；所有 MCP 探针签名缺席；替身 GUI 拆除后 Dota 存活。
+- [ ] **补一次实机双会话交错。** 两个 MCP 会话同时发收集命令，用替身 GUI 证明任何一方的结束标记都关不掉另一方的窗口。窗口集合与过期逻辑已由 `scripts/test-relay.mjs` 离线覆盖。
 - [ ] **决定 Panorama 的多根访问方案。** 桥只覆盖 HUD 顶层窗口：`DotaHud.GetParent()` 为 null，从桥里调用 `RunScriptInPanelContext` 会因 domain 被拒绝，活体 JS API 也没有根面板访问器，所以同级的其他顶层窗口（dashboard/调试器）无法按 id 选择。需要在调试器辅助的按 root 上下文桥和接受 HUD 边界之间做决定，并用一个具体的同级 id 验证。
 - [ ] **评估可用的控制台诊断作为只读工具。** `panorama_dump_symbols 0|1`（事件与文件符号表）和 `panorama_print_cache_status`（布局引用计数）在活体可用；`panorama_print_render_tree` 对 `*` 和具名根都没有输出；`panorama_dispatch_event` 现在可用 `EventName(args...)` 语法（`CreateDebuggerWindow()` 不需要热键或游戏前台就能打开调试器；`TextEntrySetText` 仍需要 creating panel）。
 - [x] **在任何交互工具之前先定下焦点接管契约。** `dota_input` 默认让游戏保持前台，恢复光标，并把 `restore_focus` 作为可选项；还原时以不激活方式重新显示被隐藏的游戏窗口。`-tools` 模式实测：Dota 失焦会隐藏游戏窗口，所以保持游戏前台才是可用的默认值。
