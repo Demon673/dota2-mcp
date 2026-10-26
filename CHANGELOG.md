@@ -16,10 +16,12 @@ English | [中文](CHANGELOG.zh.md)
 - **`dota_record`**: records the game window (Windows.Graphics.Capture, so an occluded or unfocused game records correctly) to an MP4 and returns path, duration, fps and encoded size. Default 12 fps, capped at 30. When Windows stops presenting frames of an unfocused window, the tool asks the connected console for `r_always_render_all_windows 1`, retries once and restores the value; without a console it fails with the remedy. A minimized window fails explicitly.
 - **`dota_perf`**: captures frame times with a pinned PresentMon release (downloaded and sha256-verified on first use) and returns p50/p95/p99 with the sample count and duration; a `baseline` lets two runs be compared. PresentMon needs an elevated terminal — without one the tool explains that rather than returning an empty sample. An unfocused game can stop presenting frames; an empty sample with a console open is retried once with `r_always_render_all_windows` (restored afterwards).
 - **`dota_test_run`**: runs assertion tests from `scripts/vscripts/tests/<name>.lua` inside the real game. Each test runs in its own console statement, so one failure does not stop the rest, and a hanging test is bounded per test and per run. Returns structured `{name,status,detail}` rows with pass/fail/timeout counts.
+- **`panorama_exec_js`**: runs JavaScript in a transient dynamic HUD bridge so an agent can inspect and drive the client UI without editing the addon. The bridge layout and script are copied into the addon content, compiled on demand, loaded through `CustomUI:DynamicHud_Create`, executed through `RunScriptInPanelContext`, and deleted after a successful ping; the daemon owns the token, generation and started/done ack protocol and reuses a live bridge. It provides panel discovery and search, geometry, world/cursor conversion, game state and background events. It covers the HUD top-level window; dashboard and debugger roots have separate JavaScript contexts. A map reload rebuilds the HUD, and concurrent MCP sessions share one bridge.
+- **`dota_input`**: sends real OS mouse and keyboard input into the game window — move/click/down/up/drag/wheel, key press/down/up and Unicode text — in client-area pixels with bounds rejection before any input. `window_info` reports window geometry and foreground state without sending input. The game stays foreground by default (`-tools` mode hides the game when it loses focus) and the previous foreground window is restored only with `restore_focus:true`. Windows only.
 
 ### Changed
 
-Every tool now returns one contract shape: `{"ok":true, ...}` with a `lines`, `text` or `data` payload, or `{"ok":false, "code": "...", "message": "..."}` with `isError`. All 36 tools carry the four MCP annotations, and every description states when to use it, what it does, what it returns, its limits and related tools. Tool names are unchanged; old parameter names keep working as aliases for this release.
+Every tool now returns one contract shape: `{"ok":true, ...}` with a `lines`, `text` or `data` payload, or `{"ok":false, "code": "...", "message": "..."}` with `isError`. All 38 tools carry the four MCP annotations, and every description states when to use it, what it does, what it returns, its limits and related tools. Tool names are unchanged; old parameter names keep working as aliases for this release.
 
 | Area | Before 2.0 | 2.0 |
 |---|---|---|
@@ -55,12 +57,13 @@ Every tool now returns one contract shape: `{"ok":true, ...}` with a `lines`, `t
 - **FileOps path boundary bypass via `addon`**: addon names that are `.`/`..` or contain `/`, `\` or `:` are rejected. All FileOps and asset tools share one addon resolver.
 - **Non-ASCII console text**: VConsole2 output and commands are UTF-8, so Chinese `print` output and non-ASCII Lua survive.
 - **Stale game state**: `dota_status` / `dota_launch_game` no longer fall back to an old `status_json` from the log when the query gets no answer.
-- **Tool results mixed with other output**: console tools keep only the lines between per-call begin/end echo markers, isolating other sessions and game prints.
+- **Tool results mixed with other output**: console tools keep only the lines between per-call begin/end echo markers, isolating other sessions and game prints. Each marker pair opens and closes only its own window (an unclosed window expires after 15 s), so concurrent sessions cannot cut each other's output.
 - **Local fallback relay had no auth on :29002**: it now requires the same token handshake as the daemon.
 - **Offline daemon tests corrupted live daemon state**: they use an isolated `DOTA2_VCON_STATE_DIR` instead of deleting the real relay token, pid, and lock files.
 - **VRF failures reported as success**: `asset_inspect` and `asset_check_refs` return an error when the CLI fails or the root asset cannot be decompiled.
 - **`dota_launch_game`** launches the requested map even when a different map is already loaded.
 - **vconsole reconnect**: a superseded GUI socket no longer drops the live connection. Toggling MCP suppression mid-command no longer mutes the GUI.
+- **Closing the relay's Dota socket could fatal-error Dota (10038)**: with unread data pending or a send in flight, the engine's socket close path hit `Plat_FatalError`. Teardown now waits for about 300 ms of output quiet, half-closes and drains, and the control port exposes `SHUTDOWN` for a clean daemon stop.
 - **Linux/macOS Steam detection**: default Steam roots are resolved from the home directory (`~` was never expanded).
 - **Packaging**: `prepack` compiles before packing.
 

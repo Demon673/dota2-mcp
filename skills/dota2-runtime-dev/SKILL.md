@@ -79,16 +79,36 @@ KV are the exception, not the rule; when unsure, ask before editing KV.
 
 - dota_status — entry point: connection, vconsole, addon, map state, next step
   (never throws; if it reports vconsole closed, open it first).
-- dota_open_vconsole / dota_launch_game / dota_restart / dota_disconnect —
-  window & map control (restart is for load-only changes or clean runs, NOT
-  for routine code edits). dota_launch_game waits until GAME_IN_PROGRESS and,
-  if the game gets stuck in a phase, tells you how to advance it.
+- dota_open_vconsole / dota_launch_game / dota_advance_to_game / dota_restart /
+  dota_disconnect — window & map control (restart is for load-only changes or
+  clean runs, NOT for routine code edits). dota_launch_game waits for
+  GAME_IN_PROGRESS and returns advancement guidance if the game stays stuck;
+  dota_advance_to_game takes any loaded pre-game phase the rest of the way and
+  requires `sv_cheats=1`.
 - console_send — send console commands (e.g. `reload_script`, cheats, cvars).
 - console_output — read console output; level 3 + channel VScript for Lua errors.
+- console_find / console_help / console_channels — discover console commands,
+  read one command's help, and list VCon channels.
+- console_gui_filter — show or hide MCP output in the vconsole2 GUI (hidden by default).
 - dota_run_lua — run server Lua live to verify behavior / reproduce a bug (requires `sv_cheats=1`).
+- dota_test_run — run assertion tests from `scripts/vscripts/tests/<name>.lua` in the live game.
 - dota_dump_entities / dota_dump_modifiers / dota_entity_inspect — inspect live state.
 - dota_api_lua / dota_api_panorama_js / dota_api_css / dota_api_events / dota_api_help
   — query live engine APIs instead of guessing signatures.
+- panorama_exec_js — inspect and drive the HUD from JavaScript (panel lookup,
+  geometry, game state, background events) without editing the addon; it covers
+  the HUD top-level window only.
+- dota_screenshot / dota_record — capture the game window as an image or MP4 for
+  visual verification, including while the game is unfocused.
+- dota_perf — sample frame times when a change might affect performance.
+- dota_input — send real OS mouse/keyboard input when a control only responds to
+  actual input (try panorama_exec_js background events first).
+- file_read / file_write / file_edit / file_delete — offline, addon-scoped file
+  operations; prefer them when editing inside the addon.
+- dota_compile_asset / asset_inspect / asset_check_refs / vrf_ensure and
+  vfx_preview / vfx_preview_stop — resource pipeline and particle preview; see
+  the dota2-vfx and dota2-model skills.
+- dota2_skill — read the bundled skills and their data files.
 
 CONTRACT: console-class tools require an open vconsole attached to
 127.0.0.1:29001; if one reports "vconsole 未打开", call dota_open_vconsole.

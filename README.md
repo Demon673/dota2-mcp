@@ -10,7 +10,10 @@ Connect your AI assistant directly to your Dota 2 client to help with custom gam
 - Query the Lua / Panorama JS / CSS / event APIs
 - Launch, reload, and disconnect custom game maps
 - Inspect entities, modifiers, and entity scripts in the current scene
-- Compile Source 2 assets
+- Inspect and drive the Panorama UI, including real mouse/keyboard input
+- Capture screenshots, record video, and measure frame times
+- Run in-game assertion tests
+- Compile, inspect, and validate Source 2 assets
 
 No manual copy-paste of console output — the AI pulls live information straight from the game.
 
@@ -141,6 +144,8 @@ Installation has two paths; pick whichever you prefer:
 |------|------|
 | `dota_status` | Get connection, vconsole, addon, map, and game status plus next-step suggestions. Call this first. |
 | `dota_screenshot` | Capture the Dota 2 game window in the background (needs no console; Windows only). Returns the game viewport with `stale` and `captured_at` when the image is an older cached frame, so a hang need not leave you without any image. After the helper is ready, each call has a 5 s total deadline; cold compilation is separate. |
+| `dota_record` | Record the game window to MP4, including while it is occluded or unfocused (Windows only; ffmpeg required). |
+| `dota_perf` | Sample frame times for a few seconds and return p50/p95/p99 with an optional baseline (Windows only; needs an elevated terminal). |
 | `dota_input` | Send real mouse/keyboard input to the game window (click, hover, drag, wheel, keys, Unicode text); Windows only, coordinates are client-area pixels. |
 | `dota_open_vconsole` | Open the vconsole2 window (console-class tools need it open). |
 | `dota_launch_game` | Launch a custom game map (waits to enter the match; returns the phase and how to advance when stuck). |
@@ -159,6 +164,8 @@ Installation has two paths; pick whichever you prefer:
 | `dota_api_events` | Query Panorama events. |
 | `dota_api_help` | Inspect a Lua class/scope (global functions use `dota_api_lua`). |
 | `dota_run_lua` | Execute server Lua in the running game (requires `sv_cheats=1`). |
+| `panorama_exec_js` | Run JavaScript in a transient Panorama bridge context with panel, geometry, game-state and event helpers. |
+| `dota_test_run` | Run in-game assertion tests from `scripts/vscripts/tests/<name>.lua` and return per-test pass/fail/timeout rows. |
 | `dota_dump_entities` | List entities in the current scene (optional substring filter). |
 | `dota_dump_modifiers` | List active server modifiers by default, or registered client types (optional substring filter). |
 | `dota_entity_inspect` | Inspect an entity's Lua scope. |

@@ -10,7 +10,10 @@
 - 查询 Lua / Panorama JS / CSS / 事件 API
 - 启动、重载、断开自定义游戏地图
 - 查看当前场景中的实体、修饰器、实体脚本
-- 编译 Source 2 资源
+- 检视并操作 Panorama UI，包括真实的鼠标/键盘输入
+- 截图、录制视频并采集帧时间
+- 运行游戏内断言测试
+- 编译、检查并校验 Source 2 资源
 
 无需手动复制粘贴控制台输出，AI 可以直接从游戏里拿到实时信息。
 
@@ -141,6 +144,8 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 |------|------|
 | `dota_status` | 获取连接、vconsole、addon、地图、游戏状态与下一步建议。建议先调用。 |
 | `dota_screenshot` | 在后台截取 Dota 2 游戏窗口画面（不需要控制台；仅 Windows）。旧缓存帧会带 `stale` 和 `captured_at`，因此游戏卡死后仍可能取得此前画面。helper 就绪后，每次调用共享 5 秒总超时；冷编译单独计算。 |
+| `dota_record` | 把游戏窗口录制为 MP4（窗口被遮挡或失焦也能录；仅 Windows，需要 ffmpeg）。 |
+| `dota_perf` | 采集数秒的帧时间，返回 p50/p95/p99，可选基线对比（仅 Windows，需要管理员终端）。 |
 | `dota_input` | 向游戏窗口发送真实鼠标/键盘输入（点击、悬停、拖拽、滚轮、按键、Unicode 文本）；仅 Windows，坐标为客户区像素。 |
 | `dota_open_vconsole` | 打开 vconsole2 窗口（控制台类工具需要它已打开）。 |
 | `dota_launch_game` | 启动自定义游戏地图（等待进入对局；卡住时返回相位与推进方法）。 |
@@ -159,6 +164,8 @@ Dota 2 默认只允许一个 VConsole2 客户端连接 `127.0.0.1:29000`。`dota
 | `dota_api_events` | 查询 Panorama 事件。 |
 | `dota_api_help` | 查看 Lua class/作用域（全局函数使用 `dota_api_lua`）。 |
 | `dota_run_lua` | 在运行中的游戏里执行服务端 Lua（需要 `sv_cheats=1`）。 |
+| `panorama_exec_js` | 在临时 Panorama 桥上下文里执行 JavaScript，提供面板、几何、游戏状态与事件 helper。 |
+| `dota_test_run` | 运行 `scripts/vscripts/tests/<name>.lua` 的游戏内断言测试，返回逐条 pass/fail/timeout。 |
 | `dota_dump_entities` | 列出当前场景实体（可选子串过滤）。 |
 | `dota_dump_modifiers` | 默认列出服务端生效的 modifier，也可列出客户端注册类型（可选子串过滤）。 |
 | `dota_entity_inspect` | 查看实体 Lua 作用域。 |

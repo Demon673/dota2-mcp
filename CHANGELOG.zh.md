@@ -16,10 +16,12 @@
 - **`dota_record`**：录制游戏窗口（Windows.Graphics.Capture，窗口被遮挡或失焦也能录）为 MP4，返回路径、时长、帧率与实际编码尺寸。默认 12 fps，上限 30。当 Windows 对失焦窗口停止出帧时，工具会在控制台可用时自动设 `r_always_render_all_windows 1`、重试一次并还原；没有控制台时直接给出补救方法。窗口最小化会明确失败。
 - **`dota_perf`**：用固定版本的 PresentMon（首次使用时下载并做 sha256 校验）采集帧时间，返回 p50/p95/p99、样本数与采集时长；`baseline` 可对比两次采集。PresentMon 需要管理员终端——没有提权时工具会说明这一点，而不是返回空采样。失焦游戏可能停止呈现新帧；控制台可用时空采样会自动用 `r_always_render_all_windows` 重试一次（随后恢复原值）。
 - **`dota_test_run`**：在真实游戏里执行 `scripts/vscripts/tests/<name>.lua` 的断言测试。每条测试走独立控制台语句，单条失败不中断其余；挂起的测试按单条与整体两级预算限时。返回结构化的 `{name,status,detail}` 与 pass/fail/timeout 计数。
+- **`panorama_exec_js`**：在临时的动态 HUD 桥里执行 JavaScript，让 agent 不改 addon 就能检视和操作客户端 UI。桥的布局与脚本会复制进 addon content、按需编译、经 `CustomUI:DynamicHud_Create` 加载、通过 `RunScriptInPanelContext` 执行，并在 ping 成功后删除；守护进程持有 token、generation 与 started/done ack 协议，并复用存活的桥。它提供面板发现与搜索、几何、世界与光标转换、游戏状态和后台事件。覆盖范围是 HUD 顶层窗口；dashboard 与调试器根有独立的 JavaScript 上下文。地图重载会重建 HUD，多个 MCP 会话共享同一座桥。
+- **`dota_input`**：向游戏窗口发送真实的 OS 鼠标与键盘输入——move/click/down/up/drag/wheel、key press/down/up 与 Unicode 文本——使用客户区像素坐标，越界坐标在发送前就被拒绝。`window_info` 只读取窗口几何和前台状态，不发送输入。默认让游戏保持前台（`-tools` 模式下失焦会隐藏游戏窗口），只有 `restore_focus:true` 才还原前一个前台窗口。仅支持 Windows。
 
 ### 变更
 
-所有工具现在返回同一种契约形状：成功为 `{"ok":true, ...}`，载荷为 `lines`、`text` 或 `data` 之一；失败为 `{"ok":false, "code": "...", "message": "..."}` 且 `isError`。36 个工具全部带四类 MCP annotations，每条描述都写明何时使用、做什么、返回什么、上限与相关工具。工具名保持不变；旧参数名在本版本内继续作为别名可用。
+所有工具现在返回同一种契约形状：成功为 `{"ok":true, ...}`，载荷为 `lines`、`text` 或 `data` 之一；失败为 `{"ok":false, "code": "...", "message": "..."}` 且 `isError`。38 个工具全部带四类 MCP annotations，每条描述都写明何时使用、做什么、返回什么、上限与相关工具。工具名保持不变；旧参数名在本版本内继续作为别名可用。
 
 | 范围 | 2.0 之前 | 2.0 |
 |---|---|---|
@@ -55,12 +57,13 @@
 - **借 `addon` 绕过 FileOps 路径边界**：`.`/`..` 或含 `/`、`\`、`:` 的 addon 名会被拒绝。所有 FileOps 与资产工具共用同一个 addon 解析入口。
 - **非 ASCII 控制台文本**：VConsole2 输出与命令改为 UTF-8，中文 `print` 输出和非 ASCII Lua 不再乱码。
 - **过期游戏状态**：查询没有回应时，`dota_status` / `dota_launch_game` 不再回落到日志里旧的 `status_json`。
-- **工具结果混入其他输出**：控制台类工具只保留每次调用的 begin/end 回显标记之间的行，隔离其他会话与游戏自身的打印。
+- **工具结果混入其他输出**：控制台类工具只保留每次调用的 begin/end 回显标记之间的行，隔离其他会话与游戏自身的打印。每个标记对只开关自己的窗口（未闭合窗口 15 秒后过期），并发会话不会互相截断输出。
 - **本地降级 relay 的 :29002 无认证**：现在执行与守护进程相同的 token 握手。
 - **离线守护进程测试破坏活体状态**：改用独立的 `DOTA2_VCON_STATE_DIR`，不再删除真实的 relay token、pid 和锁文件。
 - **VRF 失败被报告为成功**：CLI 失败或根资产无法反编译时，`asset_inspect` 与 `asset_check_refs` 返回错误。
 - **`dota_launch_game`** 在已加载其他地图时也会启动请求的地图。
 - **vconsole 重连**：被取代的 GUI socket 不再断掉在线连接；命令执行中途切换 MCP 屏蔽不再让 GUI 静默。
+- **关闭 relay 的 Dota socket 可能让 Dota 致命报错（10038）**：有未读数据或发送未完成时，引擎的 socket 关闭路径会触发 `Plat_FatalError`。现在的拆除流程会先等待约 300 毫秒输出安静、半关闭并排空，控制端口提供 `SHUTDOWN` 以便干净地停止守护进程。
 - **Linux/macOS Steam 检测**：默认 Steam 根目录从用户主目录解析（`~` 此前从未被展开）。
 - **打包**：`prepack` 打包前先编译。
 
