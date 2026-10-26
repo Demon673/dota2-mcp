@@ -129,7 +129,7 @@ export async function inspectAsset(dotaPath: string, resolvedPath: string, opts:
       const outDir = path.join(tmpdir(), "dota2-mcp", "inspect");
       mkdirSync(outDir, { recursive: true });
       pngPath = path.join(outDir, path.basename(resolvedPath).replace(/_c$/, "") + ".png");
-      execFileSync(vrf.executable, ["-i", resolvedPath, "-o", pngPath], { encoding: "utf-8", windowsHide: true, maxBuffer: 64 * 1024 * 1024, env: cliEnv });
+      execFileSync(vrf.executable, ["-i", resolvedPath, "-o", pngPath], { cwd: path.dirname(pngPath), encoding: "utf-8", windowsHide: true, maxBuffer: 64 * 1024 * 1024, env: cliEnv });
     } else {
       // 反编译文本走 -o 文件（stdout 是分析摘要不是文本）；vtex 输出 PNG
       tmpOut = path.join(tmpdir(), "dota2-mcp", "inspect", path.basename(resolvedPath) + ".txt");

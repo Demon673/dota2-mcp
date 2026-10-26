@@ -54,7 +54,7 @@ const vmdlFixture = JSON.stringify([
   'm_refSelf = resource:"models/hero.vmdl"',
 ].join("\n"));
 const cliSrc = `#!/usr/bin/env node
-import { writeFileSync } from "node:fs";
+import { writeFileSync, existsSync } from "node:fs";
 const argv = process.argv.slice(2);
 writeFileSync(process.cwd() + "/fake-vrf-cwd.txt", "x");
 const i = argv.indexOf("-i");
@@ -65,7 +65,8 @@ const f = argv.indexOf("-f");
 const filter = f >= 0 ? argv[f + 1] : "";
 const body = { vmdl: ${vmdlFixture}, vmat: "" };
 const emit = (t) => { if (out) writeFileSync(out, t); else process.stdout.write(t); };
-if (input.endsWith("pak01_dir.vpk")) { emit(filter === "materials/packed.vmat_c" ? "materials/packed.vmat_c CRC:00000001 size:1\n" : ""); process.exit(0); }
+if (input.endsWith("pak01_dir.vpk")) { emit(filter === "materials/packed.vmat_c" ? "materials/packed.vmat_c CRC:00000001 size:1\\n" : ""); process.exit(0); }
+if (!existsSync(input)) { process.stderr.write("cannot open input"); process.exit(1); }
 if (input.endsWith("hero.vmdl")) { emit(body.vmdl); process.exit(0); }
 emit("");
 process.exit(0);

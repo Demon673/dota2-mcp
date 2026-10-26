@@ -26,4 +26,4 @@ A broken offline test now blocks a release instead of passing silently. Live cov
 
 ## Testing
 
-The step is a list of `node` invocations of scripts that carry their own assertions; on a Windows checkout the two asset scripts print SKIP instead of running, and on ubuntu/macos they execute. The workflow runs only on release creation or manual dispatch, so the next release is the first real exercise.
+The step is a list of `node` invocations of scripts that carry their own assertions; on a Windows checkout the two asset scripts print SKIP instead of running, and on ubuntu/macos they execute. The first release run was the first real exercise and exposed three POSIX gaps, now fixed: test-asset-inspect needs the `STEAM_PATH` fake Steam library on a runner without Dota; the generated fake VRF in test-asset-check-refs needed an escaped newline and a missing-input failure path; and the vtex VRF call now runs in its temporary output directory like the text path.

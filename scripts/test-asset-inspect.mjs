@@ -84,23 +84,31 @@ const cliPath = path.join(vDir, "Source2Viewer-CLI");
 writeFileSync(cliPath, fakeCli);
 chmodSync(cliPath, 0o755);
 
+// CI runner has no Steam: fake a minimal library under STEAM_PATH (same scaffold as test-fileops).
+const ADDON = process.env.DOTA2_TEST_ADDON || "dota2mcptest";
+const fakeSteam = mkdtempSync(path.join(tmpdir(), "inspect-steam-"));
+const fakeDota = path.join(fakeSteam, "steamapps", "common", "dota 2 beta");
+for (const d of [["game", "dota"], ["game", "dota_addons", ADDON], ["content", "dota_addons", ADDON]]) {
+  mkdirSync(path.join(fakeDota, ...d), { recursive: true });
+}
+
 const BASE = await freePortBlock(3);
 const env = {
   ...process.env,
   DOTA2_VCON_DOTA_PORT: String(BASE),
   DOTA2_VCON_GUI_PORT: String(BASE + 1),
   DOTA2_VCON_CTRL_PORT: String(BASE + 2),
-  DOTA2_TEST_ADDON: process.env.DOTA2_TEST_ADDON || "dota2mcptest",
+  DOTA2_TEST_ADDON: ADDON,
   VRF_CACHE_DIR: cache,
   VRF_VERSION: "9.9.9",
   DOTA2_VCON_STATE_DIR: path.join(cache, "daemon-state"),
+  STEAM_PATH: process.env.STEAM_PATH || fakeSteam,
 };
 const { call, notify, kill } = spawnMcpServer({ timeoutMs: 45000, env, cleanupDaemon: true });
 await call("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "inspect", version: "0" } });
 notify("notifications/initialized");
 await sleep(12000);
 
-const ADDON = env.DOTA2_TEST_ADDON;
 async function inspect(target, extra = {}) {
   const r = await call("tools/call", { name: "asset_inspect", arguments: { target, addon: ADDON, ...extra } });
   assert(!r.result.isError, "inspect " + target + " ok");
@@ -161,4 +169,5 @@ console.log("PASS");
 kill();
 await sleep(300);
 rmSync(cache, { recursive: true, force: true });
+rmSync(fakeSteam, { recursive: true, force: true });
 process.exit(0);

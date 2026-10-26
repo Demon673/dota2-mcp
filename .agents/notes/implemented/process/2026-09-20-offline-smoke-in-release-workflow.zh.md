@@ -26,4 +26,4 @@ live 与 drill 脚本仍然手动跑。pre-commit 保持快速且本地——这
 
 ## Testing
 
-该步骤就是一串 `node` 调用，脚本自带断言；在 Windows 检出上两个资产脚本打印 SKIP 而不执行，在 ubuntu/macos 上它们会执行。工作流只在发布创建或手动触发时运行，所以下一次发布是它的第一次真实检验。
+该步骤就是一串 `node` 调用，脚本自带断言；在 Windows 检出上两个资产脚本打印 SKIP 而不执行，在 ubuntu/macos 上它们会执行。第一次发布运行就是第一次真实检验，暴露了三个 POSIX 缺口，现已修复：test-asset-inspect 在没有 Dota 的 runner 上需要 `STEAM_PATH` 假 Steam 库；test-asset-check-refs 生成的假 VRF 需要转义换行和缺输入失败路径；vtex 的 VRF 调用现在与文本路径一样在临时输出目录运行。
