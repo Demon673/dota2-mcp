@@ -94,8 +94,9 @@ const MODULES = {
     outcomes: [{ hang: true }, { status: "pass" }],
   },
   "tests.hangall": {
-    names: ["first_hang", "second_hang"],
-    outcomes: [{ hang: true }, { hang: true }],
+    // A timer can return 1ms early, leaving a second test time to start.
+    names: ["first_hang", "second_hang", "after_budget"],
+    outcomes: [{ hang: true }, { hang: true }, { hang: true }],
   },
   "tests.broken": { loadError: "tests/broken.lua:1: attempt to index a nil value (global 'Broken')" },
   "tests.empty": { names: [], outcomes: [] },

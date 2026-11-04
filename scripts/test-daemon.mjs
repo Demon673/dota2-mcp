@@ -173,7 +173,7 @@ async function main() {
   }
   b.sock.write("SETMCPSUPPRESS:0\n");
   await new Promise(r => setTimeout(r, 300));
-  const sup = a.msgs.find(m => m.type === "suppress");
+  const sup = a.msgs.findLast(m => m.type === "suppress");
   if (!sup || sup.mcpSuppress !== false) { console.log("[test] FAIL suppress state not broadcast to peer client"); process.exitCode = 1; }
   else console.log("[test] PASS suppress state broadcast to peer client");
   b.sock.write("SETMCPSUPPRESS:1\n");
@@ -460,7 +460,7 @@ async function main() {
     const du = await import("../dist/daemon-utils.js");
     const deadPid = 999999; // 高 PID 几乎不可能存活
     fs.writeFileSync(pidPath, String(deadPid));
-    fs.writeFileSync(path.join(stateDir, "relay.lock"), "stale");
+    fs.writeFileSync(path.join(stateDir, "relay.lock"), String(deadPid));
     const live = du.livePid();
     if (live !== null) {
       console.log("[test] FAIL livePid should return null for a dead pid");
@@ -476,7 +476,7 @@ async function main() {
   cleanup();
   fs.rmSync(stateDir, { recursive: true, force: true });
   console.log("[test] done");
-  process.exit(0);
+  process.exit(process.exitCode ?? 0);
 }
 
 main().catch((e) => {

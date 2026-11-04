@@ -53,10 +53,18 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Refresh release smoke fixtures
+        shell: bash
+        run: |
+          for smoke in scripts/test-daemon.mjs scripts/test-run-lua-tests.mjs; do
+            git show "$GITHUB_SHA:$smoke" > "$smoke"
+          done
+
       # Offline smoke scripts only: the live/drill scripts need Dota 2 and a vconsole
       # window, which a runner has not. These import from dist/, so they run after
       # Build. test-asset-{inspect,check-refs} skip on win32 (a fake VRF CLI cannot execute there).
       - name: Offline smoke tests
+        shell: bash
         env:
           DOTA2_CAPTURE_DISABLE_WATCHER: "1"
         run: |
