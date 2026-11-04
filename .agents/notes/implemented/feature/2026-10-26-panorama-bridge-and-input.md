@@ -18,11 +18,18 @@ The MCP surface could run server Lua and read the VCon console, but it could not
 
 **OS input.** `dota_input` is the window/input path: `window_info` reports outer/client rectangles, client origin, DPI and foreground state; move/click/down/up/drag/wheel, key press/down/up and Unicode text take client-area coordinates; out-of-bounds coordinates fail before input. The game stays foreground by default; the previous foreground window is restored only with `restore_focus:true`, and a requested restoration re-shows a hidden game window without activating it.
 
+The hidden helper avoids `ShowWindow`: its first call can inherit `SW_HIDE` from `STARTUPINFO` and hide the game despite requesting a show state ([#26](https://github.com/Demon673/dota2-mcp/issues/26)). Visible windows go directly to foreground activation; hidden windows are shown with `SetWindowPos`, preserving position, size, Z order and foreground activation. The same operation handles restoration after the game hides on deactivation. The input entry point continues to reject minimized windows.
+
 ## Verification
+
+The Windows-only offline [focus regression](../../../../scripts/test-input-focus.mjs) compiles the real embedded helper against two native fixture windows. It verifies hidden startup, visibility throughout focus acquisition, both `restore_focus` settings, and restoration after the fixture hides on deactivation; it never targets a running game. The [input contract test](../../../../scripts/test-input.mjs) covers flag forwarding and `focus_failed`. Live MCP calls on a running tools-mode map pass five consecutive times per restoration setting, with visibility and foreground checked independently through Win32; the game process, window handle and VCon connection survive.
 
 Live: the copy → compile → ready → delete cycle ran through a content-directory junction and left the repository's git status unchanged; deleting the source and compiled outputs kept the bridge alive (`13579` after deletion); a map reload rebuilt it (`rebuilt:true`, result `42`); a syntax error returned `js_error`; panel text/visible/style round-tripped; a probe Button received real `onactivate` and hover enter/leave; Unicode text and key presses reached the native chat TextEntry; the game window remained available after input; a created panel disappeared only after a client render frame. The debugger bootstrap and the addon-resident and base-game/junction variants were verified during the design and remain fallbacks, not the shipped default.
 
 ## Alternatives considered
+
+- **Disable hidden subprocess startup.** Rejected: it exposes helper console windows and changes unrelated subprocess behavior.
+- **Guard only the initial `ShowWindow`.** Rejected: a later restoration can become the helper's first call and inherit `SW_HIDE` instead.
 
 - **Base-game loose resources or an addon game-directory junction.** Verified fallbacks for a read-only addon or an engine without on-demand source compiling: stage the compiled pair under `{dota2Path}/game/dota/panorama/...` or point a junction there. Rejected as the primary path: base-game staging writes into the Dota install, and a mounted junction is visible to git and must not be committed.
 - **Addon-resident bridge.** Verified end to end and kept as an explicit opt-in fallback: a compiled bridge layout lives in the addon. Rejected as the default because it edits addon files the developer owns.

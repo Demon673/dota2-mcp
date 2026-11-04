@@ -247,7 +247,8 @@ static class DotaInput {
   const uint MOVE = 0x0001, LEFTDOWN = 0x0002, LEFTUP = 0x0004, RIGHTDOWN = 0x0008,
     RIGHTUP = 0x0010, MIDDLEDOWN = 0x0020, MIDDLEUP = 0x0040, WHEEL = 0x0800,
     ABSOLUTE = 0x8000, VIRTUALDESK = 0x4000, KEYUP = 0x0002, UNICODE = 0x0004;
-  const int SW_RESTORE = 9, SW_SHOW = 5, SW_SHOWNOACTIVATE = 4;
+  const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOZORDER = 0x0004,
+    SWP_NOACTIVATE = 0x0010, SWP_SHOWWINDOW = 0x0040;
   const int SM_XVIRTUALSCREEN = 76, SM_YVIRTUALSCREEN = 77, SM_CXVIRTUALSCREEN = 78, SM_CYVIRTUALSCREEN = 79;
 
   [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr l);
@@ -256,7 +257,7 @@ static class DotaInput {
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
-  [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
+  [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
   [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
@@ -355,11 +356,15 @@ static class DotaInput {
     return b.ToString();
   }
 
+  // ShowWindow's first call can inherit SW_HIDE from the hidden helper's STARTUPINFO.
+  static void ShowWithoutActivation(IntPtr h) {
+    SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+  }
+
   static bool Focus(IntPtr h, out IntPtr previous) {
     previous = GetForegroundWindow();
-    if (IsIconic(h)) ShowWindow(h, SW_RESTORE);
     if (previous == h) return true;
-    ShowWindow(h, SW_SHOW);
+    if (!IsWindowVisible(h)) ShowWithoutActivation(h);
     SetForegroundWindow(h);
     Thread.Sleep(80);
     if (GetForegroundWindow() == h) return true;
@@ -376,7 +381,7 @@ static class DotaInput {
     bool attached = fgThread != 0 && fgThread != me && AttachThreadInput(me, fgThread, true);
     try { SetForegroundWindow(h); } finally { if (attached) AttachThreadInput(me, fgThread, false); }
     Thread.Sleep(120);
-    if (!IsWindowVisible(h)) ShowWindow(h, SW_SHOW);
+    if (!IsWindowVisible(h)) ShowWithoutActivation(h);
     return GetForegroundWindow() == h;
   }
 
@@ -384,7 +389,7 @@ static class DotaInput {
     if (previous == IntPtr.Zero || previous == game || !IsWindow(previous)) return;
     SetForegroundWindow(previous);
     Thread.Sleep(40);
-    if (!IsWindowVisible(game)) ShowWindow(game, SW_SHOWNOACTIVATE);
+    if (!IsWindowVisible(game)) ShowWithoutActivation(game);
   }
 
   static bool ToScreen(IntPtr h, int x, int y, bool allowOutside, out POINT p) {
@@ -624,7 +629,7 @@ static class DotaInput {
       if (!keepFocus) {
         RestoreFocus(previous, hwnd);
         Thread.Sleep(30);
-        if (!IsWindowVisible(hwnd)) ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        if (!IsWindowVisible(hwnd)) ShowWithoutActivation(hwnd);
       }
       if (!keepCursor) SetCursorPos(before.X, before.Y);
       return Fail("bad_arg", e.GetType().Name + ": " + e.Message);

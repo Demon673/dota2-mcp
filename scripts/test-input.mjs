@@ -47,12 +47,21 @@ try {
   const bad = await runInput({ action: "move", x: 1, y: 2 });
   check(bad.ok, "move uses the helper: " + JSON.stringify(bad));
 
+  for (const restore_focus of [false, true]) {
+    const moved = await runInput({ action: "move", x: 1, y: 2, focus: true, restore_focus, restore_cursor: false });
+    const expected = `${restore_focus ? "" : "--keep-focus "}--keep-cursor --mouse move 1 2`;
+    check(moved.ok && moved.data?.args?.join(" ") === expected, `restore_focus:${restore_focus} reaches the native helper`);
+  }
+
   process.env.FAKE_INPUT_FAIL = "no_window";
   const failed = await runInput({ action: "window_info" });
   check(!failed.ok && failed.code === "no_window" && failed.message === "fake failure", "helper error codes map to the tool contract: " + JSON.stringify(failed));
   process.env.FAKE_INPUT_FAIL = "minimized";
   const minimized = await runInput({ action: "window_info" });
   check(!minimized.ok && minimized.code === "window_minimized", "a minimized window has its own error code: " + JSON.stringify(minimized));
+  process.env.FAKE_INPUT_FAIL = "focus_failed";
+  const focusFailed = await runInput({ action: "move", x: 1, y: 2 });
+  check(!focusFailed.ok && focusFailed.code === "focus_failed", "a rejected foreground request remains focus_failed");
 } finally {
   delete process.env.DOTA2_INPUT_HELPER;
   delete process.env.FAKE_INPUT_FAIL;

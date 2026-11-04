@@ -18,11 +18,18 @@ MCP 能运行服务端 Lua、能读 VCon 控制台，却看不见也操作不了
 
 **OS 输入。** `dota_input` 是窗口/输入路径：`window_info` 报告外框/客户区矩形、客户区原点、DPI 和前台状态；move/click/down/up/drag/wheel、key press/down/up 和 Unicode 文本使用客户区坐标；越界坐标在输入前失败。默认让游戏保持前台；只有 `restore_focus:true` 才还原前一个前台窗口，显式还原时会以不激活方式重新显示被隐藏的游戏窗口。
 
+隐藏启动的助手避开 `ShowWindow`：首次调用可能继承 `STARTUPINFO` 中的 `SW_HIDE`，即使请求显示也会隐藏游戏（[#26](https://github.com/Demon673/dota2-mcp/issues/26)）。已可见窗口直接获取前台焦点；隐藏窗口通过 `SetWindowPos` 显示，保留位置、尺寸、Z order 和前台激活状态。游戏失焦后自行隐藏时，焦点还原使用同一操作重新显示窗口。输入入口仍拒绝最小化窗口。
+
 ## 验证
+
+仅在 Windows 上运行的离线[焦点回归测试](../../../../scripts/test-input-focus.mjs) 将真实嵌入式助手与两个原生测试窗口一起编译。它验证隐藏启动、获取焦点期间的可见性、两种 `restore_focus` 设置，以及测试窗口失焦后自行隐藏时的重新显示；它不会操作运行中的游戏。[输入契约测试](../../../../scripts/test-input.mjs) 覆盖参数转发和 `focus_failed`。在 tools 模式运行的地图中，每种焦点还原设置的活体 MCP 调用均连续通过五次，窗口可见性与前台状态由 Win32 独立检查；游戏进程、窗口句柄和 VCon 连接均保持有效。
 
 活体：复制 → 编译 → ready → 删除循环经过 content 目录 junction 运行，仓库 git 状态未变；删除源文件和编译产物后桥仍活着（删除后 `13579`）；地图重载后重建成功（`rebuilt:true`，结果 `42`）；语法错误返回 `js_error`；面板 text/visible/style 往返成功；探针 Button 收到真实 `onactivate` 和悬停进入/离开；Unicode 文本和按键到达原生聊天 TextEntry；输入后游戏窗口仍可用；新建面板只在客户端渲染一帧后消失。调试器单槽引导、addon 内桥和基座游戏/junction 变体在设计阶段验证过，作为退路保留，不是交付默认路径。
 
 ## 备选方案
+
+- **关闭子进程的隐藏启动。** 否决：这会弹出助手控制台窗口，并改变其他子进程的行为。
+- **只在首次 `ShowWindow` 前判断可见性。** 否决：后续焦点还原可能成为助手的首次调用，仍会继承 `SW_HIDE`。
 
 - **基座游戏松散资源或 addon 游戏目录 junction。** addon 只读或引擎不支持源文件即时编译时的已验证退路：把编译产物放到 `{dota2Path}/game/dota/panorama/...`，或把 junction 指向那里。否决为主路径：基座游戏暂存会写进 Dota 安装，挂载的 junction 会以未跟踪目录出现在 git 里，不能提交。
 - **addon 内的桥。** 已端到端验证，保留为显式 opt-in 退路：编译好的桥布局放在 addon 里。否决为默认路径，因为它会编辑开发者拥有的 addon 文件。
