@@ -17,6 +17,8 @@ Several tools could report success after incomplete work or share state across t
 - Panorama collection uses matching marker IDs. Event handlers belong to a panel instance and event, including unnamed panels and panels with duplicate IDs.
 - Failed or timed-out PresentMon runs cannot turn partial samples into success. SEA packaging uses the current Node executable and an argument array for the installed postject CLI.
 - Dependency minimums and the lockfile include the security updates. The required runtime is Node 20 or newer, matching the updated dependency tree and installation instructions. Live scripts infer their project, honor configured control ports/state directories, restore temporary render settings, and remove only their own panel handlers.
+- Changelog/tag consistency is checked after the annotated release tag is created, before publication, and in release CI. Pre-commit checks pairing, budgets, archived notes, and whitespace; it cannot require the tag of a commit that does not exist yet.
+- Packaged-executable and stdin-EOF smoke tests use private state and isolated ports, disable automatic vconsole/watcher startup, and wait for their own daemon to exit before removing its state.
 
 The asset contracts are owned by the [inspection](../feature/2026-08-20-asset-inspect.md) and [VRF installation](../feature/2026-08-20-vrf-ensure.md) notes.
 

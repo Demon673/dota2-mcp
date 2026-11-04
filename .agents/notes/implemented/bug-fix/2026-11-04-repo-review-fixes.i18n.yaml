@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/bug-fix/2026-11-04-repo-review-fixes.md
-2026-11-04-repo-review-fixes.md: ad9ec56cfa6a7980dc2f04f1ab940b6f60defb39
-2026-11-04-repo-review-fixes.zh.md: 1cd381ced47f2fde74a44ac63f19c1256998f7d3
+2026-11-04-repo-review-fixes.md: 566820307422e56ec156344aba063c9edd2ea191
+2026-11-04-repo-review-fixes.zh.md: 921c94114cdaf5e1b1fbc4216c554ad29e42e9c7

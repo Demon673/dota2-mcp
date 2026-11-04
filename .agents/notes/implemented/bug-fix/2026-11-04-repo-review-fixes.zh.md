@@ -17,6 +17,8 @@ Status: implemented
 - Panorama 收集使用配对的标记 ID。事件处理器归属于 panel 实例和事件，包括无名 panel 与 ID 重复的 panel。
 - PresentMon 失败或超时后，残缺采样不能转化为成功。SEA 打包使用当前 Node 可执行文件，并以参数数组调用已安装的 postject CLI。
 - 依赖最低版本与锁文件包含安全更新。运行时要求 Node 20 或更新版本，与更新后的依赖树及安装说明一致。活体脚本推断测试项目，遵守配置的控制端口/状态目录，并还原临时渲染设置、清理自己的 panel 处理器。
+- 更新日志/tag 一致性在创建附注版本 tag 后、发布前及发布 CI 中检查。提交前检查配对、预算、归档说明与空白；它不能要求尚不存在的提交已经拥有 tag。
+- 打包程序与 stdin EOF 冒烟测试使用私有状态和隔离端口，关闭自动启动 vconsole/watcher，并等待自己的 daemon 退出后再清理状态。
 
 资产契约分别由[检查](../feature/2026-08-20-asset-inspect.md)与 [VRF 安装](../feature/2026-08-20-vrf-ensure.md)说明维护。
 

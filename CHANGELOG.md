@@ -2,6 +2,35 @@
 
 English | [中文](CHANGELOG.zh.md)
 
+## 2.1.0 (2026-11-04)
+
+### Changed
+
+- **Node.js requirement**: Node.js 20 or newer is required by the updated dependencies.
+- **Explicit Steam installation**: `STEAM_PATH` takes priority over Windows registry discovery.
+
+### Fixed
+
+- **`dota_input` window visibility**: focusing a background game keeps it visible with either `restore_focus:true` or `restore_focus:false`; restoring the previous foreground also preserves the game window.
+- **Cold starts and reconnections**: existing MCP sessions receive current connection status, addon information, channels, and filters instead of remaining stuck with an outdated disconnected state.
+- **Rapid vconsole reopening**: events from a replaced connection cannot disconnect or overwrite the current connection.
+- **Non-ASCII text**: console commands and console output preserve characters split across transport chunks.
+- **Panorama events**: panels with duplicate or empty IDs keep separate event handlers.
+- **Panorama output isolation**: completing a JavaScript call promptly restores ordinary vconsole output.
+- **Daemon startup and shutdown**: abandoned startup locks recover automatically, live sessions retain their ownership, and stopping the relay closes pending connections without leaving an idle timer running.
+- **Unknown asset inspection**: `asset_inspect` returns decompiled text for unknown asset types, capped at 4000 characters.
+- **Texture inspection**: missing or unreadable PNG output is reported as an error; concurrent inspections use separate preview outputs.
+- **`dota_perf` incomplete captures**: failed or timed-out captures return an error even when partial samples exist.
+- **Concurrent VRF installation**: an interrupted or failed installation preserves an already working installation.
+
+### Security
+
+- **Addon and recording paths**: filesystem links cannot redirect file operations or recording output outside their allowed roots; linked addon roots remain supported.
+- **Read-only console queries**: query parameters cannot append extra console commands. Literal arguments reject unsafe syntax, and enumeration filters remain local.
+- **Local access**: empty or malformed credentials fail explicitly, local state uses private permissions on POSIX, and unauthenticated connections have input and time limits.
+- **Inherited credentials**: additional helper processes omit sensitive environment variables.
+- **Dependencies and downloads**: runtime and archive dependencies include security fixes; VRF versions are validated and downloads without a usable checksum are rejected.
+
 ## 2.0.0 (2026-10-26)
 
 ### Added
