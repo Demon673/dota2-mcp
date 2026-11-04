@@ -11,6 +11,7 @@ import path from "node:path";
 import { runCommand, nodeInvocation } from "./exec.js";
 import { captureHelperCommand } from "./screenshot.js";
 import type { ToolErrorCode } from "./tool-result.js";
+import { isPathWithin } from "./path-boundary.js";
 
 const DEFAULT_FPS = 12;
 const MAX_FPS = 30;
@@ -78,8 +79,7 @@ export async function recordVideo(opts: RecordOptions): Promise<RecordOutcome> {
   const out = opts.output
     ? path.resolve(dir, opts.output)
     : path.join(dir, `dota-${stamp}-${randomBytes(2).toString("hex")}.mp4`);
-  const lower = (p: string) => (process.platform === "win32" ? p.toLowerCase() : p);
-  if (!lower(out).startsWith(lower(dir) + path.sep)) {
+  if (out === dir || !isPathWithin(dir, out)) {
     return { ok: false, code: "invalid_arg", message: `Output must stay inside the recordings directory (${dir}); got '${opts.output}'.` };
   }
   mkdirSync(path.dirname(out), { recursive: true });

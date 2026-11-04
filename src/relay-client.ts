@@ -67,6 +67,8 @@ export class RelayClient extends EventEmitter {
       const ok = () => { if (!settled) { settled = true; resolve(); } };
 
       this.sock = new net.Socket();
+      this.sock.setEncoding("utf8");
+      this.buffer = "";
       // connect 超时：TCP 连上但 hello-ok 永不来（如 daemon 刚好崩溃/hang 住），
       // 不能让他 Promise 永远挂起导致 createRelay 卡死。超时要销毁 socket：
       // 只 reject 会泄漏 FD 和 onHello 监听器，且 close 事件无法进入重连/重拉统计
@@ -79,7 +81,7 @@ export class RelayClient extends EventEmitter {
         const hello = this.token ? `HELLO ${this.token}` : "HELLO";
         this.sock!.write(hello + "\n");
       });
-      this.sock.on("data", (data: Buffer) => this._onData(data));
+      this.sock.on("data", (data: string) => this._onData(data));
       this.sock.on("error", (e: Error) => {
         if (!this.connected) {
           fail(e);
@@ -95,6 +97,7 @@ export class RelayClient extends EventEmitter {
         const wasConnected = this.connected;
         this.connected = false;
         this._dotaConnected = false;
+        this._dotaReady = false;
         this._guiConnected = false;
         this._failBridgePending("relay connection closed");
         // 若 connect 还没 settle（TCP 断开导致 hello-ok 没到），以失败结束 Promise，
@@ -167,7 +170,7 @@ export class RelayClient extends EventEmitter {
     }
   }
 
-  private _onData(data: Buffer): void {
+  private _onData(data: Buffer | string): void {
     this.buffer += data.toString();
     // 单行过长或 buffer 超限：丢弃，防内存被异常数据撑爆
     if (this.buffer.length > MAX_BUFFER) {
@@ -179,7 +182,8 @@ export class RelayClient extends EventEmitter {
       let line = this.buffer.slice(0, idx);
       this.buffer = this.buffer.slice(idx + 1);
       if (line.length > MAX_LINE) line = line.slice(0, MAX_LINE);
-      this._handleLine(line);
+      try { this._handleLine(line); }
+      catch (e) { console.error("[relay-client] message handler failed:", e); }
     }
   }
 

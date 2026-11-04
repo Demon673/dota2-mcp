@@ -19,7 +19,7 @@ No manual copy-paste of console output — the AI pulls live information straigh
 
 ## Prerequisites
 
-- Node.js ≥ 18 (ships npx)
+- Node.js ≥ 20 (ships npx)
 - Dota 2 installed and launched with `-vconsole` or `-tools`
 
 > **If vconsole isn't open, the relay doesn't connect to Dota** — console tools are unavailable, so keep the window open.

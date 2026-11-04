@@ -3,7 +3,7 @@
  *
  * 目录：os.tmpdir()/dota2-mcp（失败时 fallback ~/.dota2-mcp）
  *   relay.lock   — 原子创建（wx），抢到的人负责 spawn relay
- *   relay.pid    — relay 进程 PID + 启动时间
+ *   relay.pid    — relay 进程 PID
  *   relay.token  — 0600 权限，瘦客户端 HELLO 时校验
  *   relay.log    — relay stderr 落盘
  */
@@ -14,11 +14,12 @@ import * as path from "path";
 import * as net from "net";
 import * as crypto from "crypto";
 import { spawn } from "child_process";
+import { scrubbedEnv } from "./tools/process-env.js";
 
 /** 解析端口环境变量；缺失或非法值回退默认。 */
 export function parsePort(value: string | undefined, fallback: number): number {
-  const n = parseInt(value || "", 10);
-  return Number.isNaN(n) ? fallback : n;
+  const n = value && /^\d+$/.test(value) ? Number(value) : NaN;
+  return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : fallback;
 }
 
 const CTRL_PORT = parsePort(process.env.DOTA2_VCON_CTRL_PORT, 29002);
@@ -28,12 +29,14 @@ function stateDir(): string {
     ? path.resolve(process.env.DOTA2_VCON_STATE_DIR)
     : path.join(os.tmpdir(), "dota2-mcp");
   try {
-    fs.mkdirSync(tmp, { recursive: true });
+    fs.mkdirSync(tmp, { recursive: true, mode: 0o700 });
+    if (process.platform !== "win32") fs.chmodSync(tmp, 0o700);
     fs.accessSync(tmp, fs.constants.W_OK);
     return tmp;
   } catch {
     const home = path.join(os.homedir(), ".dota2-mcp");
-    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+    if (process.platform !== "win32") fs.chmodSync(home, 0o700);
     return home;
   }
 }
@@ -46,7 +49,7 @@ function logPath(): string { return path.join(stateDir(), "relay.log"); }
 /** 原子抢锁。返回 true = 抢到，false = 已有别人持有。 */
 export function acquireLock(): boolean {
   try {
-    const fd = fs.openSync(lockPath(), "wx");
+    const fd = fs.openSync(lockPath(), "wx", 0o600);
     fs.writeFileSync(fd, String(process.pid));
     fs.closeSync(fd);
     return true;
@@ -57,29 +60,45 @@ export function acquireLock(): boolean {
 }
 
 export function releaseLock(): void {
-  try { fs.unlinkSync(lockPath()); } catch { /* ignore */ }
+  try { if (fs.readFileSync(lockPath(), "utf8").trim() === String(process.pid)) fs.unlinkSync(lockPath()); } catch { /* ignore */ }
+}
+
+function clearStaleLock(): void {
+  try {
+    const file = lockPath(), raw = fs.readFileSync(file, "utf8"), owner = Number(raw.trim());
+    if (!Number.isInteger(owner) || owner <= 0 || owner > 0x7fffffff) {
+      // A new writer briefly owns an empty file; allow its 30s startup budget.
+      if (Date.now() - fs.statSync(file).mtimeMs < 30000) return;
+    } else {
+      try { process.kill(owner, 0); return; }
+      catch (e: any) { if (e.code !== "ESRCH") return; }
+    }
+    if (fs.readFileSync(file, "utf8") === raw) fs.unlinkSync(file);
+  } catch { /* missing or changed */ }
 }
 
 /** 读 PID 文件，进程已死则视为 stale 并清理。返回活 PID 或 null。 */
 export function livePid(): number | null {
+  clearStaleLock();
   let pid: number;
   let raw: string;
   try {
     raw = fs.readFileSync(pidPath(), "utf-8");
-    pid = parseInt(raw, 10);
+    pid = Number(raw.trim());
   } catch { return null; }
-  if (Number.isNaN(pid)) return null;
+  if (!Number.isInteger(pid) || pid <= 0 || pid > 0x7fffffff) return null;
   try {
     process.kill(pid, 0);
     return pid;
-  } catch {
+  } catch (e: any) {
+    if (e.code === "EPERM") return pid;
     // stale：清理 PID 和锁。删之前先比对内容仍是自己读到的那个 stale PID，
     // 避免另一个进程已 spawn 新 daemon 并写入新 PID 时被误删。
     try {
       const now = fs.readFileSync(pidPath(), "utf-8");
       if (now === raw) fs.unlinkSync(pidPath());
     } catch { /* ignore */ }
-    releaseLock();
+    clearStaleLock();
     return null;
   }
 }
@@ -87,8 +106,11 @@ export function livePid(): number | null {
 /** 生成 token 并写 0600 文件。原子创建（wx），已存在则直接读。 */
 export function ensureToken(): string {
   try {
-    return fs.readFileSync(tokenPath(), "utf-8").trim();
-  } catch { /* create */ }
+    const token = fs.readFileSync(tokenPath(), "utf-8").trim();
+    if (!token) throw new Error("Relay token file is empty; refusing to disable authentication.");
+    if (process.platform !== "win32") fs.chmodSync(tokenPath(), 0o600);
+    return token;
+  } catch (e: any) { if (e.code !== "ENOENT") throw e; }
   const token = crypto.randomBytes(24).toString("hex");
   try {
     // wx：已存在则不覆盖，避免两个进程并发时后写覆盖先写
@@ -97,7 +119,7 @@ export function ensureToken(): string {
   } catch (e: any) {
     if (e.code === "EEXIST") {
       // 另一个进程先写了，读它的
-      return fs.readFileSync(tokenPath(), "utf-8").trim();
+      return ensureToken();
     }
     throw e;
   }
@@ -139,14 +161,15 @@ export function waitForRelay(timeoutMs = 10000): Promise<boolean> {
 
 /** 以 detached 方式 spawn relay 守护进程，写 PID 文件。 */
 export function spawnRelayDaemon(relayMainPath: string): number {
-  const logFd = fs.openSync(logPath(), "a");
+  const logFd = fs.openSync(logPath(), "a", 0o600);
   const child = spawn(process.execPath, [relayMainPath], {
     detached: true,
     stdio: ["ignore", logFd, logFd],
     windowsHide: true,
+    env: scrubbedEnv(),
   });
   child.unref();
   fs.closeSync(logFd);
-  fs.writeFileSync(pidPath(), String(child.pid));
+  fs.writeFileSync(pidPath(), String(child.pid), { mode: 0o600 });
   return child.pid!;
 }

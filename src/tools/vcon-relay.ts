@@ -144,6 +144,7 @@ export class VConRelay extends EventEmitter {
 
   // 守护进程模式新增
   private clients = new Set<ClientConn>();
+  private ctrlSockets = new Set<net.Socket>();
   private idleTimer: NodeJS.Timeout | null = null;
   private expectedToken: string | null = null;
   private portConflict = false;
@@ -159,6 +160,7 @@ export class VConRelay extends EventEmitter {
 
   /** 守护进程模式下设置期望的 token（瘦客户端 HELLO 校验） */
   setExpectedToken(token: string): void {
+    if (!token.trim()) throw new Error("Expected relay token must not be empty.");
     this.expectedToken = token;
   }
 
@@ -274,7 +276,7 @@ export class VConRelay extends EventEmitter {
     });
   }
 
-  private bridgeRequest(req: BridgeRequest): Promise<BridgeResult> {
+  private async bridgeRequest(req: BridgeRequest): Promise<BridgeResult> {
     if (!this._panoramaBridge) {
       this._panoramaBridge = new PanoramaBridge({
         addonName: () => this._addonName,
@@ -302,6 +304,7 @@ export class VConRelay extends EventEmitter {
     const client = this.dotaClient;
     if (!client) return;
     this.dotaClient = null;
+    this._dotaConnected = false;
     const deadline = Date.now() + 1000;
     const attempt = () => {
       if (Date.now() - this._lastDataAt >= 300 || Date.now() >= deadline) {
@@ -318,6 +321,7 @@ export class VConRelay extends EventEmitter {
     this._closed = true;
     this._closeAllMarkerWindows();
     if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = null;
     if (this._livenessInterval) clearInterval(this._livenessInterval);
     if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
     if (this._readyProbeInterval) clearInterval(this._readyProbeInterval);
@@ -328,13 +332,13 @@ export class VConRelay extends EventEmitter {
     closeSocket(gui);
     this.guiServer?.close();
     this.ctrlServer?.close();
-    for (const c of this.clients) closeSocket(c.sock);
+    for (const sock of this.ctrlSockets) closeSocket(sock);
   }
 
   // ---- 守护进程：空闲计时 ----
 
   private _resetIdleTimer(): void {
-    if (!this.idleExitEnabled) return;
+    if (!this.idleExitEnabled || this._closed) return;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => {
       // Dota 在跑 = 用户在开发：29001/29002 是 vconsole 的生命线，daemon 不退
@@ -351,27 +355,37 @@ export class VConRelay extends EventEmitter {
   private _cleanupStateFiles(): void {
     try {
       const f = pidPath();
-      if (fs.existsSync(f)) fs.unlinkSync(f);
+      if (fs.readFileSync(f, "utf8").trim() === String(process.pid)) fs.unlinkSync(f);
     } catch { /* ignore */ }
   }
 
   // ---- 守护进程：瘦客户端连接 ----
 
   private _onCtrlConnect(sock: net.Socket): void {
+    this.ctrlSockets.add(sock);
+    sock.setEncoding("utf8");
     const conn: ClientConn = { sock, buffer: "", streaming: false };
+    const maxLineLength = () => this.clients.has(conn) ? 1024 * 1024 : 1024;
+    const authTimer = setTimeout(() => { if (!this.clients.has(conn)) sock.destroy(); }, 5000);
+    authTimer.unref();
     sock.on("error", (e: Error) => console.error("[relay] ctrl error:", e.message));
-    sock.on("data", (data: Buffer) => {
+    sock.on("data", (data: string) => {
       conn.buffer += data.toString();
       let idx: number;
       while ((idx = conn.buffer.indexOf("\n")) !== -1) {
+        if (idx > maxLineLength()) { sock.destroy(); return; }
         const line = conn.buffer.slice(0, idx).trim();
         conn.buffer = conn.buffer.slice(idx + 1);
         if (line) this._handleCtrlLine(conn, line);
+        if (this.clients.has(conn)) clearTimeout(authTimer);
+        if (sock.destroyed) return;
       }
+      if (conn.buffer.length > maxLineLength()) sock.destroy();
     });
     sock.on("close", () => {
-      this.clients.delete(conn);
-      this._resetIdleTimer();
+      clearTimeout(authTimer);
+      this.ctrlSockets.delete(sock);
+      if (this.clients.delete(conn)) this._resetIdleTimer();
     });
   }
 
@@ -406,12 +420,20 @@ export class VConRelay extends EventEmitter {
     // 绕过 HELLO 直接 CMD: 注入，RunScriptCode 等于 RCE）。
     if (this.expectedToken && !this.clients.has(conn)) {
       conn.sock.write(JSON.stringify({ type: "hello-err", reason: "handshake required" }) + "\n");
+      conn.sock.destroy();
       return;
     }
 
     // 以下命令要求已完成握手（在 clients 集合中）
     if (text === "STREAM") {
       conn.streaming = true;
+      // HELLO's snapshot may be stale by the time STREAM arrives.
+      for (const state of [
+        this._statusObj(),
+        { type: "adon", addonName: this._addonName, maps: this._maps, allMaps: this._allMaps },
+        { type: "chan", channels: this.getChannels() },
+        { type: "suppress", mcpSuppress: this._mcpSuppressEnabled, guiPatterns: this._guiSuppressPatterns },
+      ]) conn.sock.write(JSON.stringify(state) + "\n");
     } else if (text.startsWith("SETMCPSUPPRESS:")) {
       this.setMcpSuppressEnabled(text.slice(15) === "1");
     } else if (text.startsWith("CMD:")) {
@@ -631,9 +653,10 @@ export class VConRelay extends EventEmitter {
     // 严格门控：无 vconsole 不连（探测就绪 ≠ 持有连接）
     if (this.dotaClient || this._closed || !this._guiConnected) return;
 
-    this.dotaClient = new VConClient({
+    const client: VConClient = new VConClient({
       port: DOTA_PORT,
       rawPrntEditor: (msg) => {
+        if (this.dotaClient !== client) return false;
         const text = msg.text.trim();
         // 连接后的第一波 PRNT 是引擎的控制台历史回放；丢弃它，否则刚接入的 GUI
         // 会看到上一次会话（包括 MCP 命令）的全部旧输出。回放结束后恢复转发。
@@ -664,8 +687,10 @@ export class VConRelay extends EventEmitter {
         return true;
       },
     });
+    this.dotaClient = client;
 
-    this.dotaClient.on("connected", () => {
+    client.on("connected", () => {
+      if (this.dotaClient !== client) return;
       this._dotaConnected = true;
       this._closeAllMarkerWindows();
       this._drainingBacklog = true;
@@ -679,16 +704,18 @@ export class VConRelay extends EventEmitter {
       this._broadcast(this._statusObj());
     });
 
-    this.dotaClient.on("rawFrame", (type: string, rawData: Buffer) => {
+    client.on("rawFrame", (type: string, rawData: Buffer) => {
       this._lastDataAt = Date.now();
+      if (this.dotaClient !== client) return;
       if (INIT_FRAME_TYPES.has(type)) this._initFrames.push(rawData);
       if (this.guiSocket && !this.guiSocket.destroyed) {
         this.guiSocket.write(rawData);
       }
     });
 
-    this.dotaClient.on("prnt", (msg: PrntMessage) => {
+    client.on("prnt", (msg: PrntMessage) => {
       this._lastDataAt = Date.now();
+      if (this.dotaClient !== client) return;
       const text = msg.text.trim();
       // 活性探针回显：不进缓冲、不广播（rawPrntEditor 侧同时拦 GUI）
       if (text === PROBE_TEXT) return;
@@ -709,7 +736,8 @@ export class VConRelay extends EventEmitter {
       this._broadcast({ type: "prnt", text: msg.text, verbosity: msg.verbosity, channel: channelName });
     });
 
-    this.dotaClient.on("adon", (a) => {
+    client.on("adon", (a) => {
+      if (this.dotaClient !== client) return;
       this._addonName = a.addonName;
       this._scanMaps();
       console.error("[relay] Addon:", a.addonName, "Maps:", this._maps.join(", "), "AllMaps:", this._allMaps.join(", "));
@@ -717,7 +745,8 @@ export class VConRelay extends EventEmitter {
       this._broadcast({ type: "adon", addonName: a.addonName, maps: this._maps, allMaps: this._allMaps });
     });
 
-    this.dotaClient.on("chan", (channels) => {
+    client.on("chan", (channels) => {
+      if (this.dotaClient !== client) return;
       for (const c of channels) {
         this._channels.set(c.id, c.name);
       }
@@ -725,40 +754,34 @@ export class VConRelay extends EventEmitter {
       this._broadcast({ type: "chan", channels: this.getChannels() });
     });
 
-    this.dotaClient.on("ainf", (a) => {
+    client.on("ainf", (a) => {
+      if (this.dotaClient !== client) return;
       console.error("[relay] Game:", a.productName, "CmdLine:", a.commandLine);
     });
 
-    this.dotaClient.on("close", () => {
+    const disconnected = () => {
+      if (this.dotaClient !== client) return;
       this._dotaConnected = false;
       this._closeAllMarkerWindows();
       this._probeOutstandingAt = null;
       this.dotaClient = null;
+      if (this._guiConnected) this._setReady(false);
       this._broadcast(this._statusObj());
       if (!this._closed && this._guiConnected) {
         // 只在 vconsole 还在时重连；GUI 已走则回探测态（就绪由探针复评）
         console.error("[relay] Dota 2 disconnected, retrying in 2s...");
         this._scheduleReconnect();
       }
-    });
+    };
+    client.on("close", disconnected);
 
-    this.dotaClient.on("error", (e: Error) => {
+    client.on("error", (e: Error) => {
+      if (this.dotaClient !== client) return;
       console.error("[relay] Dota error:", e.message);
-      this._closeAllMarkerWindows();
-      this.dotaClient = null;
-      if (this._guiConnected) this._setReady(false);
-      if (!this._closed && this._guiConnected) {
-        this._scheduleReconnect();
-      }
+      disconnected();
     });
 
-    this.dotaClient.connect().catch(() => {
-      this.dotaClient = null;
-      if (this._guiConnected) this._setReady(false);
-      if (!this._closed && this._guiConnected) {
-        this._scheduleReconnect();
-      }
-    });
+    client.connect().catch(disconnected);
   }
 
   /** 单一重连定时器：error/close/catch 多路触发只排一次；仅 vconsole 在场时重连 */

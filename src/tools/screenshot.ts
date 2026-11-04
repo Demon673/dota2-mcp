@@ -140,7 +140,7 @@ function processAlive(pid: number): boolean {
   // POSIX: a killed unref()'ed child can stay a zombie until its parent exits; it is not running.
   try { return readFileSync(`/proc/${pid}/stat`, "utf8").split(" ")[2] !== "Z"; } catch { /* macOS has no procfs */ }
   try {
-    const stat = execFileSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).trim();
+    const stat = execFileSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8", env: scrubbedEnv() }).trim();
     return stat.length > 0 && !stat.startsWith("Z");
   } catch { return false; }
 }

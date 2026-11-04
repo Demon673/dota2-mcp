@@ -52,6 +52,8 @@ const i = argv.indexOf("-i");
 const o = argv.indexOf("-o");
 const input = i >= 0 ? argv[i + 1] : "";
 const out = o >= 0 ? argv[o + 1] : null;
+if (process.env.DOTA2_TEST_SECRET) { process.stderr.write("credential inherited"); process.exit(9); }
+if (input.includes("nopng")) process.exit(0);
 if (input.endsWith(".vtex_c") || input.endsWith(".vtex")) {
   if (out) {
     // 最小 1x1 RGBA8 PNG（67 字节：签名+IHDR+IDAT+IEND）
@@ -85,7 +87,7 @@ writeFileSync(cliPath, fakeCli);
 chmodSync(cliPath, 0o755);
 
 // CI runner has no Steam: fake a minimal library under STEAM_PATH (same scaffold as test-fileops).
-const ADDON = process.env.DOTA2_TEST_ADDON || "dota2mcptest";
+const ADDON = "my_addon";
 const fakeSteam = mkdtempSync(path.join(tmpdir(), "inspect-steam-"));
 const fakeDota = path.join(fakeSteam, "steamapps", "common", "dota 2 beta");
 for (const d of [["game", "dota"], ["game", "dota_addons", ADDON], ["content", "dota_addons", ADDON]]) {
@@ -101,8 +103,9 @@ const env = {
   DOTA2_TEST_ADDON: ADDON,
   VRF_CACHE_DIR: cache,
   VRF_VERSION: "9.9.9",
+  DOTA2_TEST_SECRET: "fixture-value",
   DOTA2_VCON_STATE_DIR: path.join(cache, "daemon-state"),
-  STEAM_PATH: process.env.STEAM_PATH || fakeSteam,
+  STEAM_PATH: fakeSteam,
 };
 const { call, notify, kill } = spawnMcpServer({ timeoutMs: 45000, env, cleanupDaemon: true });
 await call("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "inspect", version: "0" } });
@@ -152,6 +155,10 @@ const un = await inspect("game/dota_addons/" + ADDON + "/x.weird_c");
 assert(un.asset_type === "weird", "unknown asset_type");
 assert(!un.summary, "unknown has no summary");
 assert(un.notes.some((n) => n.includes("未知")), "unknown notes hint");
+assert(un.raw_decompiled === "opaque_binary_blob_that_is_not_any_known_format", "unknown types return their decompiled text by default");
+
+const noPng = await call("tools/call", { name: "asset_inspect", arguments: { target: "materials/nopng.vtex_c", addon: ADDON } });
+assert(noPng.result.isError, "successful CLI exit without a texture export is an explicit failure");
 
 // include_raw 截断
 const raw = await inspect("game/dota_addons/" + ADDON + "/particles/x.vpcf_c", { include_raw: true });

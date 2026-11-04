@@ -133,6 +133,23 @@ assert(!/__mcp_[0-9a-f]+_/.test(text), "markers stripped: " + text);
 assert(!text.includes("=== width ==="), "CSS query excludes other properties");
 
 const textOf = (result) => result.result.content[0].text;
+const readonlyMarker = "__readonly_bad_input__";
+const beforeQueries = received.length;
+for (const [name, key, value] of [["console_find", "query", "sv_cheats"], ["console_help", "command", "sv_cheats"], ["dota_entity_inspect", "entity", "npc_dota_hero_axe"], ["dota_api_help", "query", "CDOTAGameRules"]]) {
+  for (const separator of ["; echo ", "\n", "\r", "\0", "\"", "\\", "\u2028"]) {
+    const bad = JSON.parse(textOf(await call("tools/call", { name, arguments: { [key]: value + separator + readonlyMarker } })));
+    assert(bad.ok === false && bad.code === "invalid_arg", name + " rejects command syntax " + JSON.stringify(separator));
+  }
+  const good = JSON.parse(textOf(await call("tools/call", { name, arguments: { [key]: value } })));
+  assert(good.ok, name + " accepts a literal console argument");
+}
+for (const [name, key] of [["dota_api_lua", "func"], ["dota_api_panorama_js", "name"], ["dota_api_css", "prop"], ["dota_api_events", "event"]]) {
+  const result = JSON.parse(textOf(await call("tools/call", { name, arguments: { [key]: "missing; echo " + readonlyMarker } })));
+  assert(result.ok, name + " treats its filter as data");
+}
+assert(!received.slice(beforeQueries).some(c => c.includes(readonlyMarker)), "read-only queries never forward injected command syntax");
+await call("tools/call", { name: "console_find", arguments: { query: "safe words" } });
+assert(received.some(c => c.includes('find "safe words"')), "search phrases reach the engine as one quoted argument");
 const luaApi = textOf(await call("tools/call", { name: "dota_api_lua", arguments: { func: "CreateUnitByName" } }));
 assert(luaApi.includes("function CreateUnitByName("), "Lua API returns the requested function");
 assert(!luaApi.includes("CreateUnitByNameAsync") && !luaApi.includes("CDOTA_BaseNPC"), "Lua API excludes the rest of the full dump");

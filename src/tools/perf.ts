@@ -256,6 +256,13 @@ export async function runPerf(opts: PerfOptions = {}): Promise<PerfOutcome> {
   const r = await runCommand(invocation.cmd, invocation.args, (seconds + 20) * 1000, 4 * 1024 * 1024);
 
   const parsed = readPerfCsv(csvPath);
+  if (parsed?.between.length && (r.timedOut || r.error || r.code !== 0)) {
+    return {
+      ok: false,
+      code: "internal",
+      message: `PresentMon capture ${r.timedOut ? "timed out" : `failed (exit ${r.code ?? "unknown"})`}; partial samples were discarded.${r.stderr.trim() ? ` ${r.stderr.trim().slice(0, 800)}` : ""}`,
+    };
+  }
   if (!parsed || parsed.between.length === 0) {
     const detail = (r.stderr || r.error?.message || "").trim().slice(0, 800);
     // PresentMon says this explicitly when the ETW capture could not target the process.

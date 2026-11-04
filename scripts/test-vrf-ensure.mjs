@@ -2,7 +2,7 @@
 // 断言：下载→解压→缓存、二次调用 cached、sha256 篡改拒绝、资产缺失报错。
 import { createServer } from "node:http";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import AdmZip from "adm-zip";
@@ -28,6 +28,10 @@ const badBuf = badZip.toBuffer();
 const ASSET_NAMES = ["windows", "linux", "macos"].flatMap((os) =>
   ["x64", "arm64", "arm"].map((arch) => `cli-${os}-${arch}.zip`));
 const goodSha = createHash("sha256").update(goodBuf).digest("hex");
+const incompleteZip = new AdmZip();
+incompleteZip.addFile("unrelated.txt", Buffer.from("incomplete"));
+const incompleteBuf = incompleteZip.toBuffer();
+let concurrentLookups = 0;
 
 // 2. fake Release API server
 const server = createServer((req, res) => {
@@ -62,6 +66,17 @@ const server = createServer((req, res) => {
   } else if (url.includes("/releases/tags/6.6.6")) {
     res.statusCode = 404;
     res.end("not found");
+  } else if (url.includes("/releases/tags/2.2.2")) {
+    res.end(JSON.stringify({ assets: ASSET_NAMES.map((name) => ({ name, browser_download_url: `http://127.0.0.1:${PORT}/good.zip`, digest: "sha256:" + goodSha })) }));
+  } else if (url.includes("/releases/tags/5.5.5")) {
+    res.end(JSON.stringify({ assets: ASSET_NAMES.map((name) => ({ name, browser_download_url: `http://127.0.0.1:${PORT}/good.zip` })) }));
+  } else if (url.includes("/releases/tags/4.4.4")) {
+    const incomplete = concurrentLookups++ > 0;
+    res.end(JSON.stringify({ assets: ASSET_NAMES.map((name) => ({ name, browser_download_url: `http://127.0.0.1:${PORT}/${incomplete ? "incomplete" : "good"}.zip`, digest: "sha256:" + (incomplete ? createHash("sha256").update(incompleteBuf).digest("hex") : goodSha) })) }));
+  } else if (url.includes("/releases/tags/3.3.3")) {
+    res.end(JSON.stringify({ message: "malformed release metadata" }));
+  } else if (url.endsWith("/incomplete.zip")) {
+    setTimeout(() => res.end(incompleteBuf), 100);
   } else if (url.endsWith("/good.zip")) {
     res.end(goodBuf);
   } else if (url.endsWith("/bad.zip")) {
@@ -100,6 +115,19 @@ try {
   // 版本不存在
   const r5 = await ensureVrf({ version: "6.6.6", cacheDir: cache, apiBase: API });
   assert(!r5.ok && r5.message.includes("404"), "unknown version reported: " + r5.message);
+
+  const noDigest = await ensureVrf({ version: "5.5.5", cacheDir: cache, apiBase: API });
+  assert(!noDigest.ok && /digest/.test(noDigest.message), "VRF refuses an executable archive without a checksum");
+  const malformed = await ensureVrf({ version: "3.3.3", cacheDir: cache, apiBase: API });
+  assert(!malformed.ok && /metadata/.test(malformed.message), "malformed release JSON is a structured lookup failure");
+  const invalid = await ensureVrf({ version: "../../../outside", cacheDir: path.join(cache, "nested"), apiBase: API });
+  assert(!invalid.ok && /Invalid.*version/.test(invalid.message), "release versions cannot traverse outside the cache");
+  const concurrent = await Promise.all([0, 1].map(() => ensureVrf({ version: "4.4.4", cacheDir: cache, apiBase: API })));
+  assert(concurrent[0].ok && !concurrent[1].ok && existsSync(concurrent[0].executable), "a failed concurrent extraction preserves the successful install");
+  mkdirSync(path.join(cache, "v2.2.2"));
+  writeFileSync(path.join(cache, "v2.2.2", "partial.txt"), "legacy incomplete cache");
+  const recovered = await ensureVrf({ version: "2.2.2", cacheDir: cache, apiBase: API });
+  assert(recovered.ok && existsSync(recovered.executable), "an incomplete legacy cache does not block a verified install");
 
   console.log("PASS");
 } finally {

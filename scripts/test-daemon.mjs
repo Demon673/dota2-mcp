@@ -22,6 +22,7 @@ const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "dota2-mcp-daemon-test-")
 process.env.DOTA2_VCON_STATE_DIR = stateDir;
 process.env.DOTA2_VCON_CTRL_PORT = String(CTRL_PORT);
 process.env.DOTA2_VCON_GUI_PORT = String(GUI_PORT);
+process.env.DOTA2_VCON_DOTA_PORT = String(CTRL_PORT + 10000);
 const tokenPath = path.join(stateDir, "relay.token");
 const pidPath = path.join(stateDir, "relay.pid");
 const children = new Set();

@@ -4,7 +4,7 @@
 
 ## Project
 
-- **Tech stack**: TypeScript (Node.js >= 18) + `@modelcontextprotocol/sdk`
+- **Tech stack**: TypeScript (Node.js >= 20) + `@modelcontextprotocol/sdk`
 - **Entry point**: `src/index.ts` → `dist/index.js` (stdio MCP server, thin client)
 - **Daemon**: `src/relay-main.ts` → `dist/relay-main.js` (detached relay that exclusively holds Dota 2 :29000 with vconsole attached; lifecycle independent of any MCP session)
 - **Core mechanism**: VConsole2 TCP protocol (port 29000) → VConRelay transparent proxy (listens on 29001 for the vconsole2 GUI)

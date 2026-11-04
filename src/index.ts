@@ -31,6 +31,7 @@ function isSeaRuntime(): boolean {
 }
 import { VConRelay, MCP_MARKER_RE } from "./tools/vcon-relay.js";
 import { scrubbedEnv } from "./tools/process-env.js";
+import { isPathWithin } from "./tools/path-boundary.js";
 import { RelayClient } from "./relay-client.js";
 import * as consoleBridge from "./tools/console-bridge.js";
 import { ensureVrf, DEFAULT_VERSION } from "./tools/vrf-ensure.js";
@@ -1244,7 +1245,7 @@ Once connected, call dota_status again.`;
 
   // Tool: 查看实体脚本作用域
   server.tool("dota_entity_inspect",
-    "Use when you need an entity's Lua script scope — its properties, functions, or member values — to debug ability or unit behavior. Runs `ent_script_dump <entity>` (server) or `cl_ent_script_dump <entity>` (client, default). Returns {ok:true,text} with the dumped scope, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached. Limits: the entity must exist in the live scene; unknown names usually yield an empty scope, and output is captured for only ~3s. Related tools: dota_dump_entities (find a valid name), dota_run_lua (probe values directly), console_output (raw stream).",
+    "Use when you need an entity's Lua script scope — its properties, functions, or member values — to debug ability or unit behavior. Runs `ent_script_dump <entity>` (server) or `cl_ent_script_dump <entity>` (client, default). Returns {ok:true,text} with the dumped scope, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached, or invalid_arg for unsafe argument syntax. Limits: the entity must exist in the live scene; unknown names usually yield an empty scope, and output is captured for only ~3s. Quotes, backslashes, command separators, and control characters are rejected. Related tools: dota_dump_entities (find a valid name), dota_run_lua (probe values directly), console_output (raw stream).",
     { entity: z.string().describe("Entity identifier"), side: z.enum(["server","client"]).optional().describe("server or client. Default client.") },
     READ_ONLY_ANNOTATIONS,
     async ({ entity, side }) => {
@@ -1253,7 +1254,7 @@ Once connected, call dota_status again.`;
       try {
         const s = side ?? "client";
         const cmd = s === "server" ? "ent_script_dump" : "cl_ent_script_dump";
-        const out = await collectOutput(`${cmd} ${entity}`, { waitMs: 3000, settleMs: 300 });
+        const out = await collectOutput(`${cmd} ${quoteConsoleArg(entity)}`, { waitMs: 3000, settleMs: 300 });
         return ok({ text: out.join("\n") || "(no data)" });
       } catch (e) { return failFromError(e); }
     }
@@ -1293,6 +1294,13 @@ Once connected, call dota_status again.`;
   /** 只解析本次命令窗口内收到的输出：无回应返回 null，绝不回落到历史日志（那里是过期状态） */
   async function queryStatusJson(waitMs = 5000): Promise<Record<string, any> | null> {
     return extractLastStatusJson(await collectOutput("status_json", { waitMs, settleMs: 150 }));
+  }
+
+  function quoteConsoleArg(value: string): string {
+    if (/["\\;\p{Cc}\p{Zl}\p{Zp}]/u.test(value)) {
+      throw new McpError(ErrorCode.InvalidRequest, "Console queries must be literal arguments without quotes, backslashes, command separators, or control characters.");
+    }
+    return `"${value}"`;
   }
 
   /** 收集一条控制台命令的输出：`echo <begin>; <cmd>; echo <end>` 作为一个 CMND 发出（整条原子执行，
@@ -1497,7 +1505,7 @@ Once connected, call dota_status again.`;
       try {
         const s = side ?? "server";
         const cmd = s === "client" ? "cl_script_help2" : "script_help2";
-        const out = await collectOutput(func ? `${cmd} ${func}` : cmd, { waitMs: 3000, settleMs: 300 });
+        const out = await collectOutput(cmd, { waitMs: 3000, settleMs: 300 });
         const text = func
           ? filterDumpBlocks(out, func, l => l.match(/---\[\[\s*([^\s\]]+)/)?.[1] ?? null)
           : out.join("\n");
@@ -1515,7 +1523,7 @@ Once connected, call dota_status again.`;
       const blocked = consoleGate();
       if (blocked) return blocked;
       try {
-        const out = await collectOutput(name ? `cl_panorama_script_help_2 ${name}` : "cl_panorama_script_help_2", { waitMs: 3000, settleMs: 300 });
+        const out = await collectOutput("cl_panorama_script_help_2", { waitMs: 3000, settleMs: 300 });
         const text = name ? filterDumpBlocks(out, name, equalsDumpName) : out.join("\n");
         return ok({ text: text || "(no results)" });
       } catch (e) { return failFromError(e); }
@@ -1531,7 +1539,7 @@ Once connected, call dota_status again.`;
       const blocked = consoleGate();
       if (blocked) return blocked;
       try {
-        const out = await collectOutput(prop ? `dump_panorama_css_properties ${prop}` : "dump_panorama_css_properties", { waitMs: 3000, settleMs: 300 });
+        const out = await collectOutput("dump_panorama_css_properties", { waitMs: 3000, settleMs: 300 });
         const text = prop ? filterDumpBlocks(out, prop, equalsDumpName) : out.join("\n");
         return ok({ text: text || "(no results)" });
       } catch (e) { return failFromError(e); }
@@ -1547,7 +1555,7 @@ Once connected, call dota_status again.`;
       const blocked = consoleGate();
       if (blocked) return blocked;
       try {
-        const out = await collectOutput(event ? `dump_panorama_events ${event}` : "dump_panorama_events", { waitMs: 3000, settleMs: 300 });
+        const out = await collectOutput("dump_panorama_events", { waitMs: 3000, settleMs: 300 });
         const text = event
           ? filterDumpBlocks(out, event, l => l.match(/^\|\s*<code>([A-Za-z0-9_]+)\s*\(/)?.[1] ?? null)
           : out.join("\n");
@@ -1560,14 +1568,14 @@ Once connected, call dota_status again.`;
 
   // Tool: 搜索所有 5248 个 console 指令/cvar
   server.tool("console_find",
-    "Use when you know roughly what a Dota 2 console command or convar does but not its exact name — find a cheat, a debug flag, or a launch option before sending it. Runs the engine's `find <query>` and returns matching command rows. Returns {ok:true,text} with up to 50 matching lines plus a count of the rest, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached. Limits: substring match over the current session's command table, results are not cached, and only the first 50 rows are shown — narrow the query with prefixes like 'dota_', 'sv_', 'cl_' to see more. Related tools: console_help (one command's help), console_send (run the command), dota_status (connection state).",
+    "Use when you know roughly what a Dota 2 console command or convar does but not its exact name — find a cheat, a debug flag, or a launch option before sending it. Runs the engine's `find <query>` and returns matching command rows. Returns {ok:true,text} with up to 50 matching lines plus a count of the rest, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached, or invalid_arg for unsafe argument syntax. Limits: substring match over the current session's command table, results are not cached, and only the first 50 rows are shown — narrow the query with prefixes like 'dota_', 'sv_', 'cl_' to see more. Quotes, backslashes, command separators, and control characters are rejected. Related tools: console_help (one command's help), console_send (run the command), dota_status (connection state).",
     { query: z.string().describe("Search keyword") },
     READ_ONLY_ANNOTATIONS,
     async ({ query }) => {
       const blocked = consoleGate();
       if (blocked) return blocked;
       try {
-        const out = await collectOutput(`find ${query}`, { waitMs: 3000, settleMs: 250 });
+        const out = await collectOutput(`find ${quoteConsoleArg(query)}`, { waitMs: 3000, settleMs: 250 });
         // Dota `find` output: header + separator + rows. Drop header/separator, keep rows that mention the query.
         const results = out.filter(l =>
           l.includes(query) && /^\S+/.test(l) && !/^=+$/.test(l.trim()) && !/^name\s+value/.test(l)
@@ -1582,14 +1590,14 @@ Once connected, call dota_status again.`;
 
   // Tool: 查看命令用途
   server.tool("console_help",
-    "Use when you already have a console command name and need its usage, description, or current value before sending it. Runs help <command>. Returns {ok:true,text} with the matching lines (or the raw dump when nothing matches), or {ok:false,code,message} with dota_down/vconsole_closed when no console is attached. Limits: output may include unrelated enumeration; one command per call. Related tools: console_find, console_send, dota_status.",
+    "Use when you already have a console command name and need its usage, description, or current value before sending it. Runs help <command>. Returns {ok:true,text} with the matching lines (or the raw dump when nothing matches), or {ok:false,code,message} with dota_down/vconsole_closed when no console is attached, or invalid_arg for unsafe argument syntax. Limits: output may include unrelated enumeration; one command per call. Quotes, backslashes, command separators, and control characters are rejected. Related tools: console_find, console_send, dota_status.",
     { command: z.string().describe("Command name") },
     READ_ONLY_ANNOTATIONS,
     async ({ command }) => {
       const blocked = consoleGate();
       if (blocked) return blocked;
       try {
-        const out = await collectOutput(`help ${command}`, { waitMs: 3000, settleMs: 250 });
+        const out = await collectOutput(`help ${quoteConsoleArg(command)}`, { waitMs: 3000, settleMs: 250 });
         // help 命令常先 dump 一批枚举，再给出目标命令行；过滤出真正相关的行
         const relevant = out.filter(l => l.toLowerCase().includes(command.toLowerCase()));
         const text = relevant.length > 0 ? relevant.join("\n") : out.join("\n");
@@ -1639,14 +1647,14 @@ Once connected, call dota_status again.`;
 
   // Tool: 查询 Lua 脚本作用域
   server.tool("dota_api_help",
-    "Use when you need to inspect a Dota 2 Lua class or scope (e.g. CDOTAGameRules) and the global-function signature style of dota_api_lua does not fit. Runs `script_help <query>`; omit the query to list available scopes. Returns {ok:true,text} with the scope listing, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached. Limits: scopes only — global functions belong to dota_api_lua; some scopes register only after the map loads. Related tools: dota_api_lua (function signatures), console_output (raw dump), dota2_skill (runtime model).",
+    "Use when you need to inspect a Dota 2 Lua class or scope (e.g. CDOTAGameRules) and the global-function signature style of dota_api_lua does not fit. Runs `script_help <query>`; omit the query to list available scopes. Returns {ok:true,text} with the scope listing, or {ok:false,code,message} with code dota_down/vconsole_closed when no live console is attached, or invalid_arg for unsafe argument syntax. Limits: scopes only — global functions belong to dota_api_lua; some scopes register only after the map loads. Quotes, backslashes, command separators, and control characters are rejected. Related tools: dota_api_lua (function signatures), console_output (raw dump), dota2_skill (runtime model).",
     { query: z.string().optional().describe("Class/scope name, e.g. 'CDOTAGameRules'. Empty = list available scopes.") },
     READ_ONLY_ANNOTATIONS,
     async ({ query }) => {
       const blocked = consoleGate();
       if (blocked) return blocked;
       try {
-        const out = await collectOutput(query ? `script_help ${query}` : "script_help", { waitMs: 4000, settleMs: 300 });
+        const out = await collectOutput(query ? `script_help ${quoteConsoleArg(query)}` : "script_help", { waitMs: 4000, settleMs: 300 });
         return ok({ text: out.join("\n") || "Sent. Use console_output to see results." });
       } catch (e) { return failFromError(e); }
     }
@@ -2080,7 +2088,7 @@ Once connected, call dota_status again.`;
 
   // Tool: 反编译 + 结构化摘要单个资产（VRF CLI，离线）
   server.tool("asset_inspect",
-    "Use when you need to know what a single Source 2 asset contains (particles, meshes, materials, textures) after editing or compiling it. Returns a stable per-type summary: vpcf (system/emitter/operator counts, child and material refs, max particles), vmdl (mesh count, material refs, LOD group, skeleton ref), vmat (shader, texture refs, param count), vtex (dimensions); unknown types return the decompiled text. Returns {ok:true,data} with the summary, or {ok:false,code,message} when the asset cannot be read. Limits: single asset and single-level references; raw decompiled text is omitted unless include_raw=true (truncated to 4000 chars); use asset_check_refs for a reference chain. Related tools: vrf_ensure, asset_check_refs, dota_compile_asset.",
+    "Use when you need to know what a single Source 2 asset contains (particles, meshes, materials, textures) after editing or compiling it. Returns a stable per-type summary: vpcf (system/emitter/operator counts, child and material refs, max particles), vmdl (mesh count, material refs, LOD group, skeleton ref), vmat (shader, texture refs, param count), vtex (dimensions); unknown types return the decompiled text. Returns {ok:true,data} with the summary, or {ok:false,code,message} when the asset cannot be read. Limits: single asset and single-level references; raw decompiled text for known types is omitted unless include_raw=true (truncated to 4000 chars); use asset_check_refs for a reference chain. Related tools: vrf_ensure, asset_check_refs, dota_compile_asset.",
     {
       target: z.string().describe("Asset to inspect (absolute, or content/ / game/ prefixed, or addon-content relative)"),
       addon: z.string().optional().describe("Addon name. Auto-detected if omitted."),
@@ -2196,7 +2204,7 @@ Once connected, call dota_status again.`;
       path.resolve(dotaPath!, "content", "dota_addons", addon),
       path.resolve(dotaPath!, "game", "dota_addons", addon),
     ];
-    const inside = bases.some((b) => normalized === b || normalized.startsWith(b + path.sep));
+    const inside = bases.some((b) => isPathWithin(b, normalized));
     if (!inside) {
       throw new McpError(ErrorCode.InvalidRequest,
         `Path outside addon '${addon}': ${target}. Allowed roots: content/dota_addons/${addon}/ and game/dota_addons/${addon}/ (start target with content/ or game/).`);
@@ -2208,7 +2216,7 @@ Once connected, call dota_status again.`;
    *  addon 必须是单个目录名：它参与拼接路径边界，含 .. 或分隔符会让边界本身逃逸 */
   function requireAddon(addon?: string): string {
     const fromEnv = process.env.DOTA2_TEST_ADDON;
-    const a = resolveAddon(addon) ?? (fromEnv ? fromEnv : null);
+    const a = addon || currentAddon || fromEnv || detectAddonFromFs();
     if (a) {
       if (a === "." || a === ".." || /[\\/:]/.test(a)) {
         throw new McpError(ErrorCode.InvalidRequest, `Invalid addon name '${a}': must be a single directory name under dota_addons/.`);

@@ -1,6 +1,9 @@
 import * as fs from "fs";
 import * as path from "path";
 import { spawnSync } from "child_process";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
 
 const platform = process.platform;
 const isWin = platform === "win32";
@@ -19,9 +22,8 @@ console.log(`[sea-package] Output: ${outputPath}`);
 fs.copyFileSync(nodeBinary, outputPath);
 
 // Generate the SEA blob.
-const blobResult = spawnSync("node", ["--experimental-sea-config", "sea-config.json"], {
+const blobResult = spawnSync(process.execPath, ["--experimental-sea-config", "sea-config.json"], {
   stdio: "inherit",
-  shell: true,
 });
 if (blobResult.status !== 0) {
   console.error("[sea-package] Failed to generate SEA blob");
@@ -41,9 +43,8 @@ if (platform === "darwin") {
   postjectArgs.push("--macho-segment-name", "NODE_SEA");
 }
 
-const postjectResult = spawnSync("npx", ["postject", ...postjectArgs], {
+const postjectResult = spawnSync(process.execPath, [require.resolve("postject/dist/cli.js"), ...postjectArgs], {
   stdio: "inherit",
-  shell: true,
 });
 if (postjectResult.status !== 0) {
   console.error("[sea-package] postject failed");

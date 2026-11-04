@@ -1,17 +1,16 @@
 // 离线 FileOps 冒烟：file_read/write/edit/delete + 路径边界（不依赖 Dota 进程）
-// DOTA2_TEST_ADDON（默认 dota2mcptest）。本机装了 Steam 时用真实 Dota 目录（注册表优先，addon 目录须存在）；
-// 没有 Steam 的机器（CI runner）经 STEAM_PATH 落到临时搭的最小 Steam 库
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+// STEAM_PATH 指向临时最小 Steam 库，读写与本机安装的 Dota 隔离。
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, symlinkSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
 import { freePortBlock } from "./lib-test-ports.mjs";
 
 const BASE = await freePortBlock(3);
-const addonName = process.env.DOTA2_TEST_ADDON || "dota2mcptest";
+const addonName = "my_addon";
 const fakeSteam = mkdtempSync(path.join(tmpdir(), "fileops-steam-"));
 const fakeDota = path.join(fakeSteam, "steamapps", "common", "dota 2 beta");
-for (const d of [["game", "dota"], ["game", "dota_addons", addonName], ["content", "dota_addons", addonName]]) {
+for (const d of [["game", "dota"], ["game", "dota_addons", addonName], ["content", "dota_addons", "other_addon"]]) {
   mkdirSync(path.join(fakeDota, ...d), { recursive: true });
 }
 const env = {
@@ -21,7 +20,7 @@ const env = {
   DOTA2_VCON_CTRL_PORT: String(BASE + 2),
   DOTA2_TEST_ADDON: addonName,
   DOTA2_VCON_STATE_DIR: path.join(fakeSteam, "daemon-state"),
-  STEAM_PATH: process.env.STEAM_PATH || fakeSteam,
+  STEAM_PATH: fakeSteam,
 };
 const { call, notify, kill } = spawnMcpServer({ timeoutMs: 45000, env, cleanupDaemon: true });
 function callText(result) {
@@ -38,10 +37,21 @@ function expectError(result, needle) {
 
 const ADDON = env.DOTA2_TEST_ADDON;
 const TEST_TARGET = "game/dota_addons/" + ADDON + "/_fileops_test.txt";
+const sentinel = path.join(fakeDota, "game", "dota_addons", ADDON, "sentinel.txt");
+writeFileSync(sentinel, "isolated fixture");
 
 await call("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "fileops", version: "0" } });
 notify("notifications/initialized");
 await sleep(12000);
+
+const isolated = await call("tools/call", { name: "file_read", arguments: { target: "game/dota_addons/" + ADDON + "/sentinel.txt", addon: ADDON } });
+assert(JSON.parse(callText(isolated)).data?.text === "isolated fixture", "STEAM_PATH selects the isolated install even when Steam is installed");
+const inferred = await call("tools/call", { name: "file_read", arguments: { target: "game/dota_addons/" + ADDON + "/sentinel.txt" } });
+assert(JSON.parse(callText(inferred)).data?.text === "isolated fixture", "explicit test addon takes precedence over filesystem inference");
+const unicode = "界🌟".repeat(50000);
+writeFileSync(sentinel, unicode);
+const wide = await call("tools/call", { name: "file_read", arguments: { target: "game/dota_addons/" + ADDON + "/sentinel.txt", addon: ADDON } });
+assert(JSON.parse(callText(wide)).data.text === unicode, "MCP stdio preserves multibyte text across chunks");
 
 const tools = await call("tools/list", {});
 const names = tools.result.tools.map((t) => t.name);
@@ -80,6 +90,31 @@ for (const bad of ["..", "../..", ADDON + "/../.."]) {
   const r = await call("tools/call", { name: "file_write", arguments: { target: "escape.txt", addon: bad, content: "x" } });
   expectError(r, "Invalid addon name");
 }
+
+const outside = path.join(fakeSteam, "outside");
+mkdirSync(outside);
+const protectedFile = path.join(outside, "protected.txt");
+writeFileSync(protectedFile, "keep me");
+const link = path.join(fakeDota, "game", "dota_addons", ADDON, "escape");
+symlinkSync(outside, link, process.platform === "win32" ? "junction" : "dir");
+try {
+  for (const name of ["file_read", "file_write", "file_edit", "file_delete"]) {
+    const r = await call("tools/call", { name, arguments: { target: "game/dota_addons/" + ADDON + "/escape/protected.txt", addon: ADDON, content: "overwritten", old_string: "keep", new_string: "lost" } });
+    expectError(r, "outside addon");
+  }
+  const create = await call("tools/call", { name: "file_write", arguments: { target: "game/dota_addons/" + ADDON + "/escape/new/nested.txt", addon: ADDON, content: "escape" } });
+  expectError(create, "outside addon");
+  assert(readFileSync(protectedFile, "utf8") === "keep me", "linked external files remain unchanged");
+} finally {
+  unlinkSync(link);
+}
+
+const linkedRoot = path.join(fakeDota, "content", "dota_addons", ADDON);
+symlinkSync(outside, linkedRoot, process.platform === "win32" ? "junction" : "dir");
+try {
+  const r = await call("tools/call", { name: "file_write", arguments: { target: "allowed.txt", addon: ADDON, content: "linked addon" } });
+  assert(!r.result.isError && readFileSync(path.join(outside, "allowed.txt"), "utf8") === "linked addon", "an addon root may itself be a link");
+} finally { unlinkSync(linkedRoot); }
 
 kill();
 await sleep(300);

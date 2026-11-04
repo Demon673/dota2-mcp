@@ -36,6 +36,9 @@ export async function fetchPinnedReleaseAsset(opts: PinnedReleaseOptions): Promi
     });
     if (!res.ok) return { ok: false, stage: "lookup", status: res.status };
     release = await res.json() as typeof release;
+    if (!Array.isArray(release?.assets) || release.assets.some((a) => !a || typeof a.name !== "string" || typeof a.browser_download_url !== "string" || (a.digest != null && typeof a.digest !== "string"))) {
+      return { ok: false, stage: "lookup", error: "Invalid release metadata: expected an assets array with names and download URLs." };
+    }
   } catch (e) {
     return { ok: false, stage: "lookup", error: (e as Error).message };
   }

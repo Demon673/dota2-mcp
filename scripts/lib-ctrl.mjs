@@ -1,29 +1,40 @@
 // scripts/lib-ctrl.mjs — 活体脚本共享的 29002 控制口小助手
 import net from "node:net";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { readToken as daemonToken, parsePort } from "../dist/daemon-utils.js";
 
 export function readToken() {
-  return fs.readFileSync(path.join(os.tmpdir(), "dota2-mcp", "relay.token"), "utf-8").trim();
+  const token = daemonToken();
+  if (!token) throw new Error("No relay token found; start the daemon in the configured state directory first.");
+  return token;
 }
 
 /** 连 29002 握手，返回 hello-ok（含 addon/maps/allMaps/gui/dota） */
-export function helloOk(port = 29002) {
+export function helloOk(port = parsePort(process.env.DOTA2_VCON_CTRL_PORT, 29002)) {
   return new Promise((resolve, reject) => {
     const sock = net.connect(port, "127.0.0.1");
+    sock.setEncoding("utf8");
     let buf = "";
-    const timer = setTimeout(() => { sock.destroy(); reject(new Error("hello-ok timeout")); }, 8000);
+    const finish = (error, value) => {
+      clearTimeout(timer);
+      sock.destroy();
+      if (error) reject(error); else resolve(value);
+    };
+    const timer = setTimeout(() => finish(new Error("hello-ok timeout")), 8000);
     sock.on("data", (d) => {
       buf += d;
       const i = buf.indexOf("\n");
       if (i !== -1) {
-        clearTimeout(timer);
-        sock.destroy();
-        try { resolve(JSON.parse(buf.slice(0, i))); } catch (e) { reject(e); }
+        try {
+          const message = JSON.parse(buf.slice(0, i));
+          if (message?.type !== "hello-ok") throw new Error("Relay handshake rejected: " + (message?.reason ?? "unexpected response"));
+          finish(null, message);
+        } catch (e) { finish(e); }
       }
     });
-    sock.on("error", reject);
-    sock.on("connect", () => sock.write(`HELLO ${readToken()}\n`));
+    sock.on("error", (e) => finish(e));
+    sock.on("close", () => finish(new Error("Relay closed before hello-ok")));
+    sock.on("connect", () => {
+      try { sock.write(`HELLO ${readToken()}\n`); } catch (e) { finish(e); }
+    });
   });
 }

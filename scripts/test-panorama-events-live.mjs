@@ -10,6 +10,7 @@ notify("notifications/initialized");
 
 const IDS = ["McpEvtButton", "McpEvtToggle", "McpEvtSlider", "McpEvtEntry"];
 let failed = false;
+let originalRender;
 
 async function tool(name, args = {}, timeout = 290000) {
   return callJson(await call("tools/call", { name, arguments: args }, timeout));
@@ -25,26 +26,31 @@ function has(list, value) {
 }
 
 async function cleanup() {
+  if (originalRender === undefined) return;
   try { await tool("console_send", { commands: "r_always_render_all_windows 1" }, 30000); } catch { /* console may be gone */ }
   try {
     await tool("panorama_exec_js", {
-      code: "var ids=" + JSON.stringify(IDS) + ";var n=0;for(var i=0;i<ids.length;i++){var p=MCP.select('#'+ids[i]);if(p){p.DeleteAsync(0);n++;}}MCP._handlers={};return {deleted:n};",
+      code: "var ids=" + JSON.stringify(IDS) + ";var n=0;for(var i=0;i<ids.length;i++){var p=MCP.select('#'+ids[i]);if(p){MCP._handlers=MCP._handlers.filter(function(h){return h.panel!==p;});p.DeleteAsync(0);n++;}}delete MCP._testFired;return {deleted:n};",
     });
     await new Promise((r) => setTimeout(r, 800));
   } catch { /* bridge may be gone */ }
-  try { await tool("console_send", { commands: "r_always_render_all_windows 0" }, 30000); } catch { /* ignore */ }
   try {
     const left = await tool("panorama_exec_js", {
       code: "var ids=" + JSON.stringify(IDS) + ";var left=[];for(var i=0;i<ids.length;i++){if(MCP.select('#'+ids[i]))left.push(ids[i]);}return {left:left};",
     });
     if (left.data?.result?.left?.length) console.error("WARN: probe panels left:", JSON.stringify(left.data.result.left));
   } catch { /* ignore */ }
+  try { await tool("console_send", { commands: "r_always_render_all_windows " + originalRender }, 30000); } catch { /* ignore */ }
 }
 
 try {
   const status = await tool("dota_status", {}, 30000);
   check(status.ok && status.data?.dota && status.data?.vconsole, "live Dota + vconsole are required: " + JSON.stringify(status));
   check(status.data?.cheats === true, "sv_cheats must be on; run console_send 'sv_cheats 1' first");
+  const render = await tool("console_send", { commands: "r_always_render_all_windows" }, 30000);
+  const setting = render.lines?.match(/r_always_render_all_windows"?\s*=\s*"?(true|false|[01])\b/);
+  check(render.ok && setting, "read the original render setting: " + JSON.stringify(render));
+  originalRender = /true|1/.test(setting[1]) ? "1" : "0";
   console.log(`[test] using live addon=${status.data.addon} map=${status.data.map}`);
 
   const created = await tool("panorama_exec_js", {

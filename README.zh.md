@@ -19,7 +19,7 @@
 
 ## 前置条件
 
-- Node.js ≥ 18（自带 npx）
+- Node.js ≥ 20（自带 npx）
 - Dota 2 已安装，并以 `-vconsole` 或 `-tools` 启动
 
 > **vconsole 不开，relay 就不连 Dota**——控制台类工具不可用，所以窗口请保持开着。

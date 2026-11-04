@@ -1,8 +1,13 @@
 // 实际使用演练：模拟 agent 用 dota2-mcp 走完整特效制作流程
 // 学知识 → 写源 → 编译 → 检查 → 引用验证 → 预览 → 查错 → 停止 → 迭代
 import { spawnMcpServer, sleep } from "./lib-mcp.mjs";
+import { helloOk } from "./lib-ctrl.mjs";
 
-const env = { ...process.env, DOTA2_TEST_ADDON: "dota2mcptest" };
+const hello = await helloOk();
+const ADDON = process.env.DOTA2_TEST_ADDON || hello.addon;
+if (!ADDON) throw new Error("No test addon detected; set DOTA2_TEST_ADDON or launch the target addon first.");
+if (hello.addon && hello.addon !== ADDON) throw new Error("Launch the requested DOTA2_TEST_ADDON before running this drill.");
+const env = { ...process.env, DOTA2_TEST_ADDON: ADDON };
 const { call, notify, kill } = spawnMcpServer({ timeoutMs: 120000, env });
 function text(result) {
   const r = result.result ?? result;
@@ -13,7 +18,6 @@ await call("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clie
 notify("notifications/initialized");
 await sleep(15000);
 
-const ADDON = "dota2mcptest";
 const SRC = "content/dota_addons/" + ADDON + "/particles/test_vfx/test_burst.vpcf";
 
 // 1. 学知识：分节读 dota2-vfx 的最小模板
@@ -84,7 +88,9 @@ console.log("\\n========== 6. vfx_preview 游戏内预览 ==========");
 const prev = await call("tools/call", { name: "vfx_preview", arguments: { particle_path: "particles/test_vfx/test_burst.vpcf", attach: 8 } });
 const prevText = text(prev);
 console.log(prevText.slice(0, 300));
-const pid = Number((prevText.match(/pid=(\\d+)/) || [])[1] ?? 0);
+const pidMatch = prevText.match(/pid=(\d+)/);
+if (!pidMatch) throw new Error("vfx_preview returned no particle id: " + prevText.slice(0, 400));
+const pid = Number(pidMatch[1]);
 
 // 7. 查加载错误
 await sleep(3000);

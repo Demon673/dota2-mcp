@@ -130,6 +130,24 @@ assert(stats.probes >= 2, "readiness probe keeps firing");
 const statusMsgs = [];
 const ctrl = attachCtrl(statusMsgs);
 await sleep(300);
+const lateCtrl = net.connect(BASE + 2, "127.0.0.1");
+const lateMessages = [];
+let lateBuffer = "";
+lateCtrl.setEncoding("utf8");
+lateCtrl.on("error", () => {});
+lateCtrl.on("data", (data) => {
+  lateBuffer += data;
+  let i;
+  while ((i = lateBuffer.indexOf("\n")) !== -1) {
+    lateMessages.push(JSON.parse(lateBuffer.slice(0, i)));
+    lateBuffer = lateBuffer.slice(i + 1);
+  }
+});
+lateCtrl.write("HELLO\n");
+await waitFor(() => lateMessages.some(m => m.type === "hello-ok" && !m.dota), 1000, "HELLO before engine attach");
+relay.setGuiSuppressPatterns(["snapshot"]);
+relay.setMcpSuppressEnabled(false);
+replyToProbe = true;
 const gui = mkGui();
 let guiBuf = Buffer.alloc(0);
 gui.on("data", (d) => { guiBuf = Buffer.concat([guiBuf, d]); });
@@ -146,6 +164,17 @@ while (guiBuf.length >= 12) {
   guiBuf = guiBuf.subarray(len);
 }
 assert(JSON.stringify(got) === JSON.stringify(INIT), `GUI received init frames: ${got.join(",")}`);
+lateCtrl.write("STREAM\n");
+await waitFor(() => lateMessages.some(m => m.type === "status" && m.dota && m.gui && m.ready), 1000, "STREAM catches state changes after HELLO");
+await waitFor(() => lateMessages.some(m => m.type === "chan" && m.channels.includes("VScript")) &&
+  lateMessages.some(m => m.type === "adon" && m.addonName === relay.addonName) &&
+  lateMessages.some(m => m.type === "suppress" && m.mcpSuppress === false && m.guiPatterns[0] === "snapshot"),
+  1000, "STREAM catches metadata changes after HELLO");
+assert(true, "STREAM refreshes state and metadata changed after HELLO");
+lateCtrl.destroy();
+relay.setGuiSuppressPatterns([]);
+relay.setMcpSuppressEnabled(true);
+replyToProbe = false;
 
 // ── 场景 2b：异步 MCP 输出不得泄漏到 GUI，但 MCP 缓冲仍要收到 ──
 const mcpSeen = [];
@@ -269,6 +298,27 @@ await waitFor(() => stats.probes > probesBefore, 5000, "back to readiness probin
 assert(true, "back to probing after GUI detach");
 await sleep(1000);
 assert(spawnCalls === 1, "no respawn (ready never fell, no new rising edge)");
+
+// A late close from the previous engine socket must not clear its replacement.
+replyToProbe = true;
+const firstGui = mkGui();
+await waitFor(() => stats.held.size === 1, 5000, "connection before rapid GUI reopen");
+pushGui("before rapid reopen");
+await sleep(50);
+firstGui.destroy();
+await waitFor(() => !relay.guiConnected, 1000, "GUI disconnect before rapid reopen");
+const nextGui = mkGui();
+await sleep(800);
+assert(relay.dotaConnected && relay.dotaClient !== null && stats.held.size === 1, "late socket close preserves the new Dota connection");
+const resetClient = new RelayClient({ port: BASE + 2, token: null });
+await resetClient.connect();
+for (const sock of stats.held) sock.resetAndDestroy();
+await waitFor(() => !relay.dotaConnected && !resetClient.dotaConnected, 1200, "TCP reset clears relay and thin-client connection state");
+resetClient.destroy();
+await waitFor(() => relay.dotaConnected, 5000, "reconnect after TCP reset");
+nextGui.destroy();
+await waitFor(() => stats.held.size === 0, 5000, "rapid-reopen connection cleanup");
+replyToProbe = false;
 
 // ── 场景 5：Dota 消失 → ready:false；回来 → 新就绪沿 → 再次 auto-open ──
 await stopServer();

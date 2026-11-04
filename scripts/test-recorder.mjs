@@ -2,7 +2,7 @@
 // 只替换两个不可控边界：DOTA2_CAPTURE_HELPER 指向 Node 假助手（按 --record <dir> <fps> <ms>
 // 逐帧写 PNG 并回报 JSON），DOTA2_FFMPEG 指向 Node 假 ffmpeg（记录 argv、按模式产出文件）。
 // 不启动真实 ffmpeg、不需要 Dota/vconsole/relay，因此这里不做任何真实录制。
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, symlinkSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { assert } from "./lib-mcp.mjs";
@@ -79,6 +79,18 @@ assert(existsSync(r.data.path), "recorded file exists");
 assert(r.data.duration_s === 3 && r.data.fps === 25 && r.data.width === 1280 && r.data.height === 720 && r.data.bytes === 9,
   "metadata describes the produced file: " + JSON.stringify(r.data));
 assert(typeof r.text === "string" && r.text.includes(r.data.path), "text summary names the file");
+
+const linkedOutside = path.join(work, "outside");
+mkdirSync(linkedOutside);
+const protectedVideo = path.join(linkedOutside, "protected.mp4");
+writeFileSync(protectedVideo, "KEEP");
+const escapeLink = path.join(recordDir, "escape");
+symlinkSync(linkedOutside, escapeLink, process.platform === "win32" ? "junction" : "dir");
+try {
+  r = await recordVideo({ duration: 1, output: "escape/protected.mp4" });
+  assert(!r.ok && r.code === "invalid_arg", "recording rejects linked directories outside its output root");
+  assert(readFileSync(protectedVideo, "utf8") === "KEEP", "recording does not delete an external target");
+} finally { unlinkSync(escapeLink); }
 
 // 默认 fps 12；duration 夹取到 1–30，fps 上限 30
 r = await recordVideo({ duration: 0.2 });

@@ -33,7 +33,7 @@ const TEST_DIR = "scripts/vscripts/tests";
 const LARGE_PAYLOAD = "LARGE_FILE_PAYLOAD_9f3c";
 const fakeSteam = mkdtempSync(path.join(tmpdir(), "run-lua-tests-steam-"));
 mkdirSync(path.join(fakeSteam, "steamapps", "common", "dota 2 beta", "game", "dota"), { recursive: true });
-env.STEAM_PATH = process.env.STEAM_PATH || fakeSteam;
+env.STEAM_PATH = fakeSteam;
 env.DOTA2_TEST_ADDON = ADDON;
 process.env.STEAM_PATH = env.STEAM_PATH;
 const dotaPath = await detectDotaPath();

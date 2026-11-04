@@ -1,7 +1,6 @@
 // 离线冒烟：写操作与生命周期族迁移到统一契约。
 // 只走 MCP 对外行为：tools/list 的 annotations / 五段式描述，tools/call 的 {ok,...} 壳。
-// 不需要 Dota/vconsole：端口与 daemon 状态目录隔离；FileOps 真实读写——本机有 Steam 时用真实 Dota 目录，
-// 没有时用临时最小 Steam 库（STEAM_PATH，同 test-fileops）。addon 名带随机后缀，结束只删本测试创建的目录。
+// 不需要 Dota/vconsole：端口、daemon 状态和 STEAM_PATH 临时安装目录隔离。
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -23,11 +22,11 @@ const env = {
   DOTA2_VCON_CTRL_PORT: String(BASE + 2),
   DOTA2_VCON_STATE_DIR: path.join(work, "daemon-state"),
   DOTA2_TEST_ADDON: addon,
-  STEAM_PATH: process.env.STEAM_PATH || path.join(work, "steam"),
+  STEAM_PATH: path.join(work, "steam"),
 };
 const { call, notify, kill } = spawnMcpServer({ timeoutMs: 45000, env, cleanupDaemon: true });
 
-// 本测试可能落在真实 Dota 目录（注册表优先）：只清理带随机后缀的 addon 根
+// 只清理本测试创建的 addon 根。
 let createdRoot = null;
 function cleanup() {
   if (createdRoot && path.basename(createdRoot) === addon && existsSync(createdRoot)) {

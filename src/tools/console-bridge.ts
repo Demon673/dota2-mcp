@@ -1,7 +1,7 @@
 /**
  * Dota 2 环境探测与工具执行辅助。
  *
- * - detectDotaPath：Steam appid 570 自动检测（注册表 → STEAM_PATH → 默认位置，各自展开 libraryfolders.vdf），
+ * - detectDotaPath：Steam appid 570 自动检测（STEAM_PATH → 注册表 → 默认位置，各自展开 libraryfolders.vdf），
  *   非 win32 平台自动映射到 /mnt/<drive> 挂载（WSL 兼容）。
  * - resolveDotaToolPath / toWindowsPath / isProcessRunning / spawnVconsole：
  *   Dota 2 工具目录按存在性探测，spawn 参数在 WSL 下转换为 Windows 路径。
@@ -12,6 +12,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { execSync, spawn } from "child_process";
+import { scrubbedEnv } from "./process-env.js";
 
 /** 非 win32 平台（WSL 等）把 Windows 盘符路径映射到 /mnt/<drive>/ 挂载，使 fs 可访问；win32 原样返回。 */
 function toHostPath(p: string | null): string | null {
@@ -41,7 +42,7 @@ function steamPathFromRegistry(): string | null {
   try {
     const out = execSync(
       'reg query "HKCU\\Software\\Valve\\Steam" /v SteamPath',
-      { encoding: "utf-8", windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }
+      { encoding: "utf-8", windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: scrubbedEnv() }
     );
     const m = out.match(/SteamPath\s+REG_SZ\s+(.+?)\s*$/m);
     return m ? m[1].replace(/\\/g, "/") : null;
@@ -78,11 +79,11 @@ function findDotaInLibraries(steamRoot: string): string | null {
   return null;
 }
 
-/** 手动检测：注册表 → 环境变量 → 默认位置，每个都展开 libraryfolders.vdf。 */
+/** 显式环境变量优先，再检测注册表与默认位置；每个都展开 libraryfolders.vdf。 */
 function detectDotaPathManual(): string | null {
   const steamRoots = [
-    steamPathFromRegistry(),
     process.env.STEAM_PATH,
+    steamPathFromRegistry(),
     "C:/Program Files (x86)/Steam",
     "C:/Program Files/Steam",
     // fs 不展开 ~，必须用 homedir 拼
@@ -103,11 +104,11 @@ function detectDotaPathManual(): string | null {
 export function isProcessRunning(imageName: string): boolean {
   try {
     if (process.platform === "win32") {
-      const out = execSync(`tasklist /FI "IMAGENAME eq ${imageName}" /NH`, { encoding: "utf-8", windowsHide: true });
+      const out = execSync(`tasklist /FI "IMAGENAME eq ${imageName}" /NH`, { encoding: "utf-8", windowsHide: true, env: scrubbedEnv() });
       return out.includes(imageName);
     }
     try {
-      execSync(`pgrep -x ${imageName}`, { stdio: ["pipe", "pipe", "pipe"] });
+      execSync(`pgrep -x ${imageName}`, { stdio: ["pipe", "pipe", "pipe"], env: scrubbedEnv() });
       return true;
     } catch {
       // pgrep 无匹配：WSL 下可能是 Windows 进程（tasklist.exe interop 可见）
@@ -116,6 +117,7 @@ export function isProcessRunning(imageName: string): boolean {
           encoding: "utf-8",
           windowsHide: true,
           stdio: ["pipe", "pipe", "pipe"],
+          env: scrubbedEnv(),
         });
         return out.includes(imageName);
       } catch {
@@ -169,9 +171,10 @@ export function spawnVconsole(dotaPath: string): boolean {
   const exe = resolveDotaToolPath(dotaPath, "vconsole2");
   if (!fs.existsSync(exe)) return false;
   try {
-    const p = spawn(exe, [], { detached: true, stdio: "ignore", windowsHide: false });
+    const p = spawn(exe, [], { detached: true, stdio: "ignore", windowsHide: false, env: scrubbedEnv() });
+    p.on("error", (e) => console.error("[relay] could not start vconsole2:", e.message));
     p.unref();
-    return true;
+    return p.pid !== undefined;
   } catch {
     return false;
   }

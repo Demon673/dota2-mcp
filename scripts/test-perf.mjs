@@ -119,6 +119,13 @@ try {
   assert(!badBaseline.ok && badBaseline.code === "invalid_arg" && badBaseline.message.includes("Baseline"),
     "unreadable baseline is invalid_arg: " + JSON.stringify(badBaseline));
 
+  const partial = path.join(work, "partial-presentmon.mjs");
+  writeFileSync(partial, readFileSync(fake, "utf8") + "\nprocess.exit(1);\n");
+  process.env.DOTA2_PRESENTMON = partial;
+  const partialRun = await runPerf({ seconds: 1 });
+  assert(!partialRun.ok && partialRun.code === "internal" && partialRun.message.includes("exit 1"),
+    "a failed capture with partial CSV samples is not reported as success");
+
   // 6. 空 CSV（只有表头）——管理员权限缺失时 ETW 起不来的典型结果
   const empty = path.join(work, "empty-presentmon.mjs");
   writeFileSync(empty, [

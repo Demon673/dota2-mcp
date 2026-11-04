@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   node scripts/verify-translation-pairing.mjs --write .agents/notes/implemented/feature/2026-08-20-asset-inspect.md
-2026-08-20-asset-inspect.md: 69f2773fe0c05cab584fdecc28a3e6d59fdb451a
-2026-08-20-asset-inspect.zh.md: 4f9115ea59a256d7fba2a74ea69257214e205e26
+2026-08-20-asset-inspect.md: de0a708c13fe09fe03e12fd60a6e218aae16dac9
+2026-08-20-asset-inspect.zh.md: 6062ca71eca5ab404ea1cfe0ed78d1790dd09d4e

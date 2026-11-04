@@ -97,7 +97,7 @@ try {
 } finally {
   if (probeId) {
     try {
-      await exec(`var p=MCP.select('#${probeId}');if(p)p.DeleteAsync(0);MCP._handlers={};MCP._probe=null;return true;`, 10000);
+      await exec(`var p=MCP.select('#${probeId}');MCP._handlers=MCP._handlers.filter(function(h){return h.panel!==p;});if(p)p.DeleteAsync(0);MCP._probe=null;return true;`, 10000);
     } catch (e) {
       console.log("[test] cleanup warning: " + e.message);
     }

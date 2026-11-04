@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { ensureVrf } from "./vrf-ensure.js";
 import { scrubbedEnv } from "./process-env.js";
+import { randomBytes } from "node:crypto";
 
 export interface InspectOptions {
   includeRaw?: boolean;
@@ -120,19 +121,20 @@ export async function inspectAsset(dotaPath: string, resolvedPath: string, opts:
   const isVtex = ext === ".vtex_c" || ext === ".vtex";
 
   // .NET 在无 libicu 的系统（WSL 常见）上需要 invariant 全球化才能启动
-  const cliEnv = { ...process.env, DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1" };
+  const cliEnv = scrubbedEnv({ DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1" });
   let stdout = "";
   let pngPath: string | null = null;
   let tmpOut: string | null = null;
+  const tag = `${process.pid}.${randomBytes(4).toString("hex")}`;
   try {
     if (isVtex) {
       const outDir = path.join(tmpdir(), "dota2-mcp", "inspect");
       mkdirSync(outDir, { recursive: true });
-      pngPath = path.join(outDir, path.basename(resolvedPath).replace(/_c$/, "") + ".png");
+      pngPath = path.join(outDir, path.basename(resolvedPath).replace(/_c$/, "") + "." + tag + ".png");
       execFileSync(vrf.executable, ["-i", resolvedPath, "-o", pngPath], { cwd: path.dirname(pngPath), encoding: "utf-8", windowsHide: true, maxBuffer: 64 * 1024 * 1024, env: cliEnv });
     } else {
       // 反编译文本走 -o 文件（stdout 是分析摘要不是文本）；vtex 输出 PNG
-      tmpOut = path.join(tmpdir(), "dota2-mcp", "inspect", path.basename(resolvedPath) + ".txt");
+      tmpOut = path.join(tmpdir(), "dota2-mcp", "inspect", path.basename(resolvedPath) + "." + tag + ".txt");
       stdout = decompileToText(vrf.executable, resolvedPath, tmpOut);
     }
   } catch (e) {
@@ -145,6 +147,7 @@ export async function inspectAsset(dotaPath: string, resolvedPath: string, opts:
   }
 
   const pngInfo = pngPath && existsSync(pngPath) ? pngHead(pngPath) : null;
+  if (isVtex && !pngInfo) return { ok: false, text: "asset_inspect: VRF CLI produced no readable PNG for " + resolvedPath };
   const summary = buildSummary(assetType, stdout, pngInfo);
   const notes: string[] = [];
   if (isVtex && pngInfo) notes.push("mip_count 无法从 PNG 输出提取（VRF 纹理解码为单层 PNG）");
@@ -157,7 +160,7 @@ export async function inspectAsset(dotaPath: string, resolvedPath: string, opts:
     ...(summary ? { summary } : {}),
     notes,
   };
-  if (opts.includeRaw) {
+  if (opts.includeRaw || !summary) {
     const cap = opts.rawMaxChars ?? 4000;
     out.raw_decompiled = stdout.slice(0, cap);
     if (stdout.length > cap) out.raw_truncated = true;

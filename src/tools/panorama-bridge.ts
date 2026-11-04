@@ -72,7 +72,7 @@ interface Ack {
 }
 
 const PROTOCOL_VERSION = 1;
-const HELPER_VERSION = 10;
+const HELPER_VERSION = 11;
 const MAX_LUA_BYTES = 510;
 const MAX_RESULT_LINES = 80;
 
@@ -146,7 +146,17 @@ var MCP = {
     }
     return out;
   },
-  _handlers: {},
+  _handlers: [],
+  _handlerSlot: function (p, event, create) {
+    for (var i = 0; i < MCP._handlers.length; i++) {
+      var slot = MCP._handlers[i];
+      if (slot.panel === p && slot.event === event) return slot;
+    }
+    if (!create) return null;
+    var slot = { panel: p, event: event, handlers: [], wrapper: null };
+    MCP._handlers.push(slot);
+    return slot;
+  },
   dispatch: function (event, sel) {
     var p = MCP._need(sel);
     var args = [event, p].concat(Array.prototype.slice.call(arguments, 2));
@@ -176,9 +186,7 @@ var MCP = {
   on: function (sel, event, fn) {
     var p = MCP._need(sel);
     if (typeof fn !== "function") throw new Error("MCP.on needs a function handler");
-    var key = (p.id || "") + "|" + event;
-    var slot = MCP._handlers[key];
-    if (!slot) slot = MCP._handlers[key] = { handlers: [], wrapper: null };
+    var slot = MCP._handlerSlot(p, event, true);
     if (!slot.wrapper) {
       var wrapper = function () {
         var hs = slot.handlers.slice();
@@ -195,7 +203,7 @@ var MCP = {
   },
   emit: function (sel, event) {
     var p = MCP._need(sel);
-    var slot = MCP._handlers[(p.id || "") + "|" + event];
+    var slot = MCP._handlerSlot(p, event, false);
     if (!slot || slot.handlers.length === 0) {
       return { id: p.id || "", event: event, fired: 0, note: "no handler registered through MCP.on" };
     }
@@ -666,14 +674,15 @@ function ensureBridgeToken(): string {
   try {
     const existing = fs.readFileSync(p, "utf-8").trim();
     if (/^[0-9a-f]{32,}$/i.test(existing)) return existing;
-  } catch { /* create */ }
+    throw new Error("Bridge token file is invalid; refusing to provision the bridge.");
+  } catch (e: any) { if (e.code !== "ENOENT") throw e; }
   const token = crypto.randomBytes(16).toString("hex");
   fs.mkdirSync(path.dirname(p), { recursive: true });
   try {
     fs.writeFileSync(p, token, { mode: 0o600, flag: "wx" });
     return token;
   } catch (e: any) {
-    if (e.code === "EEXIST") return fs.readFileSync(p, "utf-8").trim();
+    if (e.code === "EEXIST") return ensureBridgeToken();
     throw e;
   }
 }
@@ -800,8 +809,9 @@ export class PanoramaBridge {
 
   private runConsole(cmd: string, waitMs = 5000): Promise<{ lines: string[]; timedOut: boolean }> {
     return new Promise((resolve) => {
-      const begin = `__mcp_${crypto.randomBytes(4).toString("hex")}_begin`;
-      const end = `__mcp_${crypto.randomBytes(4).toString("hex")}_end`;
+      const marker = crypto.randomBytes(4).toString("hex");
+      const begin = `__mcp_${marker}_begin`;
+      const end = `__mcp_${marker}_end`;
       const lines: string[] = [];
       let inside = false;
       let done = false;

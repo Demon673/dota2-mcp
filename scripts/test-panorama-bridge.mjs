@@ -2,7 +2,8 @@
 // A fake deps object owns the console: DynamicHud_Create only succeeds when the
 // transient source exists, the bridge answers ping/pong, and exec acks are
 // printed exactly like the installed Lua listener. No Dota/vconsole required.
-import { mkdtempSync, mkdirSync, existsSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, existsSync, readdirSync, rmSync, writeFileSync, unlinkSync, readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -16,6 +17,12 @@ mkdirSync(path.join(dotaPath, "content", "dota_addons", addon), { recursive: tru
 mkdirSync(path.join(dotaPath, "game", "dota_addons", addon), { recursive: true });
 
 const { PanoramaBridge } = await import("../dist/tools/panorama-bridge.js");
+const bridgeToken = path.join(stateDir, "bridge.token");
+writeFileSync(bridgeToken, "");
+let invalidTokenRejected = false;
+try { new PanoramaBridge({ addonName: () => addon, dotaPath: () => dotaPath, consoleReady: () => true, sendCommand() {}, onPrnt: () => () => {} }); } catch { invalidTokenRejected = true; }
+unlinkSync(bridgeToken);
+if (!invalidTokenRejected) throw new Error("An empty bridge token must be rejected before provisioning.");
 
 let passed = 0;
 function assert(cond, message) {
@@ -33,6 +40,8 @@ let listenerInstalled = false;
 let ackPrefix = "";
 let execMode = "ok";
 let failCompile = false;
+let mismatchedMarkers = 0;
+let runtime;
 
 function emit(text) {
   for (const fn of [...listeners]) fn({ text, verbosity: 0, channel: "test" });
@@ -69,6 +78,10 @@ function processCommand(middle) {
       hudAlive = false;
       return;
     }
+    const root = path.join(dotaPath, "content", "dota_addons", addon, "panorama", "layout", "custom_game");
+    const element = readdirSync(root).find((name) => name.startsWith("d2mcp_"));
+    runtime = { $: { GetContextPanel: () => ({}), Msg: () => {} }, GameEvents: { Subscribe: () => {}, SendCustomGameEventToServer: () => {} } };
+    runInNewContext(readFileSync(path.join(root, element, "bridge.js"), "utf8"), runtime);
     hudAlive = true;
     return;
   }
@@ -99,6 +112,7 @@ function processCommand(middle) {
 function handleCommand(cmd) {
   const m = cmd.match(/^echo (\S+); ([\s\S]*); echo (\S+)$/);
   if (!m) return;
+  if (m[1].replace(/_begin$/, "_end") !== m[3]) mismatchedMarkers++;
   setImmediate(() => {
     emit(m[1]);
     processCommand(m[2]);
@@ -121,8 +135,18 @@ try {
   // 1. First exec: cache miss, write source, engine "compiles", ping, exec, cleanup.
   const first = await bridge.handle({ id: "r1", op: "exec", code: "return 1", timeoutMs: 1000 });
   assert(first.ok && first.rebuilt === true, "first exec provisions and reports rebuilt: " + JSON.stringify(first));
+  assert(mismatchedMarkers === 0, "every collected bridge command closes its matching GUI suppression window");
   assert(first.result && first.result.echo === "ok" && first.logs.includes("log1"), "first exec carries the structured result and logs");
   assert(noBridgeFiles(), "successful exec leaves no bridge files");
+  for (const id of ["duplicate", ""]) {
+    const panel = () => ({ id, IsValid: () => true, SetPanelEvent(event, fn) { this[event] = fn; } });
+    const a = panel(), b = panel(), fired = [];
+    runtime.MCP.on(a, "onactivate", () => fired.push("a"));
+    runtime.MCP.on(b, "onactivate", () => fired.push("b"));
+    assert(typeof b.onactivate === "function", "each panel receives its own engine event wrapper");
+    const dispatched = runtime.MCP.emit(b, "onactivate");
+    assert(dispatched.fired === 1 && fired.join() === "b", "event handlers stay on their panel when IDs are duplicate or empty");
+  }
 
   // 2. Second exec: ping reuse, no source copy.
   const second = await bridge.handle({ id: "r2", op: "exec", code: "return 2", timeoutMs: 1000 });

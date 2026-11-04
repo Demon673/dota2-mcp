@@ -1,5 +1,6 @@
 // Windows-native offline regression for #26. Uses the real embedded input helper
-// against two fixture windows; never discovers or sends input to a running Dota.
+// against two fixture windows, plus the capture helper's declared window API;
+// never discovers or sends input to a running Dota.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -17,6 +18,9 @@ const input = readFileSync(new URL("../src/tools/input.ts", import.meta.url), "u
 const marker = "const INPUT_HELPER_SOURCE = String.raw`";
 assert.equal(input.split(marker).length, 2, "embedded helper source exists once");
 const source = input.slice(input.indexOf(marker) + marker.length, input.lastIndexOf("`;"));
+const captureSource = readFileSync(new URL("../src/tools/screenshot.ts", import.meta.url), "utf8");
+const captureCall = captureSource.match(/\[DllImport\("user32.dll"\)\] static extern bool (ShowWindow(?:Async)?)\(/)?.[1];
+assert(captureCall, "capture helper declares its window-state API");
 assert.equal(source.split("static int Main(string[] args)").length, 2, "one production entry point");
 const testSource = source.replace("static int Main(string[] args)", "static int ProductionMain(string[] args)") + String.raw`
 
@@ -30,6 +34,9 @@ class FocusFixture : System.Windows.Forms.Form {
   [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] static extern bool AllowSetForegroundWindow(uint pid);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+  [DllImport("user32.dll")] static extern bool AttachThreadInput(uint from, uint to, bool attach);
   [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
   public FocusFixture() {
     Text = "Input focus fixture";
@@ -44,11 +51,17 @@ class FocusFixture : System.Windows.Forms.Form {
     if (m.Msg == 0x8001) { ObserveFocus = false; HideOnDeactivate = true; }
     base.WndProc(ref m);
   }
-  public void Prepare(bool foreground) {
+  public void Prepare(bool foreground, bool minimized) {
     HideOnDeactivate = false; ObserveFocus = false; HiddenDuringFocus = false; HiddenOnDeactivate = false;
+    WindowState = System.Windows.Forms.FormWindowState.Normal;
     Show();
+    if (minimized) WindowState = System.Windows.Forms.FormWindowState.Minimized;
     SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0, 0x53);
-    SetForegroundWindow(foreground ? Handle : Other);
+    uint pid;
+    uint thread = GetWindowThreadProcessId(GetForegroundWindow(), out pid), current = GetCurrentThreadId();
+    bool attached = thread != 0 && thread != current && AttachThreadInput(current, thread, true);
+    try { SetForegroundWindow(foreground ? Handle : Other); }
+    finally { if (attached) AttachThreadInput(current, thread, false); }
     AllowSetForegroundWindow(0xffffffff);
     ObserveFocus = true;
     Console.WriteLine("{\"game\":\"" + Handle.ToInt64() + "\",\"other\":\"" + Other.ToInt64() + "\",\"visible\":" + IsWindowVisible(Handle).ToString().ToLowerInvariant() + ",\"foreground\":" + (GetForegroundWindow() == (foreground ? Handle : Other)).ToString().ToLowerInvariant() + "}");
@@ -56,6 +69,8 @@ class FocusFixture : System.Windows.Forms.Form {
 }
 
 static class InputFocusTest {
+  [DllImport("user32.dll", EntryPoint = "${captureCall}")] static extern bool CaptureShow(IntPtr h, int cmd);
+  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
@@ -81,7 +96,7 @@ static class InputFocusTest {
         while ((line = Console.ReadLine()) != null) {
           string command = line;
           game.BeginInvoke(new Action(delegate {
-            if (command == "prepare" || command == "prepare_game") game.Prepare(command == "prepare_game");
+            if (command == "prepare" || command == "prepare_game" || command == "prepare_minimized") game.Prepare(command == "prepare_game", command == "prepare_minimized");
             else if (command == "state") Console.WriteLine("{\"hidden_during_focus\":" + game.HiddenDuringFocus.ToString().ToLowerInvariant() + ",\"hidden_on_deactivate\":" + game.HiddenOnDeactivate.ToString().ToLowerInvariant() + "}");
             else { game.ObserveFocus = false; game.Close(); other.Close(); System.Windows.Forms.Application.ExitThread(); }
           }));
@@ -96,6 +111,13 @@ static class InputFocusTest {
     if ((startup.flags & 1) == 0 || startup.show != 0) throw new Exception("Probe must inherit SW_HIDE");
     IntPtr target = new IntPtr(long.Parse(args[1]));
     IntPtr previous = new IntPtr(long.Parse(args[2]));
+    if (args[0].StartsWith("capture_")) {
+      bool initial = IsIconic(target);
+      CaptureShow(target, args[0] == "capture_minimize" ? 7 : 4);
+      Thread.Sleep(200);
+      Console.WriteLine("{\"initial_minimized\":" + initial.ToString().ToLowerInvariant() + ",\"minimized\":" + IsIconic(target).ToString().ToLowerInvariant() + ",\"visible\":" + IsWindowVisible(target).ToString().ToLowerInvariant() + ",\"foreground_correct\":" + (GetForegroundWindow() == previous).ToString().ToLowerInvariant() + "}");
+      return 0;
+    }
     object[] focusArgs = { target, IntPtr.Zero };
     bool focused = (bool)Method("Focus").Invoke(null, focusArgs);
     bool focusVisible = IsWindowVisible(target);
@@ -133,7 +155,7 @@ try {
   for (const scenario of ["keep", "restore", "foreground"]) {
     const restore = scenario === "restore";
     const before = await ask(scenario === "foreground" ? "prepare_game" : "prepare");
-    assert(before.visible && before.foreground, "fixture starts visible with the expected foreground");
+    assert(before.visible && before.foreground, `fixture starts visible with the expected foreground: ${JSON.stringify(before)}`);
     const result = await runCommand(exe, [scenario, before.game, before.other], 5000);
     assert.equal(result.code, 0, result.stderr || result.stdout);
     const state = JSON.parse(result.stdout.trim());
@@ -143,6 +165,17 @@ try {
     assert(state.visible && state.foreground_correct, `restore_focus:${restore} preserves visibility and foreground`);
     if (restore) assert(observed.hidden_on_deactivate, "fixture hides on deactivation before RestoreFocus re-shows it");
     console.log(`ok - native ${scenario}, including visibility during focus and after restoration`);
+  }
+  for (const scenario of ["capture_minimize", "capture_restore"]) {
+    const restore = scenario === "capture_restore";
+    const before = await ask(restore ? "prepare_minimized" : "prepare");
+    assert(before.visible && before.foreground, "capture fixture starts visible without foreground");
+    const result = await runCommand(exe, [scenario, before.game, before.other], 5000);
+    assert.equal(result.code, 0, result.stderr || result.stdout);
+    const state = JSON.parse(result.stdout.trim());
+    assert.equal(state.initial_minimized, restore, "fixture starts in the requested state");
+    assert(state.visible && state.foreground_correct && state.minimized === !restore, "capture changes window state without hiding or focusing it");
+    console.log(`ok - native ${scenario} with hidden helper startup`);
   }
 } finally {
   fixture.stdin.end("quit\n");

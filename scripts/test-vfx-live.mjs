@@ -1,12 +1,14 @@
 // 活体 vfx_preview 冒烟：launch addon 地图 → spawn 粒子 → stop
-// 前置：Dota 2 运行 + vconsole 已接入（relay 自动拉起）；DOTA2_TEST_ADDON=dota2mcptest
-import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
+// addon/map 从运行环境推断，可用 DOTA2_TEST_ADDON / DOTA2_TEST_MAP 覆盖。
+import { spawnMcpServer, assert, sleep, callJson } from "./lib-mcp.mjs";
+import { helloOk } from "./lib-ctrl.mjs";
 
+const hello = await helloOk();
 const env = {
   ...process.env,
-  DOTA2_TEST_ADDON: process.env.DOTA2_TEST_ADDON || "dota2mcptest",
-  DOTA2_TEST_MAP: process.env.DOTA2_TEST_MAP || "template_map",
+  DOTA2_TEST_ADDON: process.env.DOTA2_TEST_ADDON || hello.addon,
 };
+if (!env.DOTA2_TEST_ADDON) throw new Error("No test addon detected; set DOTA2_TEST_ADDON.");
 const { call, notify, kill } = spawnMcpServer({ timeoutMs: 180000, env });
 function callText(result) {
   if (result.result && result.result.isError) throw new Error("tool error: " + result.result.content.map((c) => c.text).join("").slice(0, 400));
@@ -20,13 +22,17 @@ await sleep(15000);
 // 1. 状态
 const st = await call("tools/call", { name: "dota_status", arguments: {} });
 const stText = callText(st);
+const current = callJson(st).data;
+const map = process.env.DOTA2_TEST_MAP || (current.addon === env.DOTA2_TEST_ADDON && !["menu", "loading", "unknown"].includes(current.phase) ? current.map : null)
+  || (hello.maps?.length === 1 ? hello.maps[0] : null);
+if (!map) throw new Error("No unambiguous test map detected; set DOTA2_TEST_MAP.");
 console.log("--- dota_status ---");
 console.log(stText.slice(0, 500));
 
 // 2. 若未在游戏中则 launch（GAME_IN_PROGRESS 或 CUSTOM_GAME_SETUP 都算已入图）
-if (!stText.includes("GAME_IN_PROGRESS") && !stText.includes("CUSTOM_GAME_SETUP") && !stText.includes("HERO_SELECTION") && !stText.includes("PRE_GAME")) {
+if (current.addon !== env.DOTA2_TEST_ADDON || current.map !== map || ["menu", "loading", "unknown"].includes(current.phase)) {
   console.log("--- launching map ---");
-  const l = await call("tools/call", { name: "dota_launch_game", arguments: {} });
+  const l = await call("tools/call", { name: "dota_launch_game", arguments: { addon: env.DOTA2_TEST_ADDON, map } });
   console.log(callText(l).slice(0, 300));
   // 轮询到入图
   for (let k = 0; k < 30; k++) {
@@ -61,7 +67,7 @@ console.log(spawnText.slice(0, 400));
 const pidMatch = spawnText.match(/pid=(\d+)/);
 assert(pidMatch, "spawn returns a particle id");
 const pid = Number(pidMatch[1]);
-assert(pid > 0, "particle id > 0 (load did not obviously fail), got " + pid);
+assert(Number.isInteger(pid) && pid >= 0, "spawn returns a non-negative particle id, got " + pid);
 
 // 4. 读 Particles/ResourceSystem 通道检查加载错误
 const out = await call("tools/call", { name: "console_output", arguments: { filter: "basic_explosion" } });

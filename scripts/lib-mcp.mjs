@@ -15,6 +15,7 @@ import path from "node:path";
 export function spawnMcpServer({ timeoutMs = 5000, env = process.env, cleanupDaemon = false } = {}) {
   if (cleanupDaemon && !env.DOTA2_VCON_STATE_DIR) throw new Error("cleanupDaemon requires an isolated DOTA2_VCON_STATE_DIR");
   const server = spawn("node", ["dist/index.js"], { stdio: ["pipe", "pipe", "pipe"], env });
+  server.stdout.setEncoding("utf8");
   server.stderr.on("data", (d) => {
     const text = d.toString().replace(/\n$/, "");
     if (text.length) console.error("[mcp] " + text.replace(/\n/g, "\n[mcp] "));

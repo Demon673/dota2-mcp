@@ -42,9 +42,12 @@ jobs:
       # window, which a runner has not. These import from dist/, so they run after
       # Build. test-asset-{inspect,check-refs} skip on win32 (a fake VRF CLI cannot execute there).
       - name: Offline smoke tests
+        env:
+          DOTA2_CAPTURE_DISABLE_WATCHER: "1"
         run: |
           node scripts/test-relay.mjs
           node scripts/test-daemon.mjs
+          node scripts/test-control-protocol.mjs
           node scripts/test-mcp-offline.mjs
           node scripts/test-collect-output.mjs
           node scripts/test-screenshot.mjs

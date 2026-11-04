@@ -6,6 +6,7 @@ import { spawn, execSync } from "node:child_process";
 import path from "node:path";
 import { helloOk } from "./lib-ctrl.mjs";
 import { spawnMcpServer, assert, sleep } from "./lib-mcp.mjs";
+import { scrubbedEnv } from "../dist/tools/process-env.js";
 
 const { detectDotaPath } = await import("../dist/tools/console-bridge.js");
 const dotaPath = await detectDotaPath();
@@ -49,7 +50,7 @@ assert(vconsoleAlive(), "vconsole2.exe survives dota2 crash");
 
 // 4. 重启 Dota 2（不碰 vconsole、不碰 MCP 会话）
 console.log("=== relaunching dota2.exe ===");
-const dp = spawn(DOTA_EXE, DOTA_ARGS, { detached: true, stdio: "ignore" });
+const dp = spawn(DOTA_EXE, DOTA_ARGS, { detached: true, stdio: "ignore", env: scrubbedEnv() });
 dp.unref();
 
 // 5. relay 应自动重连 → 同一会话工具恢复（vconsole 全程未动）
